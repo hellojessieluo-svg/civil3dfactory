@@ -38,7 +38,7 @@ namespace Civil3DFactory
                             + "issues = broken links and empty results (profiles, corridors, PKT status, sample lines, material lists); "
                             + "screenshot = PNG of the model space (or a layout) rendered by the Civil 3D kernel",
                 Parameters = "mode(outline|stats|issues|screenshot, default outline) out?(png path for screenshot, default next to the drawing) "
-                           + "layout?(screenshot only, default Model) width?(screenshot pixels: 1600|1024|800|640, default 1600) window?{minx,miny,maxx,maxy}(screenshot only)",
+                           + "layout?(screenshot only, default Model) width?(screenshot pixels: 1600|1024|800|640, default 1600) window?{minx,miny,maxx,maxy}(screenshot only) iso?(default false; south-west isometric 3D view)",
                 WritesDrawing = false,
                 Run = ViewOp
             };
@@ -475,6 +475,15 @@ namespace Civil3DFactory
                 ["min_bytes"] = 256
             };
             if (a["window"] != null) args["window"] = a["window"].DeepClone();
+            if (GetBool(a, "iso", false))
+            {
+                // South-west isometric view for a 3D impression (corridors, surfaces); plot_pdf projects the window through the current view.
+                using (ViewTableRecord v = doc.Editor.GetCurrentView())
+                {
+                    v.ViewDirection = new Autodesk.AutoCAD.Geometry.Vector3d(-1, -1, 1);
+                    doc.Editor.SetCurrentView(v);
+                }
+            }
             JsonNode r = Execute("plot_pdf", args, doc);
             var o = r as JsonObject ?? new JsonObject();
             o["png"] = outPng;
