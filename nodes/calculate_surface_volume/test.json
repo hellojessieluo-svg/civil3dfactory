@@ -1,0 +1,17 @@
+{
+  "node": "calculate_surface_volume",
+  "version": 1,
+  "fixture": "tests/dwg/surface-volume-sample.dwg",
+  "prerequisite": null,
+  "fixture_requirements": [
+    "模型空间包含基准地形曲面 BaseSurface 与疏浚设计曲面 DesignSurface"
+  ],
+  "assertions": [
+    "data.cut_volume >= 0",
+    "data.fill_volume >= 0",
+    "data.net_volume == data.fill_volume - data.cut_volume",
+    "data.volume_report_json != null",
+    "export_excel == true 时 data.excel_file 存在"
+  ],
+  "status": "ready"
+}

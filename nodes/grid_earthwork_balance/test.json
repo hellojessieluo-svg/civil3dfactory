@@ -1,0 +1,40 @@
+{
+  "node": "grid_earthwork_balance",
+  "version": 1,
+  "executor": "engine",
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "prerequisite": "图上有体积曲面 Surface1（基准=项目C原地形、对比=设计），边界给放坡坡脚线句柄",
+  "fixture_requirements": [
+    "一个 TinVolumeSurface，基准与对比曲面都有几何",
+    "至少一条闭合边界，界内既有挖也有填（验内调量 > 0）",
+    "边界的 GetBoundedVolumes 真值已知（验闭合差 ≤2% 且配平后 total_tin_* 与正表一致）",
+    "挖 ≠ 填（验 shortfall_borrow / surplus_export 恰好补差额）"
+  ],
+  "task": {
+    "volume_surface": "Surface1",
+    "handles": ["DBD3"],
+    "names": { "DBD3": "I7" },
+    "step": 3,
+    "solver_max_nodes": 1400,
+    "volume_factor": 1.06,
+    "bands": [30, 50, 100, 150, 200, 300],
+    "export_excel": false,
+    "draw_cells": true,
+    "draw_arrows": true
+  },
+  "expect": {
+    "boundaries": 1,
+    "total_tin_cut": 20381.0,
+    "total_tin_fill": 38888.0,
+    "total_internal_moved": 20381.0,
+    "total_shortfall_borrow": 18507.0,
+    "closure_note": "闭合差实测 挖0.42%/填0.13%（step=3）；avg_dist_m 实测 38.6（六位格距下 ±2m 内可接受）",
+    "invariants": [
+      "total_internal_moved == min(total_tin_cut, total_tin_fill) ± 1",
+      "直方图各档方量之和 == internal_moved ± 0.5",
+      "cells_off_surface == 0（边界在曲面内时）"
+    ]
+  },
+  "verified": "2026-08-20 项目C I7 实图跑通：内调 20381 m³、均距 38.6 m、耗时 56 s（求解格 6 m、1365 股流、60 支箭头）",
+  "note": "不许拿 sample_polyline_elevations+自算体积替代——量的真值必须走 GetBoundedVolumes 配平；安静地成功（全 0）会被节点断言拦住。"
+}

@@ -1,0 +1,14 @@
+{
+  "node": "automate_2d_cross_sections",
+  "version": 1,
+  "fixture": "tests/dwg/2d-cross-sections-sample.dwg",
+  "prerequisite": null,
+  "fixture_requirements": [
+    "模型空间包含二维横断面图块组或多段线轮廓"
+  ],
+  "assertions": [
+    "data.processed_count >= 0",
+    "data.section_summary != null"
+  ],
+  "status": "ready"
+}

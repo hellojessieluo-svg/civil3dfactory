@@ -1,0 +1,27 @@
+{
+  "node": "attach_baseline_profile",
+  "version": 1,
+  "executor": "engine",
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "prerequisite": "设计纵断面被删又补回后，走廊区间/链接码都在但道路曲面评估不出、rebuild_corridor 救不活时用；先跑 list_profiles 确认设计线已存在",
+  "fixture_requirements": [
+    "一个基线 profile 引用悬空的走廊（道路曲面 corridor_stats 报 TargetInvocationException）",
+    "该路线上已补好设计纵断面（FG/Layout 类型）",
+    "一个健康走廊做对照（重挂后曲面 z 范围应与它同口径）"
+  ],
+  "task": {
+    "corridor": "道路[C5](8)",
+    "alignment": "C5",
+    "profile": "C5_设计线"
+  },
+  "assertions": [
+    "内存改动不落盘：要留成果必须显式 save_dwg",
+    "profile 点名优先；缺省按 create_profile_view 同一套设计线识别规则（FG/Layout）自动挑",
+    "找不到匹配剖面线时抛错并列出该路线现有剖面线名（不静默挂错）",
+    "走廊没有匹配基线（含 alignment 筛选不中）时抛错，不安静成功",
+    "重挂后默认 Rebuild；Rebuild 失败进 rebuild_error 不掩盖挂接成功的事实",
+    "判定修好：corridor_stats 里道路曲面能评估出 general（z 范围与同装配的健康走廊一致）",
+    "幂等性：对健康走廊重跑，挂的还是同一条设计线，曲面 z 范围不变"
+  ],
+  "status": "draft_assertions_pending_real_drawing_regression"
+}

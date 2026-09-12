@@ -1,0 +1,11 @@
+{
+  "ops": [
+    {
+      "op": "assign_layers",
+      "groups": [
+        { "layer": "次水道-主线", "color": 1, "alignments": ["次水道01", "次水道02"] },
+        { "layer": "次水道-转角", "color": 6, "alignments": ["角_03右x04右"] }
+      ]
+    }
+  ]
+}

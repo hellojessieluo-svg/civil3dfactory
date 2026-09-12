@@ -1,0 +1,13 @@
+{
+  "node": "import_surface",
+  "version": 1,
+  "fixture": "",
+  "assertions": [
+    "data.imported == true",
+    "data.surface is not empty",
+    "data.elev_max >= data.elev_min",
+    "失败路径：源图无曲面时 imported == false 且 reason 说明原因"
+  ],
+  "note": "断言为 AI 依据实现产出键草拟的结构性检查。夹具待定：需要一张含曲面的外部源 DWG + 一张空白宿主图。",
+  "status": "draft_assertions_pending_owner_review"
+}

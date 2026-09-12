@@ -1,0 +1,27 @@
+# build output
+engine/bin/
+engine/obj/
+tools/**/bin/
+tools/**/obj/
+tools/**/.build/
+tools/**/.build-deps/
+tools/**/output/
+*.exe
+dist/
+
+# runtime
+logs/
+tmp/
+outputs/
+*.result.json
+*.host.log
+__pycache__/
+*.bak
+*-backup.dwg
+*-backup.dwt
+
+# maintainer-local
+scripts/blacklist.local.txt
+
+# accoreconsole drops these into the working directory
+*.log

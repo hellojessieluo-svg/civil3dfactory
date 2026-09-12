@@ -1,0 +1,5 @@
+#!/bin/sh
+# Blacklist gate. Enable once per clone (install.ps1 does it):
+#   git config core.hooksPath scripts/githooks
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(git rev-parse --show-toplevel)/scripts/gate.ps1"
+exit $?

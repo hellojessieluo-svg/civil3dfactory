@@ -1,0 +1,14 @@
+{
+  "node": "create_corridor",
+  "version": 1,
+  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "prerequisites": ["offset_alignment", "create_profiles"],
+  "assertions": [
+    "data.corridor exists",
+    "data.target_slots is not empty",
+    "data.surface_targets_set > 0",
+    "data.link_codes is not empty",
+    "PKT dependencies have no FileNotFound"
+  ],
+  "status": "awaiting_real_dwg_regression"
+}

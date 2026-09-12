@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Autodesk bundle manifest. scripts\build.ps1 copies this next to Contents\ and stamps AppVersion.
+     AutoCAD series: R24.1 = 2022, R24.2 = 2023, R24.3 = 2024, R25.0 = 2025, R25.1 = 2026, R26.0 = 2027. -->
+<ApplicationPackage SchemaVersion="1.0" AppVersion="0.0.0" ProductType="Application"
+    Name="Civil3DFactory" Description="civil3dfactory engine: JSON task dispatcher for headless Civil 3D">
+  <CompanyDetails Name="civil3dfactory" />
+  <Components Description="Civil 3D 2022-2024 (.NET Framework 4.8)">
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R24.1" SeriesMax="R24.3" />
+    <ComponentEntry AppName="Civil3DFactory" ModuleName="./Contents/2022-2024/Civil3DFactory.dll"
+        AppDescription="civil3dfactory engine (loaded at Civil 3D startup; civil3dfactory.ps1 NETLOADs the same DLL headlessly)"
+        LoadOnAutoCADStartup="True" />
+  </Components>
+  <Components Description="Civil 3D 2025-2026 (.NET 8)">
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R25.0" SeriesMax="R25.1" />
+    <ComponentEntry AppName="Civil3DFactory" ModuleName="./Contents/2025-2026/Civil3DFactory.dll"
+        AppDescription="civil3dfactory engine (loaded at Civil 3D startup; civil3dfactory.ps1 NETLOADs the same DLL headlessly)"
+        LoadOnAutoCADStartup="True" />
+  </Components>
+  <Components Description="Civil 3D 2027 (.NET 10)">
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R26.0" SeriesMax="R26.0" />
+    <ComponentEntry AppName="Civil3DFactory" ModuleName="./Contents/2027/Civil3DFactory.dll"
+        AppDescription="civil3dfactory engine (loaded at Civil 3D startup; civil3dfactory.ps1 NETLOADs the same DLL headlessly)"
+        LoadOnAutoCADStartup="True" />
+  </Components>
+</ApplicationPackage>

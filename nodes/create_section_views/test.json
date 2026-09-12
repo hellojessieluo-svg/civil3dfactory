@@ -1,0 +1,16 @@
+{
+  "node": "create_section_views",
+  "version": 1,
+  "fixture": "tests/dwg/road-to-section-drawings-base.dwg",
+  "prerequisite": "create_sample_lines",
+  "assertions": [
+    "data.section_views > 0",
+    "data.old_erased >= 0",
+    "data.layout_updated_groups >= 0",
+    "data.base_point is not empty",
+    "data.grid is not empty",
+    "data.code_set_mapping.failed is empty when code_mappings is supplied",
+    "post-save code_set_dump.link_codes_not_covered is empty"
+  ],
+  "status": "awaiting_real_dwg_regression"
+}

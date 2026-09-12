@@ -1,0 +1,13 @@
+{
+  "node": "export_quantities",
+  "version": 1,
+  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "prerequisite": "compute_quantities",
+  "assertions": [
+    "data.files contains at least one path",
+    "every output file exists and is non-empty",
+    "exported section count equals compute_quantities",
+    "exported totals equal compute_quantities within tolerance"
+  ],
+  "status": "awaiting_real_dwg_regression"
+}

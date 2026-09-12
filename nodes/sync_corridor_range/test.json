@@ -1,0 +1,27 @@
+{
+  "node": "sync_corridor_range",
+  "version": 1,
+  "executor": "engine",
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "prerequisite": "先跑 replace_alignment_geometry 换中线（长度变化），走廊区间还停在旧站号范围时用本节点对齐",
+  "fixture_requirements": [
+    "一个单基线单区间走廊（最常见情形）",
+    "一个多区间基线走廊（验首/末/中间区间三种调整规则）",
+    "路线加长与缩短各一例（验区间外扩与收缩两个方向）"
+  ],
+  "task": {
+    "corridor": "Z1_走廊"
+  },
+  "assertions": [
+    "内存改动不落盘：要留成果必须显式 save_dwg",
+    "同步后首区间 StartStation == 路线 StartingStation，末区间 EndStation == EndingStation",
+    "中间区间边界只收进 [起点,终点] 范围，不外扩",
+    "调整后长度为零的区间不动并进 warnings，不抛错不删区间",
+    "站号写入失败（API 只读等）逐区间进 warnings，其余区间照常处理",
+    "走廊没有基线时抛错点名走廊；Rebuild 失败抛错带原始信息",
+    "幂等性：连跑两次，第二次 regions_adjusted == 0",
+    "找不到走廊名抛错点名",
+    "与 products\\waterbox 的 C3DF-SyncCorridorRange(QZ) 同图同参结果一致（同一份 CorridorRangeCore）"
+  ],
+  "status": "draft_assertions_pending_real_drawing_regression"
+}

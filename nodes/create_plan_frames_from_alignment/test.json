@@ -1,0 +1,29 @@
+{
+  "node": "create_plan_frames_from_alignment",
+  "version": 1,
+  "fixture": "tests/dwg/plan-layout-base.dwg",
+  "prerequisite": "existing Civil 3D alignment",
+  "args": {
+    "alignment": "${alignment}",
+    "paper": "A3",
+    "scale": 5000,
+    "viewport_width_mm": 350,
+    "viewport_height_mm": 267,
+    "edge_margin_mm": 10,
+    "sample_step": 10,
+    "overlap_ratio": 0.1,
+    "max_frames": 3,
+    "frame_prefix": "PLAN-TEST",
+    "replace_existing": true
+  },
+  "assertions": [
+    "data.count > 0",
+    "data.count <= 3",
+    "data.horizontal == true",
+    "data.rotation == 0",
+    "data.windows[*].width > 0",
+    "data.windows[*].height > 0",
+    "data.windows[*].end_station > data.windows[*].start_station"
+  ],
+  "status": "awaiting_real_dwg_regression"
+}

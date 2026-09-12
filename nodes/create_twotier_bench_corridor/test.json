@@ -1,0 +1,14 @@
+{
+  "node": "create_twotier_bench_corridor",
+  "version": 1,
+  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "assertions": [
+    "data.assembly is not empty",
+    "data.corridor is not empty",
+    "data.link_codes is not empty",
+    "data.target_slots is not empty",
+    "data.h1/m1/bench_width/h2/m2 与入参回显一致"
+  ],
+  "note": "断言为 AI 依据实现产出键草拟的结构性检查；领域验收（边坡坡率、马道宽度在图上是否正确）待厂长补充可检验条文。",
+  "status": "draft_assertions_pending_owner_review"
+}

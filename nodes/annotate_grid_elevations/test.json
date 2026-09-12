@@ -1,0 +1,24 @@
+{
+  "node": "annotate_grid_elevations",
+  "version": 1,
+  "fixture": "tests/dwg/grid-elevation-boundaries.dwg",
+  "prerequisite": null,
+  "fixture_requirements": [
+    "边界图层上至少两条闭合多段线（其中一条含弧段）",
+    "一个设计曲面和一个原地形曲面，覆盖大部分但不是全部边界范围"
+  ],
+  "assertions": [
+    "data.boundaries >= 2",
+    "data.nodes > 0",
+    "data.texts == data.nodes * 3",
+    "data.grid_segments > 0",
+    "data.per_boundary length == data.boundaries",
+    "data.first_node_sample.diff == design − exist",
+    "data.duplicate_nodes_skipped >= 0",
+    "每个节点的三段文字都带 XData C3DF_GRIDELEV 且节点坐标一致",
+    "曲面范围外的节点文字为 —",
+    "重跑一次后 data.cleared_old > 0 且 data.nodes 与首次相同",
+    "边界图层原有多段线数量未变，边界以外没有新增文字"
+  ],
+  "status": "awaiting_real_dwg_regression"
+}

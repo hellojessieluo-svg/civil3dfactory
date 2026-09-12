@@ -1,0 +1,12 @@
+{
+  "node": "measure_channel_width",
+  "version": 1,
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "fixture_note": "设计线在 试验区/项目A水流通道/图纸/水流通道-设计线.dwg；2026-08-13 11:30 实跑 7 条通道 62/62 步、合计 743,917 m³（+0.09%）",
+  "prerequisite": "offsets_from_boundary",
+  "assertions": [
+    "data.channels > 0",
+    "every channels[].width_mean > 0"
+  ],
+  "status": "awaiting_real_dwg_regression"
+}

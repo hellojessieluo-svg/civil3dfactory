@@ -1,0 +1,3 @@
+pyinstaller>=6.0
+PySide6-Essentials>=6.8
+pywin32>=306

@@ -1,0 +1,24 @@
+{
+  "node": "list_profiles",
+  "version": 1,
+  "executor": "engine",
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "prerequisite": "无。出纵断面图前先跑这个，比等 create_profile_view 报错快",
+  "fixture_requirements": [
+    "既有齐全（地面线+设计线+纵断面图）的路线，也有缺剖面线的路线（C5）",
+    "图里有偏移路线（Alignment - (n)-Left-25.000），验默认不列",
+    "同一路线挂多个剖面线（地面线、设计线、纵曲线）"
+  ],
+  "task": {},
+  "assertions": [
+    "只读操作：不改图，不需要 save_dwg",
+    "has_ground / has_design 的判定规则与 create_profile_view 逐字一致（EG|Surface / FG|Layout）",
+    "can_make_profile_view == has_ground && has_design；为 false 的路线跑 create_profile_view 必报「无法识别现状地形/设计纵断面」",
+    "role 列把每条剖面线标成 地面线/设计线/(识别不出)，识别不出的要能一眼看见",
+    "profile_views == Alignment.GetProfileViewIds().Count，与 list_civil_views 的计数对得上",
+    "skip_offset_alignments=true 时不列 'Alignment -' 开头的偏移路线；指定 alignment 时无论叫什么都列",
+    "取不到桩号/高程的剖面线只是少几个字段，不整条崩（try/catch 兜住）",
+    "alignment 指定不存在的名字时返回空列表（不抛错——这是盘点不是操作）"
+  ],
+  "status": "draft_assertions_pending_real_drawing_regression"
+}

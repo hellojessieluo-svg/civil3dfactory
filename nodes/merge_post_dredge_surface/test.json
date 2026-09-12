@@ -1,0 +1,37 @@
+{
+  "node": "merge_post_dredge_surface",
+  "version": 1,
+  "executor": "engine",
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "prerequisite": "图内已有设计 TIN（手动要素线建面或 create_dredge_grading 产物均可）与现状地形 TIN；先 list_surfaces 认名",
+  "fixture_requirements": [
+    "设计面与现状面平面上大范围重叠",
+    "设计面既有低于现状的区（真挖方）也有高于现状的区（保持现状），两类都要（零差线才有得提）",
+    "现状面在陡坎处有折边结构（验棱采样贴合，盲网格在这里翻车）",
+    "设计面局部越出现状面范围（验 off_existing 分支）"
+  ],
+  "task": {
+    "design_surface": "SY1",
+    "existing_surface": "项目A原地形初设"
+  },
+  "assertions": [
+    "内存改动不落盘：要留成果必须显式 save_dwg；无头下 apply:true 必抛 eFilerError，走另存+换位（见记忆 accoreconsole-limits）",
+    "工后面 = min(设计, 现状)：任取一点，工后高程 == 两面较低者（误差在 TIN 插值量级）",
+    "verify 铁断言①：现状 vs 工后 fill_residual ≈ 0（min() 恒不高于现状），fill_ratio > 0.5% 必须告警",
+    "verify 铁断言②：cut_volume ≈ design_cut_volume（真值=现状vs设计 TIN 叠加的挖侧），偏差 > 1% 告警并点名真值字段",
+    "SY1 基准（2026-08-23，edge_step=2）：true_cut=165207.6，post cut=166038（+0.50%），fill=30.3（0.018%）；设计假填方 90875 被合成正确吃掉",
+    "采样策略：TIN 面内是平面怎么三角化都精确，误差只出在跨棱处——顺两面棱按 edge_step 细分采样；盲网格斜跨陡坎反而放大噪声（SY1 实测：无加密 0.56%、5m 盲网格 1.10%、2m 盲网格 0.47%、2m 棱采样 0.018%）",
+    "零差线：挖侧 ε(默认1mm) 处提等高线，短于 min_crease_length 的碎段丢弃计数上报；落 crease_layer 为 3D 多段线（顶点在现状面上）并做工后面断裂线",
+    "范围：工后面外边界 = 设计面轮廓 ExtractBorder 最大环，其余环按 Hide 洞处理并告警",
+    "全挖或全保持现状时零差线为 0 条：进 warnings 提示对照 verify 的量判断，不抛错",
+    "幂等：同参数重跑，clear_existing 只清同名工后面 + 带 C3DF_POSTDREDGE XData 且属于该 out_surface 的零差线 + 残留临时面；用户实体与别的曲面不动",
+    "临时面（_C3DF_POST_TMPDIFF-*/验证-*/对照-*）读完即删，最终图内不残留（list_surfaces 验）",
+    "out_surface 与输入同名、design==existing 同名时抛错不静默",
+    "设计/现状不是 TIN 曲面时抛错点名（本节点要读顶点和三角形）",
+    "off_existing（现状采不到的设计顶点）原样保留设计高程并计数；两面都采不到的点不进面",
+    "headless 遍历 Vertices/Triangles 在本节点实测不崩（与 SurfaceStats 注释的硬崩告诫相悖，疑与曲面状态有关）——若换图复现崩溃，现象是结果停在 ops:[]，先怀疑这里",
+    "fill_residual > 1 m³ 时输出 fill_hotspots（50m 格聚合 top10，含 zP/zE/zD 判据），定位残余填方在哪、是哪类（zP 介于 zE 与 zD 之间=跨棱弦浮起）",
+    "工后面体积不小：SY1 380k 顶点让图从 14MB 涨到 43MB；嫌大调大 edge_step（精度换体积）"
+  ],
+  "status": "tested_on_sy1_20260823"
+}

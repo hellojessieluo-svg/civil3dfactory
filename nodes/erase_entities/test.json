@@ -1,0 +1,39 @@
+{
+  "node": "erase_entities",
+  "version": 1,
+  "executor": "engine",
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "prerequisite": "图上有几个明确要删的对象，句柄已核对过",
+  "fixture_requirements": [
+    "至少一个多段线、一个直线、一个文字（验三类的详情字段都填得出）",
+    "句柄清单里混一个图上不存在的（验 not_found 不静默）"
+  ],
+  "task": {
+    "handles": ["D913"],
+    "dry_run": true
+  },
+  "assertions": [
+    "dry_run:true 只报不删：details 出全，erased == 0，图纸 dbmod 不变",
+    "details 必须在删之前采集：类型/图层/高程/顶点数/闭合/长度/面积，删完这份清单仍在结果里（不可逆操作要留证据）",
+    "点名的句柄图上没有时进 not_found，不抛错，其余照删",
+    "全部句柄都没找到时抛错，不返回 erased:0 的『成功』",
+    "handles 为空或不给时抛错",
+    "**不提供按图层/按类型批量删的入口**——那种口子一次能清掉一整层",
+    "内存改动不落盘：要生效必须显式 save_dwg"
+  ],
+  "regression": {
+    "date": "2026-08-16",
+    "dwg": "examples/channel-demo.dwg",
+    "observed": [
+      "删 D913（0-岛屿 层，3 顶点，长 31.814 m，面积 0.394 m²，高程 0）",
+      "它落在 I16 的放坡带里、高程 0，把 AutoRebuild 的「设计」曲面拽出一个到 0 m 的假坑；",
+      "删后曲面点数 36430 → 36426、最低高程 0 → 5.5，坑消失——details 里的高程 0 就是当时的判据"
+    ],
+    "not_yet_covered": [
+      "dry_run:true 的分支（本轮是用户明确要删，直接删的）",
+      "Line / DBText 的详情字段",
+      "not_found 分支"
+    ]
+  },
+  "status": "real_drawing_regression_partial"
+}

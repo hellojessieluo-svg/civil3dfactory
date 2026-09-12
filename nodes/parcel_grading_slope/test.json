@@ -1,0 +1,16 @@
+{
+  "node": "parcel_grading_slope",
+  "version": 1,
+  "fixture": "tests/dwg/parcel-grading-sample.dwg",
+  "prerequisite": null,
+  "fixture_requirements": [
+    "模型空间包含地块红线多段线 ParcelBoundary",
+    "包含目标地形曲面 TargetSurface"
+  ],
+  "assertions": [
+    "data.grading_surface != null",
+    "data.daylight_line != null",
+    "data.comb_lines_count >= 0"
+  ],
+  "status": "ready"
+}

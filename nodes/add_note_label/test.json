@@ -1,0 +1,12 @@
+{
+  "node": "add_note_label",
+  "version": 1,
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "assertions": [
+    "placed 等于 points 条数，每条回报 handle",
+    "带 dx/dy 的点回报 dragged=true，plot_pdf 渲染出带引线的拖曳态",
+    "找不到样式名必须抛错，不静默"
+  ],
+  "note": "实测档案（2026-09-02 五期模板坐标标签优化）：NoteLabel.Create 只有 (Database, Point3d) 一个可用重载，样式靠随后设 StyleId；DraggedOffset 设 Vector3d 即进拖曳态。与 plot_pdf window 组成「改样式→放标签→渲染→看图」闭环，全程内存不落盘。锚点位置（AnchorLocation）与拖曳显示方式（StackedText/AsComposed）在 .NET API 里没暴露，改标签排版只能从 contents 下手。",
+  "status": "draft_assertions_pending_owner_review"
+}

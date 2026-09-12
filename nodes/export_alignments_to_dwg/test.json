@@ -1,0 +1,19 @@
+{
+  "node": "export_alignments_to_dwg",
+  "version": 1,
+  "fixture": "",
+  "prerequisite": null,
+  "fixture_requirements": [
+    "图中至少一条中心路线及其左右偏移路线（命名可解析出 channel 与侧别）",
+    "路线含直线、圆曲线，最好含缓和曲线段以覆盖 spiral_step 折线化"
+  ],
+  "assertions": [
+    "data.exported >= 1 且 data.skipped 说明了被跳过的原因",
+    "data.bytes > 0 且 out 路径生成了可打开的 DWG",
+    "每条 items[*].length_delta 绝对值在容差内（折线化不失真）",
+    "中心线落在 center_layer 模板展开的图层、边线落在 edge_layer 模板展开的图层",
+    "overwrite=false 时目标已存在应拒绝覆盖",
+    "centers_only=true 时不导出边线"
+  ],
+  "status": "draft_assertions_pending_owner_review"
+}

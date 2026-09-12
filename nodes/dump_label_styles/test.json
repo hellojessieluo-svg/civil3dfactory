@@ -1,0 +1,12 @@
+{
+  "node": "dump_label_styles",
+  "version": 1,
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "assertions": [
+    "data.styles_scanned > 100",
+    "带 contains 时 styles 里每个样式的文本组件 contents 含该串（注意 \U+XXXX 转义，字面中文搜不到——contents 常是 <[Description]> 动态字段或转义序列）",
+    "used_by_codes 报出 CodeSetStyles 支的挂载（样式 → code set / code）"
+  ],
+  "note": "实测档案（2026-08-26 项目B）：LabelStyles 根 105 个 + CodeSetStyles 支 15 个。三条死路都踩过：①反射深爬（Flatten 任意对象）accoreconsole 原生崩，catch 不住；②从 civ.Styles 根爬同崩；③DXFOUT 拿不到标签明文（proxy）。唯一活路=强类型 GetComponents(Text/Line/Block) + 只收 ObjectId 的属性游走。曾用它破了 655 双份标签之谜（@C3DF-centerline 挂 8 个 code set 的 origin，同一样式被渲染两遍）。",
+  "status": "draft_assertions_pending_owner_review"
+}

@@ -1,0 +1,20 @@
+{
+  "node": "check_sac_paths",
+  "version": 1,
+  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "parameters": {
+    "assembly": "C3DF-Channel",
+    "paths": [
+      "examples/pkt/ChannelSlope_LEFT.pkt",
+      "examples/pkt/ChannelSlope_RIGHT.pkt"
+    ]
+  },
+  "assertions": [
+    "both fixed PKT files exist and are non-empty",
+    "selected assembly exists",
+    "selected assembly contains SAC subassemblies",
+    "all SAC subassembly statuses equal UpToDate",
+    "failure stops the pipeline before drawing modification"
+  ],
+  "status": "awaiting_real_dwg_regression"
+}

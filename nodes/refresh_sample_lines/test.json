@@ -1,0 +1,28 @@
+{
+  "node": "refresh_sample_lines",
+  "version": 1,
+  "executor": "engine",
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "prerequisite": "先跑 replace_alignment_geometry 换中线；旧采样线还停在旧几何位置时用本节点刷新。与 create_sample_lines 的分工：建组用它，换线后刷新用本节点（保组保采样源）",
+  "fixture_requirements": [
+    "路线带一个已配置采样源（IsSampled）的采样线组",
+    "路线几何替换后长度有明显变化（验站号序列按新长度生成）",
+    "组内旧采样线与新几何明显错位（肉眼可验刷新效果）"
+  ],
+  "task": {
+    "alignment": "Z1"
+  },
+  "assertions": [
+    "内存改动不落盘：要留成果必须显式 save_dwg",
+    "组对象与组名不变：刷新前后 GetSampleLineGroupIds 集合相同（不删组不建组）",
+    "组的采样源 IsSampled 设置保持原样（这是与 create_sample_lines 的本质区别）",
+    "旧线全删：old_lines == 刷新前组内线数；新线沿新几何垂直路线",
+    "站号序列 = 起点 + k·interval，末段不足 0.5 并入终点线（与 create_sample_lines 同规则）",
+    "interval/swath 缺省时按现有线反推（线数→间距、首线包围盒对角线一半→宽度），反推不出用 50/50",
+    "interval <= 0 或 swath <= 0 抛错；间距大于路线全长导致零线抛错",
+    "路线没有采样线组时抛错点名路线（不静默建组）",
+    "找不到路线名抛错点名",
+    "与 products\\waterbox 的 C3DF-RefreshSampleLines(CYX) 同图同参结果一致（同一份 SampleLineRefreshCore）"
+  ],
+  "status": "draft_assertions_pending_real_drawing_regression"
+}

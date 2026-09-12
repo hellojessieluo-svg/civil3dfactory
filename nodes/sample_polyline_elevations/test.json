@@ -1,0 +1,58 @@
+{
+  "node": "sample_polyline_elevations",
+  "version": 1,
+  "executor": "engine",
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "prerequisite": "图上有一层边线多段线（0-岛屿）和一个有几何的原地形 TIN 曲面（项目C原地形）",
+  "fixture_requirements": [
+    "边线图层上有 ≥2 条多段线，其中至少一条带弧段",
+    "至少一条多段线完全落在曲面内（验 off_surface == 0）",
+    "同图层上有一条顶点数 < 3 的碎线（验 min_length / handles 能把它筛掉）",
+    "图上另有一个空壳曲面（设计 / Surface1）用来验曲面名找错时抛错"
+  ],
+  "task": {
+    "layer": "0-岛屿",
+    "surface": "项目C原地形",
+    "interior_step": 2,
+    "points": true,
+    "export_excel": true,
+    "excel_format": "xlsx"
+  },
+  "assertions": [
+    "只读节点：不 Commit，跑完图纸 dbmod 与文件字节数不变",
+    "samples == 各条多段线 vertices 之和（step=0 时逐顶点，闭合线不重复计首点）",
+    "step>0 时 samples 明显增多，且 z_min 只降不升、z_max 只升不降（加密只会把区间撑开）",
+    "off_surface 是曲面外的点数，这类点不进 z_* 统计，也不静默按 0 处理",
+    "一条线全部采样点都在曲面外时 z_* 全为 null 并在 warnings 里点名，不抛错",
+    "z_median 用排序后中位数，偶数个取中间两个的均值",
+    "area/length 与 CAD 里 LIST 该多段线一致（弧段按真实弧长，不是弦长）",
+    "include_open=false 时开口线不计入；默认 true 时开口线照收（与 survey_dredge_regions 的分工）",
+    "handles 给了白名单时只采白名单里的；layer 与 handles 都不给时抛错",
+    "names 给了 {句柄:名称} 时结果 id 用该名称，没给的回落 P01/P02 序号",
+    "surface 给了图上没有的曲面名时抛错并点名该名字",
+    "一条都没命中时抛错并回显 layer 与白名单条数，不返回空结果",
+    "export_excel=true 时出「汇总 + 逐点」两张表，excel_files 两条都在",
+    "同参数连跑两次结果逐字相同（只读幂等）",
+    "interior_step>0 时每条闭合线的 interior_samples ≈ area/interior_step²，逐条偏差 < 5%；这一条是成环正确性的照妖镜，带弧段的线上环一乱就掉到 0",
+    "interior_step 与 step 各走各的：z_* 是边线口径，z_in_* 是面内口径，岛屿/地块的「现状高程」取 z_in_mean",
+    "成环与点在面内必须复用 DredgeBuildRing / GridPointInPolygon，不许在本节点里另写一套"
+  ],
+  "regression": {
+    "date": "2026-08-16",
+    "dwg": "examples/channel-demo.dwg",
+    "observed": [
+      "32 条边线 2056 个顶点采「项目C原地形」，off_surface == 0，高程 2.08~9.702 m，4 秒",
+      "step=2 加密到 9283 点，高程 1.844~9.939 m，面积加权平均只差 0.03 m（顶点 6.40 / 加密 6.43）",
+      "per_polyline 的 area 与 survey_dredge_regions 对同一批线报的 area 逐条一致",
+      "I31(句柄 D904) z 区间 6.82~7.54（顶点）对 survey_dredge_regions 的 6.811~7.868（2m 重采样），加密后收敛到 6.81~7.83",
+      "interior_step=2：53075 个网格点，off_surface 0，32 条线的点数与 area/4 逐条吻合",
+      "面内均高比边线均高系统性偏高（面积加权 6.93 对 6.40）——岛是围着局部高地画的，边线本来就压在周边低处"
+    ],
+    "not_yet_covered": [
+      "off_surface > 0 的分支（本图 32 条线全在曲面内）",
+      "include_open=false 的分支（本图 32 条线在 DWG 里全是闭合的）",
+      "excel_format=csv / both"
+    ]
+  },
+  "status": "real_drawing_regression_partial"
+}

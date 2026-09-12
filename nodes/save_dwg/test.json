@@ -1,0 +1,13 @@
+{
+  "node": "save_dwg",
+  "version": 1,
+  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "prerequisite": "compute_quantities",
+  "assertions": [
+    "apply is false",
+    "output is an absolute path different from host DWG",
+    "data.bytes > 0",
+    "reopened DWG contains alignment, corridor, road surface and sample line group"
+  ],
+  "status": "awaiting_real_dwg_regression"
+}

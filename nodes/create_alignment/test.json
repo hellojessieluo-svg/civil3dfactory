@@ -1,0 +1,12 @@
+{
+  "node": "create_alignment",
+  "version": 1,
+  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "assertions": [
+    "data.alignment equals input name",
+    "data.length > 0",
+    "data.end_station > data.start_station",
+    "created Alignment exists in current DWG"
+  ],
+  "status": "awaiting_real_dwg_regression"
+}

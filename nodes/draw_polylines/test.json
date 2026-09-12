@@ -1,0 +1,14 @@
+{
+  "ops": [
+    {
+      "op": "draw_polylines",
+      "layer": "台田-边界",
+      "color": 2,
+      "clear_layers": ["台田-边界"],
+      "polylines": [
+        { "name": "台田01", "closed": true,
+          "vertices": [[0, 0, 0], [100, 0, 0.4142], [100, 100, 0], [0, 100, 0]] }
+      ]
+    }
+  ]
+}

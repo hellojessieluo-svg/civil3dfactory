@@ -1,0 +1,15 @@
+{
+  "node": "create_sheet_region",
+  "version": 1,
+  "fixture": "tests/dwg/road-to-section-drawings-base.dwg",
+  "prerequisite": "existing alignment",
+  "assertions": [
+    "data.count > 0",
+    "data.window.width > 0",
+    "data.window.height > 0",
+    "data.anchor is not empty",
+    "data.old_entities_erased >= 0",
+    "data.layer is not plottable"
+  ],
+  "status": "awaiting_real_dwg_regression"
+}

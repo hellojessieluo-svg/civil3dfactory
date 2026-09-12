@@ -1,0 +1,23 @@
+{
+  "node": "rebind_volume_tables",
+  "version": 1,
+  "executor": "engine",
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "prerequisite": "compute_quantities 重算过材质列表（旧列表被清、新 Guid），图上体积表全显 0 时用；先确认新列表数据本身非零（export_material_volumes）",
+  "fixture_requirements": [
+    "既有绑定健康的体积表（guid 仍指向活列表），也有绑定失效的（重算过的路线）",
+    "失效表分属地理上分开的两条路线（验最近路线归属判定）"
+  ],
+  "task": {},
+  "assertions": [
+    "内存改动不落盘：要留成果必须显式 save_dwg",
+    "健康的表一根手指都不碰（tables_healthy 计数，guid 不变）",
+    "死表只换 MaterialListGuid 和选中材质，位置/样式/图层不动",
+    "重选材质 = 新列表的全部材质（materials_selected ≥ 1，为 0 要人工看）",
+    "归属按包围盒中心最近的带列表路线判定，结果必报 distance——两条路线距离接近时人工核对",
+    "图里没有任何材质列表时抛错指路 compute_quantities",
+    "重绑后 export_all_dwg_tables 抽出的表格行应为非零（终验判据）",
+    "幂等性：重跑第二次 tables_rebound == 0"
+  ],
+  "status": "draft_assertions_pending_real_drawing_regression"
+}

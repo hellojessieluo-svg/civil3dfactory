@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <AssemblyName>CadPlotPlugin</AssemblyName>
+    <RootNamespace>CadPlotPlugin</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <ImplicitUsings>false</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="AcCoreMgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcCoreMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AcDbMgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcDbMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AcMgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

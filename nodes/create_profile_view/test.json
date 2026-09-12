@@ -1,0 +1,16 @@
+{
+  "node": "create_profile_view",
+  "version": 1,
+  "fixture": "tests/dwg/road-to-section-drawings-base.dwg",
+  "prerequisite": "existing alignment with ground and design profiles",
+  "assertions": [
+    "data.profile_view is not empty",
+    "data.profile_views.length > 0 when segment_length > 0",
+    "every segmented view station range is <= segment_length",
+    "data.old_erased >= 0",
+    "data.station_end > data.station_start",
+    "data.band_profile1 is not empty",
+    "data.band_profile2 is not empty"
+  ],
+  "status": "awaiting_real_dwg_regression"
+}

@@ -1,0 +1,55 @@
+{
+  "node": "make_parcels",
+  "version": 1,
+  "executor": "engine",
+  "prerequisite": "封闭范围线内布固定宽度水道网、其余地块出圆角台田；中心线先经 GY 圆滑（G1 相切）",
+  "fixture_requirements": [
+    "闭合外圈 ≥2 个（验多外圈自动分组）＋ 至少一个岛洞（深度1）＋ 一个深度2 残留（验忽略名单）",
+    "中心线含：纯直线、带弧（R≫半宽）、贴边端头（验自动外延）、深居域内死端（验不外延）、毫米级碎段",
+    "首尾重合但 Closed=false 的外圈（验 IsSnapClosed 收编）"
+  ],
+  "task": {
+    "boundary_handles": ["<外圈/岛洞句柄>"],
+    "centerline_layer": "中线-直线段",
+    "half_width": 15,
+    "fillet_r": 20,
+    "min_defl_deg": 25,
+    "min_area": 500,
+    "out_layer": "台田边界",
+    "clear_previous": true
+  },
+  "assertions": [
+    "内存改动不落盘：要留成果必须显式 save_dwg（无头 apply 必抛，走 out 兄弟件+换位）",
+    "boundary 与 centerline 的 layer/handles 各至少给一个，否则抛错",
+    "任一条中心线成带失败 → 整体抛错不画（宁可不出不出错图）",
+    "一块台田都没出 → 抛错（不安静成功）",
+    "clear_previous 幂等：重跑先清 out_layer 上旧多段线并报 cleared_previous",
+    "深度≥2 的边界进 ignored_boundaries，不参与布尔",
+    "中点不落任何外圈的中心线进 unassigned_centerlines，不静默丢",
+    "小于 min_area 的台田照画，句柄+面积进 small_parcels",
+    "角放不下 fillet_r 的台田在 warnings 点名（折半6次仍不行保留尖角）",
+    "源范围线与中心线一根不动"
+  ],
+  "regression": {
+    "date": "2026-08-22",
+    "dwg": "examples/channel-demo.dwg",
+    "task_used": {
+      "boundary_handles": ["72AA", "72AB", "75CB"],
+      "centerline_layer": "中线-直线段（13 条：7 纯直线 + 6 带弧 R100~180）",
+      "half_width": 15, "fillet_r": 20
+    },
+    "observed": [
+      "24 块台田（外圈 72AA→8、72AB(含岛洞 75CB)→16），12 条端头自动外延，无 <500㎡ 碎田",
+      "5 条 warnings：个别角放不下 R20 保留尖角",
+      "验收：DXFOUT + ezdxf path.flattening + shapely——24 环全闭合，1 环首尾接缝数值级自交（buffer(0) 面积差 0.0000，判无害）；台田总面积 162.1 万 / 区域净面积 183.0 万，水道占比合理；渲图人眼过",
+      "踩坑修复链：accore GetOffsetCurves 开放带弧返回空集→解析自算偏移；7mm 碎段方向噪声→碎段阈值 max(0.01,d/1000)；直-直小折角倒棱自交→斜接"
+    ],
+    "not_yet_covered": [
+      "深度2 边界忽略分支（7925 未传入本轮）",
+      "unassigned_centerlines 分支",
+      "clear_previous 清旧计数分支（本轮 out_layer 原本为空）",
+      "弧半径 ≤ 半宽的报错分支"
+    ]
+  },
+  "status": "real_drawing_regression_partial"
+}

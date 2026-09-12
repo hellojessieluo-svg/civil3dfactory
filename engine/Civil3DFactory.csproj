@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- One assembly per Civil 3D generation. scripts\build.ps1 maps each target to a bundle folder:
+         net472 -> 2022-2024, net8.0-windows -> 2025-2026, net10.0-windows -> 2027 -->
+    <TargetFrameworks>net472;net8.0-windows;net10.0-windows</TargetFrameworks>
+    <Version>1.0.0</Version>
+    <AssemblyName>Civil3DFactory</AssemblyName>
+    <RootNamespace>Civil3DFactory</RootNamespace>
+    <Product>civil3dfactory</Product>
+    <Description>Headless Civil 3D engine: JSON task dispatcher for AI agents</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- Parameter dialogs use WinForms. WPF / Autodesk.Windows must never be referenced from this assembly:
+         accoreconsole crashes with an access violation while scanning types of such a DLL at NETLOAD. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <NoWarn>$(NoWarn);CS1591;CS0168;CS0219;CS8632</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\nodes\**\*.cs" Link="nodes\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- Autodesk reference assemblies come from NuGet (Digi-Ants.*), one package version per generation.
+       ExcludeAssets=runtime keeps them out of the output: the host supplies them at run time. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
+    <PackageReference Include="Digi-Ants.AutoCAD.API.Core" Version="2022.0.0" ExcludeAssets="runtime" />
+    <PackageReference Include="Digi-Ants.AutoCAD.API.AEC" Version="2022.0.0" ExcludeAssets="runtime" />
+    <PackageReference Include="Digi-Ants.Civil3D.API.Core" Version="2022.0.0" ExcludeAssets="runtime" />
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <PackageReference Include="Digi-Ants.AutoCAD.API.Core" Version="2025.0.0" ExcludeAssets="runtime" />
+    <PackageReference Include="Digi-Ants.AutoCAD.API.AEC" Version="2025.0.0" ExcludeAssets="runtime" />
+    <PackageReference Include="Digi-Ants.Civil3D.API.Core" Version="2025.0.0" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
+    <PackageReference Include="Digi-Ants.AutoCAD.API.Core" Version="2027.0.0" ExcludeAssets="runtime" />
+    <PackageReference Include="Digi-Ants.AutoCAD.API.AEC" Version="2027.0.0" ExcludeAssets="runtime" />
+    <PackageReference Include="Digi-Ants.Civil3D.API.Core" Version="2027.0.0" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+</Project>

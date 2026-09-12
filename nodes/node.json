@@ -1,0 +1,1747 @@
+[
+  {
+    "id": "check_sac_paths",
+    "name": "检查SAC路径与装配状态",
+    "version": "0.1",
+    "kind": "inspection",
+    "inputs": {
+      "assembly": "civil.assembly"
+    },
+    "parameters": {
+      "paths": "path[2]"
+    },
+    "outputs": {
+      "sac_path_check": "inspection.sac"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_alignment",
+    "name": "制造中心路线",
+    "version": "0.1",
+    "kind": "production",
+    "inputs": {},
+    "parameters": {
+      "name": "string",
+      "points": "pick.points?",
+      "handle": "pick.entity<polyline>?",
+      "layer": "list:dwg.layer?",
+      "style": "list:civil.style.alignment",
+      "label_set": "list:civil.labelset.alignment",
+      "site": "string?",
+      "erase_source": "boolean?",
+      "add_curves": "boolean?"
+    },
+    "outputs": {
+      "alignment": "civil.alignment"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "alignment_to_polyline",
+    "name": "路线转多段线",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "alignment": "civil.alignment"
+    },
+    "parameters": {
+      "alignment": "string?",
+      "handle": "pick.entity<alignment>?",
+      "layer": "list:dwg.layer?",
+      "color_index": "integer{0..256}?",
+      "color_bylayer": "boolean?",
+      "linetype": "list:dwg.linetype?",
+      "linetype_file": "path?",
+      "linetype_scale": "number?",
+      "elevation": "number?",
+      "spiral_step": "number?",
+      "erase_source": "boolean?"
+    },
+    "outputs": {
+      "polyline_handle": "string",
+      "polyline_length": "number",
+      "alignment_length": "number",
+      "length_delta": "number",
+      "vertices": "integer",
+      "segments": "object",
+      "source_erased": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "export_alignments_to_dwg",
+    "name": "导出路线为纯多段线DWG",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "alignment": "flow:civil.alignment"
+    },
+    "parameters": {
+      "out": "path",
+      "overwrite": "boolean?=false",
+      "alignments": "string[]?",
+      "centers_only": "boolean?=false",
+      "center_layer": "string?=CL-{channel}",
+      "edge_layer": "string?=EDGE-{channel}-{side}",
+      "center_color": "integer{0..256}?=3",
+      "edge_color": "integer{0..256}?=4",
+      "center_linetype": "list:dwg.linetype?=CENTER2",
+      "edge_linetype": "list:dwg.linetype?=Continuous",
+      "linetype_scale": "number?=5",
+      "spiral_step": "number?=5"
+    },
+    "outputs": {
+      "drawing": "file.dwg",
+      "exported": "object[]",
+      "bytes": "integer"
+    },
+    "effect": "persist"
+  },
+  {
+    "id": "export_corridor_feature_lines",
+    "name": "导出走廊要素线为三维多段线DWG",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "corridor": "flow:civil.corridor"
+    },
+    "parameters": {
+      "out": "path",
+      "overwrite": "boolean?=false",
+      "corridors": "string[]?",
+      "codes": "string[]?",
+      "layer": "string?=FL-{corridor}-{code}",
+      "color": "integer{0..256}?=2",
+      "min_points": "integer?=2"
+    },
+    "outputs": {
+      "drawing": "file.dwg",
+      "corridors": "integer",
+      "exported": "integer",
+      "skipped": "string[]",
+      "items": "object[]",
+      "bytes": "integer"
+    },
+    "effect": "persist"
+  },
+  {
+    "id": "dump_corridor_params",
+    "name": "摊平走廊设计参数",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "engine",
+    "inputs": {},
+    "parameters": {
+      "corridors": "boolean?=true",
+      "assemblies": "boolean?=true",
+      "assembly": "list:civil.assembly?"
+    },
+    "outputs": {
+      "corridors": "object[]",
+      "assemblies": "object[]",
+      "corridor_count": "integer",
+      "assembly_count": "integer"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "replace_alignment_geometry",
+    "name": "原位替换路线几何",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "alignment": "civil.alignment"
+    },
+    "parameters": {
+      "alignment": "string?",
+      "alignment_handle": "pick.entity<alignment>?",
+      "polyline": "pick.entity<polyline>",
+      "erase_polyline": "boolean?",
+      "layer": "list:dwg.layer?",
+      "max": "integer?",
+      "min_length": "number?"
+    },
+    "outputs": {
+      "old_length": "number",
+      "new_length": "number",
+      "polyline_length": "number",
+      "length_delta_vs_polyline": "number",
+      "old_entities": "integer",
+      "new_entities": "integer",
+      "reversed": "boolean",
+      "segments": "object",
+      "start_station": "number",
+      "end_station": "number"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "offset_alignment",
+    "name": "制造左右偏移路线",
+    "version": "0.1",
+    "kind": "production",
+    "inputs": {
+      "alignment": "civil.alignment"
+    },
+    "parameters": {
+      "distance": "number?",
+      "offsets": "number[]?",
+      "style": "list:civil.style.alignment?"
+    },
+    "outputs": {
+      "offset_alignments": "civil.alignment"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_profiles",
+    "name": "制造地面线与设计线",
+    "version": "0.1",
+    "kind": "production",
+    "inputs": {
+      "alignment": "civil.alignment",
+      "surface": "civil.surface"
+    },
+    "parameters": {
+      "design_elev": "number",
+      "ground_style": "list:civil.style.profile",
+      "design_style": "list:civil.style.profile",
+      "label_set": "list:civil.labelset.profile"
+    },
+    "outputs": {
+      "ground_profile": "civil.profile",
+      "design_profile": "civil.profile"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_corridor",
+    "name": "装配走廊",
+    "version": "0.1",
+    "kind": "production",
+    "inputs": {
+      "alignment": "civil.alignment",
+      "profiles": "civil.profile",
+      "assembly": "civil.assembly",
+      "surface": "civil.surface",
+      "offset_alignments": "civil.alignment"
+    },
+    "parameters": {
+      "name": "string",
+      "baseline": "string",
+      "region": "string"
+    },
+    "outputs": {
+      "corridor": "civil.corridor"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_corridor_surface",
+    "name": "制造道路曲面",
+    "version": "0.1",
+    "kind": "production",
+    "inputs": {
+      "corridor": "civil.corridor"
+    },
+    "parameters": {
+      "name": "string",
+      "link_codes": "string[]",
+      "boundary": "boolean"
+    },
+    "outputs": {
+      "road_surface": "civil.corridor_surface"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_sample_lines",
+    "name": "制造采样线组",
+    "version": "0.1",
+    "kind": "production",
+    "inputs": {
+      "alignment": "civil.alignment",
+      "ground_surface": "civil.surface",
+      "road_surface": "civil.corridor_surface",
+      "corridor": "civil.corridor"
+    },
+    "parameters": {
+      "interval": "number",
+      "swath": "number",
+      "style": "list:civil.style.sample_line",
+      "clear_existing": "boolean"
+    },
+    "outputs": {
+      "sample_line_group": "civil.sample_line_group"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "compute_quantities",
+    "name": "计算工程量",
+    "version": "0.1",
+    "kind": "production",
+    "inputs": {
+      "sample_line_group": "civil.sample_line_group",
+      "ground_surface": "civil.surface",
+      "road_surface": "civil.corridor_surface"
+    },
+    "parameters": {
+      "criteria": "string",
+      "road_surface_slot": "string"
+    },
+    "outputs": {
+      "material_list": "civil.material_list",
+      "quantity_sections": "civil.quantity_section"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "export_quantities",
+    "name": "包装工程量表",
+    "version": "0.1",
+    "kind": "production",
+    "inputs": {
+      "material_list": "civil.material_list"
+    },
+    "parameters": {
+      "outdir": "path",
+      "format": "enum[xlsx|csv|both]"
+    },
+    "outputs": {
+      "quantity_files": "file.tabular"
+    },
+    "effect": "persist"
+  },
+  {
+    "id": "save_dwg",
+    "name": "包装成果DWG",
+    "version": "0.1",
+    "kind": "production",
+    "inputs": {},
+    "parameters": {
+      "out": "path",
+      "apply": "boolean",
+      "overwrite": "boolean"
+    },
+    "outputs": {
+      "drawing": "file.dwg"
+    },
+    "effect": "persist"
+  },
+  {
+    "id": "create_sheet_region",
+    "name": "建立固定成图材料框",
+    "version": "0.1",
+    "kind": "production",
+    "inputs": {
+      "alignment": "civil.alignment"
+    },
+    "parameters": {
+      "x": "number?",
+      "y": "number?",
+      "offset_x": "number",
+      "offset_y": "number",
+      "paper": "enum[A0|A1|A2|A3|A4]",
+      "scale": "number",
+      "name": "string",
+      "layer": "list:dwg.layer",
+      "replace_existing": "boolean"
+    },
+    "outputs": {
+      "sheet_region": "cad.model_window"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_profile_view",
+    "name": "制造纵断面图",
+    "version": "0.1",
+    "kind": "production",
+    "inputs": {
+      "alignment": "civil.alignment",
+      "ground_profile": "civil.profile?",
+      "design_profile": "civil.profile?"
+    },
+    "parameters": {
+      "x": "number?",
+      "y": "number?",
+      "segment_length": "number?",
+      "segment_cols": "integer?",
+      "segment_spacing_x": "number?",
+      "segment_spacing_y": "number?",
+      "elev_min": "number?",
+      "elev_max": "number?",
+      "style": "list:civil.style.profile_view",
+      "band_set": "list:civil.bandset.profile_view",
+      "ground_label_set": "list:civil.labelset.profile",
+      "design_label_set": "list:civil.labelset.profile",
+      "erase_existing": "boolean"
+    },
+    "outputs": {
+      "profile_view": "civil.profile_view",
+      "profile_views": "civil.profile_view[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_section_views",
+    "name": "制造横断面图组",
+    "version": "0.1",
+    "kind": "production",
+    "inputs": {
+      "alignment": "civil.alignment",
+      "sample_line_group": "flow:civil.sample_line_group",
+      "corridor": "list:civil.corridor?=<路线名>_走廊"
+    },
+    "parameters": {
+      "group": "string?",
+      "x": "number?",
+      "y": "number?",
+      "style": "list:civil.style.section_view?",
+      "code_set": "list:civil.codeset?",
+      "code_mappings": "array?<{code:string,style:string,label_style?:string,style_type?:link|point|shape}>",
+      "section_style": "list:civil.style.section?",
+      "material_style": "list:civil.style.section?",
+      "elev_min": "number?=0",
+      "elev_max": "number?=0",
+      "offset_left": "number?=50",
+      "offset_right": "number?=50",
+      "rows": "integer?=2",
+      "cols": "integer?=2",
+      "col_spacing": "number?=130",
+      "row_spacing": "number?=45",
+      "group_spacing": "number?=0",
+      "volume_table": "boolean?=false",
+      "corridor_point_labels": "boolean?=false"
+    },
+    "outputs": {
+      "section_views": "civil.section_view[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "restyle_section_views",
+    "name": "横断面图就地换样式定高程",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "alignment": "civil.alignment?"
+    },
+    "parameters": {
+      "style": "list:civil.style.section_view?",
+      "section_style": "list:civil.style.section?",
+      "material_style": "list:civil.style.section?",
+      "material_shape_style": "list:civil.style.shape?",
+      "corridor_surface_style": "list:civil.style.section?",
+      "elev_min": "number?=0",
+      "elev_max": "number?=0",
+      "elev_auto": "boolean?=false"
+    },
+    "outputs": {
+      "views_restyled": "integer"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "restore_corridor_section_labels",
+    "name": "恢复横断面图走廊标注",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "powershell_external",
+    "implementation": "nodes/restore_corridor_section_labels/run.ps1",
+    "inputs": {
+      "drawing": "file.dwg"
+    },
+    "parameters": {
+      "out": "path",
+      "result": "path?",
+      "overwrite": "boolean=false",
+      "visible": "boolean=false"
+    },
+    "outputs": {
+      "drawing": "file.dwg",
+      "command": "string",
+      "dbmod_before": "integer",
+      "dbmod_after_command": "integer",
+      "bytes_before": "integer",
+      "bytes_after": "integer",
+      "result": "file.json"
+    },
+    "effect": "persist"
+  },
+  {
+    "id": "export_to_autocad",
+    "name": "导出纯CAD图纸",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "drawing": "file.dwg"
+    },
+    "parameters": {
+      "out": "path",
+      "version": "enum[2018|2013|2010]",
+      "overwrite": "boolean"
+    },
+    "outputs": {
+      "drawing": "file.dwg",
+      "bytes": "integer",
+      "source": "path"
+    },
+    "effect": "persist"
+  },
+  {
+    "id": "insert_title_blocks",
+    "name": "批量插入属性图框",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "drawing": "file.dwg",
+      "title_block_library": "file.dwg?"
+    },
+    "parameters": {
+      "block": "list:dwg.blockname",
+      "from_dwg": "path?",
+      "count": "integer",
+      "cols": "integer",
+      "x": "number",
+      "y": "number",
+      "paper": "enum[A0|A1|A2|A3|A4]",
+      "paper_w": "number{unit:mm}?",
+      "paper_h": "number{unit:mm}?",
+      "scale": "number?",
+      "block_scale": "number?",
+      "gap_x": "number",
+      "gap_y": "number",
+      "layer": "list:dwg.layer?",
+      "attributes": "object?",
+      "at": "object[]?",
+      "width_factors": "object?",
+      "attsync": "boolean?=true",
+      "erase_same_block": "boolean?=true"
+    },
+    "outputs": {
+      "block": "cad.block_reference[]",
+      "inserted": "integer",
+      "old_erased": "integer",
+      "attributes_filled": "integer"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "normalize_textstyles",
+    "name": "文字样式归化(-黑体/txt1)",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "powershell_external",
+    "implementation": "nodes/normalize_textstyles/run.ps1",
+    "inputs": {
+      "drawing": "file.dwg"
+    },
+    "parameters": {
+      "out": "path",
+      "result": "path?",
+      "overwrite": "boolean=false",
+      "visible": "boolean=false",
+      "timeout_sec": "integer=300"
+    },
+    "outputs": {
+      "drawing": "file.dwg",
+      "styles": "object[]",
+      "bytes_before": "integer",
+      "bytes_after": "integer",
+      "result": "file.json"
+    },
+    "effect": "persist"
+  },
+  {
+    "id": "plot_attribute_titleblocks",
+    "name": "打印模型与布局属性图框",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "powershell_external",
+    "implementation": "nodes/plot_attribute_titleblocks/run.ps1",
+    "inputs": {
+      "drawing": "file.dwg"
+    },
+    "parameters": {
+      "output_directory": "path",
+      "plotter_exe": "path?",
+      "log": "path?",
+      "result": "path?"
+    },
+    "outputs": {
+      "pdfs": "file.pdf[]",
+      "pdf_count": "integer",
+      "result": "file.json",
+      "log": "file.log"
+    },
+    "effect": "persist"
+  },
+  {
+    "id": "create_plan_frames_from_alignment",
+    "name": "按路线创建水平分平面图框",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "drawing": "file.dwg",
+      "alignment": "civil.alignment"
+    },
+    "parameters": {
+      "paper": "enum[A0|A1|A2|A3|A4]",
+      "scale": "number",
+      "viewport_width_mm": "number{unit:mm}",
+      "viewport_height_mm": "number{unit:mm}",
+      "edge_margin_mm": "number{unit:mm}",
+      "sample_step": "number",
+      "overlap_ratio": "number{0..1}",
+      "start_station": "number?",
+      "end_station": "number?",
+      "max_frames": "integer",
+      "frame_prefix": "string",
+      "layer": "list:dwg.layer",
+      "replace_existing": "boolean"
+    },
+    "outputs": {
+      "frames": "cad.polyline[]",
+      "windows": "model_window[]",
+      "count": "integer",
+      "truncated_by_max_frames": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_plan_layouts_from_frames",
+    "name": "由水平分幅框创建普通布局",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "drawing": "file.dwg",
+      "frames": "cad.polyline[]",
+      "title_block_library": "file.dwg?"
+    },
+    "parameters": {
+      "block": "list:dwg.blockname",
+      "from_dwg": "path?",
+      "paper": "enum[A0|A1|A2|A3|A4]",
+      "scale": "number",
+      "frame_layer": "list:dwg.layer",
+      "layout_prefix": "string",
+      "max_layouts": "integer",
+      "viewport": "object?",
+      "attributes": "object?",
+      "frame_x": "number?=-9.372",
+      "frame_y": "number?=-10.01",
+      "frame_scale": "number?=1",
+      "frame_block_layer": "list:dwg.layer?"
+    },
+    "outputs": {
+      "layouts": "cad.layout[]",
+      "count": "integer",
+      "sheet_set": "boolean",
+      "view_rotation": "number"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "annotate_grid_elevations",
+    "name": "网格角点高程标注",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "drawing": "file.dwg",
+      "boundaries": "cad.polyline[]",
+      "design_surface": "civil.surface",
+      "existing_surface": "civil.surface"
+    },
+    "parameters": {
+      "boundary_layer": "list:dwg.layer",
+      "design_surface": "list:civil.surface",
+      "existing_surface": "list:civil.surface",
+      "spacing": "number",
+      "text_height": "number",
+      "decimals": "integer",
+      "offset_factor": "number",
+      "closed_only": "boolean",
+      "draw_grid": "boolean",
+      "clear_existing": "boolean",
+      "grid_layer": "list:dwg.layer?",
+      "design_layer": "list:dwg.layer?",
+      "exist_layer": "list:dwg.layer?",
+      "diff_layer": "list:dwg.layer?"
+    },
+    "outputs": {
+      "boundaries": "integer",
+      "nodes": "integer",
+      "texts": "integer",
+      "grid_segments": "integer",
+      "design_outside": "integer",
+      "exist_outside": "integer",
+      "cleared_old": "integer",
+      "per_boundary": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "calculate_surface_volume",
+    "name": "曲面体积计算与疏浚统计",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "base_surface": "civil.surface",
+      "comparison_surface": "civil.surface"
+    },
+    "parameters": {
+      "cut_factor": "number",
+      "fill_factor": "number",
+      "export_excel": "boolean",
+      "excel_out_path": "path",
+      "draw_dwg_table": "boolean",
+      "table_insertion_point": "pick.point"
+    },
+    "outputs": {
+      "cut_volume": "number",
+      "fill_volume": "number",
+      "net_volume": "number",
+      "volume_report_json": "report.volume_summary",
+      "excel_file": "file.xlsx"
+    },
+    "effect": "read_and_draw"
+  },
+  {
+    "id": "parcel_grading_slope",
+    "name": "地块向内/向外自动放坡",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "parcel_boundary": "pick.entity<polyline>",
+      "target_surface": "civil.surface?"
+    },
+    "parameters": {
+      "direction": "enum[outward|inward]",
+      "target_type": "enum[surface|elevation|relative_height]",
+      "target_value": "number?",
+      "cut_slope": "number",
+      "fill_slope": "number",
+      "bench_height": "number?",
+      "bench_width": "number?",
+      "draw_comb_lines": "boolean?",
+      "comb_spacing": "number?"
+    },
+    "outputs": {
+      "grading_surface": "civil.surface",
+      "daylight_line": "cad.polyline",
+      "comb_lines": "cad.line[]"
+    },
+    "effect": "persist"
+  },
+  {
+    "id": "automate_2d_cross_sections",
+    "name": "闭合域批量Hatch与底栏表（占位实现,不做标定）",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {},
+    "parameters": {
+      "interaction_mode": "string",
+      "hatch_rules": "object?",
+      "draw_bottom_table": "boolean?",
+      "table_style": "string?",
+      "annotation_text_height": "number?"
+    },
+    "outputs": {
+      "processed_count": "integer",
+      "section_summary": "report.cross_section_summary"
+    },
+    "effect": "interactive_and_draw"
+  },
+  {
+    "id": "create_twotier_bench_corridor",
+    "name": "方案B C#原生二级边坡马道子装配与3D走廊流水线",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "alignment": "civil.alignment",
+      "surface": "civil.surface"
+    },
+    "parameters": {
+      "bottom_width": "number?",
+      "h1": "number?",
+      "m1": "number?",
+      "bench_width": "number?",
+      "bench_slope": "number?",
+      "h2": "number?",
+      "m2": "number?",
+      "lining_thickness": "number?",
+      "left_pkt": "path?",
+      "right_pkt": "path?",
+      "assembly": "string?",
+      "corridor": "string?",
+      "baseline": "string?=基准线",
+      "region": "string?=区域1",
+      "target_surface": "string?"
+    },
+    "outputs": {
+      "corridor": "civil.corridor",
+      "assembly": "civil.assembly"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "annotate_closed_polyline_areas",
+    "name": "闭合多段线面积标注与Excel汇总",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "drawing": "file.dwg"
+    },
+    "parameters": {
+      "source_layer": "list:dwg.layer?",
+      "text_height": "number?",
+      "decimals": "integer{0..8}?",
+      "annotation_layer": "list:dwg.layer?",
+      "color_index": "integer{0..256}?",
+      "prefix": "string?",
+      "suffix": "string?",
+      "include_zero": "boolean?",
+      "clear_existing": "boolean?",
+      "area_overrides": "object?",
+      "label_offsets": "object?",
+      "export_excel": "boolean?",
+      "outdir": "path?",
+      "excel_out_path": "path?",
+      "excel_format": "enum[xlsx|csv|both]?"
+    },
+    "outputs": {
+      "polylines": "integer",
+      "labels": "integer",
+      "zero_areas": "integer",
+      "corrected": "integer",
+      "raw_total_area": "number",
+      "final_total_area": "number",
+      "cleared_old": "integer",
+      "excel_files": "file.tabular[]",
+      "per_polyline": "object[]"
+    },
+    "effect": "read_and_draw"
+  },
+  {
+    "id": "arrange_section_sheets",
+    "name": "横断面图按图框分页重排",
+    "version": "0.1",
+    "kind": "production",
+    "inputs": {},
+    "parameters": {
+      "scale": "number",
+      "paper": "enum[A0|A1|A2|A3|A4]",
+      "rows": "integer",
+      "cols": "integer",
+      "row_pitch": "number?",
+      "col_pitch": "number?",
+      "sheets_per_row": "integer",
+      "margin": "number",
+      "per_alignment_new_sheet": "boolean",
+      "alignments": "string[]?",
+      "layout": "string?",
+      "x": "number?",
+      "y": "number?",
+      "paper_w": "number{unit:mm}?",
+      "paper_h": "number{unit:mm}?",
+      "offset_left": "number?=50",
+      "offset_right": "number?=50",
+      "row_gap": "number?",
+      "sheet_gap": "number?",
+      "inner_margin_ratio": "number?",
+      "draw_frames": "boolean?",
+      "row_label": "boolean?",
+      "label_height": "number?",
+      "label_gap": "number?"
+    },
+    "outputs": {
+      "sheets": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "import_surface",
+    "name": "从外图导入曲面",
+    "version": "0.1",
+    "kind": "production",
+    "inputs": {},
+    "parameters": {
+      "dwg": "path",
+      "name": "string"
+    },
+    "outputs": {
+      "surface": "civil.surface"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_dike_sample_lines",
+    "name": "堤埝中线批量路线与采样线（采样线创建委托 create_sample_lines）",
+    "version": "0.1",
+    "kind": "production",
+    "inputs": {
+      "surface": "civil.surface"
+    },
+    "parameters": {
+      "centerline_layers": "list:dwg.layer[]",
+      "number_layer": "list:dwg.layer",
+      "station_layer": "list:dwg.layer",
+      "section_layer": "list:dwg.layer",
+      "number_max_dist": "number",
+      "station_max_dist": "number",
+      "section_margin": "number",
+      "corridor_suffix": "string?",
+      "road_surface_suffix": "string?",
+      "fallback_swath": "number?",
+      "rebuild_only": "boolean?",
+      "section_layers": "list:dwg.layer[]?"
+    },
+    "outputs": {
+      "alignments": "civil.alignment",
+      "sample_line_groups": "civil.sample_line_group"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "extract_measured_sections",
+    "name": "测量断面标定与地面线提取",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "engine",
+    "inputs": {},
+    "parameters": {
+      "ground_layer": "list:dwg.layer?=dmx*",
+      "column_layer": "list:dwg.layer?=zdmt*",
+      "title_layer": "list:dwg.layer?=1-图名*",
+      "title_regex": "string?",
+      "offset_tolerance": "number?=0.06",
+      "elev_tolerance": "number?=0.02",
+      "table_depth": "number?=80",
+      "pair_tol_x": "number?=3",
+      "line_filter": "string?",
+      "include_ground_points": "boolean?=false"
+    },
+    "outputs": {
+      "sections": "object[]",
+      "section_count": "integer",
+      "valid_count": "integer",
+      "invalid_count": "integer",
+      "lines": "object[]"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "generate_demolition_design_lines",
+    "name": "拆堤断面设计线（清表/开挖/放坡/填充/标注）",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {},
+    "parameters": {
+      "ground_layer": "list:dwg.layer?=dmx*",
+      "column_layer": "list:dwg.layer?=zdmt*",
+      "title_layer": "list:dwg.layer?=1-图名*",
+      "title_regex": "string?",
+      "offset_tolerance": "number?=0.06",
+      "elev_tolerance": "number?=0.02",
+      "table_depth": "number?=80",
+      "pair_tol_x": "number?=3",
+      "line_filter": "string?",
+      "strip_threshold_elev": "number?=6.5",
+      "strip_thickness": "number?=0.3",
+      "bottom_elev": "number?=5.0",
+      "bottom_elev_by_section": "object?",
+      "slope_ratio_m": "number?=3.0",
+      "excavation_half_width": "number?=8.0",
+      "strip_line_layer": "list:dwg.layer?=C3DF-STRIP-LINE",
+      "excavation_line_layer": "list:dwg.layer?=C3DF-CUT-LINE",
+      "hatch_layer": "list:dwg.layer?=C3DF-HATCH",
+      "annotation_layer": "list:dwg.layer?=C3DF-LABEL",
+      "centerline_layer": "list:dwg.layer?=C3DF-CL",
+      "hatch_scale": "number?=15",
+      "text_height": "number?=2.5",
+      "text_style": "list:dwg.textstyle?",
+      "draw_hatch": "boolean?=true",
+      "draw_labels": "boolean?=true",
+      "clear_existing": "boolean?=true"
+    },
+    "outputs": {
+      "sections_processed": "integer",
+      "sections_skipped": "integer",
+      "sections_zero_excavation": "integer",
+      "strip_lines": "integer",
+      "excavation_lines": "integer",
+      "hatches": "integer",
+      "labels": "integer",
+      "cleared_old": "integer",
+      "warnings": "string[]",
+      "per_section": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "compute_embankment_demolition",
+    "name": "拆堤工程量（平均断面法）",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {},
+    "parameters": {
+      "ground_layer": "list:dwg.layer?=dmx*",
+      "column_layer": "list:dwg.layer?=zdmt*",
+      "title_layer": "list:dwg.layer?=1-图名*",
+      "title_regex": "string?",
+      "offset_tolerance": "number?=0.06",
+      "elev_tolerance": "number?=0.02",
+      "table_depth": "number?=80",
+      "pair_tol_x": "number?=3",
+      "line_filter": "string?",
+      "strip_line_layer": "list:dwg.layer?=C3DF-STRIP-LINE",
+      "excavation_line_layer": "list:dwg.layer?=C3DF-CUT-LINE",
+      "own_margin": "number?=30",
+      "annotate_sections": "boolean?=true",
+      "annotation_layer": "list:dwg.layer?=C3DF-QTY-LABEL",
+      "text_height": "number?=2.5",
+      "text_style": "list:dwg.textstyle?",
+      "clear_existing": "boolean?=true",
+      "export_excel": "boolean?=true",
+      "outdir": "path?",
+      "excel_out_path": "path?",
+      "excel_format": "enum[xlsx|csv|both]?=xlsx"
+    },
+    "outputs": {
+      "sections": "integer",
+      "sections_without_lines": "integer",
+      "unassigned_strip_lines": "integer",
+      "unassigned_excavation_lines": "integer",
+      "strip_volume": "number",
+      "excavation_volume": "number",
+      "total_volume": "number",
+      "labels": "integer",
+      "cleared_old": "integer",
+      "per_section": "object[]",
+      "per_line": "object[]",
+      "excel_files": "file.tabular[]",
+      "warnings": "string[]"
+    },
+    "effect": "read_and_draw"
+  },
+  {
+    "id": "sample_polyline_elevations",
+    "name": "按多段线取曲面高程",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "engine",
+    "inputs": {
+      "surface": "civil.surface"
+    },
+    "parameters": {
+      "layer": "list:dwg.layer?",
+      "handles": "string[]?",
+      "names": "object?",
+      "step": "number?=0",
+      "interior_step": "number?=0",
+      "include_open": "boolean?=true",
+      "min_length": "number?=0",
+      "points": "boolean?=false",
+      "export_excel": "boolean?=false",
+      "outdir": "path?",
+      "excel_format": "enum[xlsx|csv|both]?=xlsx"
+    },
+    "outputs": {
+      "surface": "string",
+      "polylines": "integer",
+      "samples": "integer",
+      "off_surface": "integer",
+      "z_min": "number",
+      "z_max": "number",
+      "per_polyline": "object[]",
+      "excel_files": "file.tabular[]",
+      "warnings": "string[]",
+      "interior_step": "number"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "survey_dredge_regions",
+    "name": "疏浚区边界盘点与参数试算",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "engine",
+    "inputs": {
+      "surface": "civil.surface?",
+      "start_surface": "civil.surface?"
+    },
+    "parameters": {
+      "boundary_layer": "list:dwg.layer",
+      "boundaries": "string[]?",
+      "bottom_elev": "number?",
+      "slope_ratio_m": "number?=5",
+      "regions": "object[]?",
+      "start_elev": "number?",
+      "start_elev_cap": "number?",
+      "interface_layers": "string[]?",
+      "interface_tolerance": "number?=2",
+      "interface_start_elev": "number?",
+      "label_layer": "list:dwg.layer?",
+      "sample_step": "number?=2",
+      "grid_step": "number?=5",
+      "export_excel": "boolean?=false",
+      "outdir": "path?",
+      "excel_out_path": "path?",
+      "excel_format": "enum[xlsx|csv|both]?=xlsx"
+    },
+    "outputs": {
+      "regions": "integer",
+      "total_area": "number",
+      "total_est_cut_volume": "number",
+      "total_est_fill_volume": "number",
+      "per_region": "object[]",
+      "excel_files": "file.tabular[]",
+      "warnings": "string[]"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "create_dredge_grading",
+    "name": "疏浚放坡设计面（闭合边界→底高程+坡比）",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "surface": "civil.surface",
+      "start_surface": "civil.surface?"
+    },
+    "parameters": {
+      "boundary_layer": "list:dwg.layer",
+      "bottom_elev": "number",
+      "slope_ratio_m": "number",
+      "boundaries": "string[]?",
+      "start_elev": "number?",
+      "start_elev_cap": "number?",
+      "interface_layers": "string[]?",
+      "interface_tolerance": "number?=2",
+      "interface_start_elev": "number?",
+      "regions": "object[]?",
+      "label_layer": "list:dwg.layer?",
+      "sample_step": "number?=2",
+      "slope_step": "number?=2",
+      "flat_step": "number?=20",
+      "surface_prefix": "string?=疏浚设计-",
+      "surface_layer": "list:dwg.layer?=C3DF-DREDGE-SURFACE",
+      "crest_layer": "list:dwg.layer?=C3DF-DREDGE-TOP",
+      "toe_layer": "list:dwg.layer?=C3DF-DREDGE-TOE",
+      "draw_crest_line": "boolean?=true",
+      "draw_toe_line": "boolean?=true",
+      "clear_existing": "boolean?=true"
+    },
+    "outputs": {
+      "regions": "integer",
+      "surfaces": "integer",
+      "crest_lines": "integer",
+      "toe_lines": "integer",
+      "cleared_old": "integer",
+      "warnings": "string[]",
+      "per_region": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "merge_post_dredge_surface",
+    "name": "工后曲面合成（设计∧现状取低）",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "design_surface": "civil.surface",
+      "existing_surface": "civil.surface"
+    },
+    "parameters": {
+      "out_surface": "string?",
+      "surface_layer": "list:dwg.layer?=C3DF-POST-SURFACE",
+      "crease_layer": "list:dwg.layer?=C3DF-POST-ZERO-LINE",
+      "draw_crease_lines": "boolean?=true",
+      "min_crease_length": "number?=1",
+      "contour_epsilon": "number?=0.001",
+      "border_step": "number?=2",
+      "edge_step": "number?=2",
+      "clear_existing": "boolean?=true",
+      "verify": "boolean?=true"
+    },
+    "outputs": {
+      "out_surface": "string",
+      "vertices": "integer",
+      "design_vertices": "integer",
+      "existing_vertices_used": "integer",
+      "edge_points": "integer",
+      "off_existing": "integer",
+      "off_design": "integer",
+      "border_rings": "integer",
+      "crease_lines": "integer",
+      "crease_points": "integer",
+      "crease_dropped_short": "integer",
+      "cleared_old": "integer",
+      "verified": "boolean",
+      "cut_volume": "number",
+      "fill_residual": "number",
+      "fill_ratio": "number",
+      "design_cut_volume": "number",
+      "design_fake_fill": "number",
+      "warnings": "string[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "rebind_volume_tables",
+    "name": "体积表重绑材质列表",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {},
+    "parameters": {},
+    "outputs": {
+      "tables_healthy": "integer",
+      "tables_rebound": "integer",
+      "rebound": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "attach_baseline_profile",
+    "name": "走廊基线重挂纵断面",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "corridor": "civil.corridor"
+    },
+    "parameters": {
+      "alignment": "string?",
+      "profile": "string?",
+      "rebuild": "boolean?=true"
+    },
+    "outputs": {
+      "corridor": "string",
+      "baselines_attached": "integer",
+      "attached": "object[]",
+      "rebuilt": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "list_profiles",
+    "name": "剖面线与纵断面图体检",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "engine",
+    "inputs": {},
+    "parameters": {
+      "alignment": "string?",
+      "skip_offset_alignments": "boolean?=true"
+    },
+    "outputs": {
+      "alignments": "integer",
+      "missing_ground": "integer",
+      "missing_design": "integer",
+      "without_profile_view": "integer",
+      "data": "object[]"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "dump_material_styles",
+    "name": "材质样式指向体检",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "engine",
+    "inputs": {},
+    "parameters": {
+      "sample": "integer?=5"
+    },
+    "outputs": {
+      "material_lists": "object[]"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "fix_self_intersections",
+    "name": "修复自相交多段线（去回环）",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "handles": "cad.polyline[]?"
+    },
+    "parameters": {
+      "layer": "string?",
+      "max_drop_ratio": "number?=0.25",
+      "report_only": "boolean?=false"
+    },
+    "outputs": {
+      "checked": "integer",
+      "self_intersecting": "integer",
+      "intersections_total": "integer",
+      "repaired": "integer",
+      "loops_removed": "integer",
+      "needs_manual": "object[]",
+      "per_polyline": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "export_material_volumes",
+    "name": "一键导出材质体积表工作簿",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {},
+    "parameters": {
+      "out": "path?",
+      "outdir": "path?"
+    },
+    "outputs": {
+      "file": "file.xlsx",
+      "alignments": "integer",
+      "skipped": "string[]",
+      "total_length_m": "number",
+      "total_volume_m3": "number",
+      "per_alignment": "object[]"
+    },
+    "effect": "persist"
+  },
+  {
+    "id": "sync_corridor_range",
+    "name": "走廊区间对齐路线起终点",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "corridor": "civil.corridor"
+    },
+    "parameters": {},
+    "outputs": {
+      "corridor": "string",
+      "baselines": "object[]",
+      "regions_adjusted": "integer",
+      "rebuilt": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "refresh_sample_lines",
+    "name": "采样线刷新（组不变线重生）",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "alignment": "civil.alignment"
+    },
+    "parameters": {
+      "interval": "number?",
+      "swath": "number?"
+    },
+    "outputs": {
+      "alignment": "string",
+      "interval": "number",
+      "swath": "number",
+      "groups": "object[]",
+      "sample_lines": "integer"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "restore_sample_line_labels",
+    "name": "采样线标签重建（桩号名字）",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {},
+    "parameters": {
+      "style": "string?=@C3DF-AlignmentStation",
+      "alignment": "civil.alignment?",
+      "skip_existing": "boolean?=true",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "style": "string",
+      "groups": "object[]",
+      "groups_total": "integer",
+      "created": "integer",
+      "skipped": "integer",
+      "sample_lines_total": "integer",
+      "label_groups_after": "integer",
+      "sub_entities_after": "integer"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "set_polyline_elevation",
+    "name": "给多段线设高程",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {},
+    "parameters": {
+      "elevation": "number?",
+      "elevation_by_handle": "object?",
+      "layer": "list:dwg.layer?",
+      "handles": "string[]?"
+    },
+    "outputs": {
+      "changed": "integer",
+      "already_at_elevation": "integer",
+      "not_found": "string[]",
+      "details": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "bounded_volumes",
+    "name": "逐边界挖填方",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "engine",
+    "inputs": {
+      "volume_surface": "civil.surface?",
+      "base_surface": "civil.surface?",
+      "comparison_surface": "civil.surface?"
+    },
+    "parameters": {
+      "layer": "list:dwg.layer?",
+      "handles": "string[]?",
+      "names": "object?",
+      "sample_step": "number?=1",
+      "inset": "number?=0",
+      "close_ring": "boolean?=true",
+      "cut_factor": "number?=1",
+      "fill_factor": "number?=1",
+      "datum_elevation": "number?",
+      "export_excel": "boolean?=false",
+      "outdir": "path?",
+      "excel_format": "enum[xlsx|csv|both]?=xlsx"
+    },
+    "outputs": {
+      "volume_surface": "string",
+      "boundaries": "integer",
+      "total_area": "number",
+      "total_cut": "number",
+      "total_fill": "number",
+      "total_net": "number",
+      "total_cut_adjusted": "number",
+      "total_fill_adjusted": "number",
+      "per_boundary": "object[]",
+      "excel_files": "file.tabular[]",
+      "warnings": "string[]"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "grid_earthwork_balance",
+    "name": "网格土方平衡",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "volume_surface": "civil.surface?",
+      "base_surface": "civil.surface?",
+      "comparison_surface": "civil.surface?"
+    },
+    "parameters": {
+      "layer": "list:dwg.layer?",
+      "handles": "string[]?",
+      "names": "object?",
+      "step": "number?=5",
+      "solver_max_nodes": "number?=900",
+      "bands": "number[]?=[30,50,100,200,300,500]",
+      "volume_factor": "number?=1",
+      "closure_warn_pct": "number?=2",
+      "closure_fail_pct": "number?=10",
+      "sample_step": "number?=1",
+      "draw_cells": "boolean?=true",
+      "draw_arrows": "boolean?=true",
+      "max_arrows": "number?=60",
+      "clear_previous": "boolean?=true",
+      "export_excel": "boolean?=true",
+      "outdir": "path?",
+      "excel_format": "enum[xlsx|csv|both]?=xlsx"
+    },
+    "outputs": {
+      "volume_surface": "string",
+      "boundaries": "integer",
+      "total_tin_cut": "number",
+      "total_tin_fill": "number",
+      "total_internal_moved": "number",
+      "total_internal_moved_adjusted": "number",
+      "volume_factor": "number",
+      "avg_dist_m": "number",
+      "total_shortfall_borrow": "number",
+      "total_surplus_export": "number",
+      "cells_drawn": "integer",
+      "arrows_drawn": "integer",
+      "cleared_old": "integer",
+      "per_boundary": "object[]",
+      "excel_files": "file.tabular[]",
+      "warnings": "string[]"
+    },
+    "effect": "read_and_draw"
+  },
+  {
+    "id": "erase_entities",
+    "name": "按句柄删实体",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {},
+    "parameters": {
+      "handles": "string[]",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "dry_run": "boolean",
+      "erased": "integer",
+      "not_found": "string[]",
+      "details": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "offset_cone_contours",
+    "name": "偏移圆台等高线（闭合边界批量内偏）",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "boundaries": "cad.polyline[]?"
+    },
+    "parameters": {
+      "layer": "string?",
+      "target_z": "number",
+      "slope_n": "number",
+      "step_dz": "number?=0.5",
+      "fillet_r": "number?",
+      "outward": "boolean?=false",
+      "out_layer": "list:dwg.layer?",
+      "out_color": "number?=4",
+      "clear_existing": "boolean?=true"
+    },
+    "outputs": {
+      "boundaries": "integer",
+      "rings_total": "integer",
+      "collapsed": "integer",
+      "skipped_open": "integer",
+      "skipped_same_elevation": "integer",
+      "ring_handles": "string[]",
+      "per_boundary": "object[]",
+      "outward": "boolean",
+      "out_layer": "string",
+      "erased_previous": "integer"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "import_design_lines",
+    "name": "导入设计线（中心线→路线，边界留作宽度源）",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {},
+    "parameters": {
+      "dwg": "path",
+      "center_prefix": "string?=中心线-",
+      "boundary_prefix": "string?=边界-",
+      "style": "list:civil.style.alignment?",
+      "label_set": "list:civil.labelset.alignment?",
+      "alignment_layer": "list:dwg.layer?",
+      "add_curves": "boolean?=false",
+      "replace_existing": "boolean?=true",
+      "min_boundary_area": "number?=100"
+    },
+    "outputs": {
+      "alignments": "object[]",
+      "boundaries": "object[]",
+      "alignments_created": "integer",
+      "boundaries_imported": "integer",
+      "notes": "string[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "offsets_from_boundary",
+    "name": "闭合边界→左右偏移路线（走廊宽度目标）",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "alignment": "civil.alignment"
+    },
+    "parameters": {
+      "boundary_prefix": "string?=边界-",
+      "interval": "number?=25",
+      "channel": "string?",
+      "style": "list:civil.style.alignment?",
+      "label_set": "list:civil.labelset.alignment?",
+      "erase_boundary": "boolean?=false",
+      "replace_existing": "boolean?=true",
+      "min_boundary_area": "number?=100"
+    },
+    "outputs": {
+      "items": "object[]",
+      "channels": "integer",
+      "notes": "string[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_design_profiles",
+    "name": "批量建地面线+设计线（端部按指定放坡接地形）",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "surface": "civil.surface",
+      "alignment": "civil.alignment"
+    },
+    "parameters": {
+      "surface": "string",
+      "design_elev": "number?=3.0",
+      "end_slope": "number?=10",
+      "ramps": "object?",
+      "ramp_tolerance": "number?=0.05",
+      "channels": "string[]?",
+      "ground_name": "string?={channel}-地面",
+      "design_name": "string?={channel}-设计",
+      "ground_style": "list:civil.style.profile?",
+      "design_style": "list:civil.style.profile?",
+      "label_set": "list:civil.labelset.profile?",
+      "replace_existing": "boolean?=true"
+    },
+    "outputs": {
+      "profiles": "object[]",
+      "notes": "string[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_corridor_regions",
+    "name": "建多区域走廊（逐段装配工况）",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "alignment": "civil.alignment",
+      "surface": "civil.surface",
+      "assembly": "civil.assembly"
+    },
+    "parameters": {
+      "alignment": "string",
+      "surface": "string",
+      "regions": "object[]",
+      "name": "string?={路线}_走廊",
+      "baseline": "string?={路线}_基线",
+      "allow_no_surface_targets": "boolean?=false"
+    },
+    "outputs": {
+      "corridor": "civil.corridor",
+      "regions_requested": "integer",
+      "regions_added": "integer",
+      "regions_skipped": "integer",
+      "surface_targets_set": "integer",
+      "offset_targets_set": "integer",
+      "link_codes": "string[]",
+      "regions": "object[]",
+      "notes": "string[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "export_design_lines",
+    "name": "导出建模输入线为纯多段线DWG（中心线/边线/边界）",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "alignment": "flow:civil.alignment"
+    },
+    "parameters": {
+      "out": "path",
+      "overwrite": "boolean?=false",
+      "boundaries": "boolean?=true",
+      "center_layer": "string?=CL-{channel}",
+      "edge_layer": "string?=EDGE-{channel}-{side}",
+      "boundary_layer": "string?=BOUNDARY-{channel}",
+      "center_color": "integer{0..256}?=3",
+      "edge_color": "integer{0..256}?=4",
+      "boundary_color": "integer{0..256}?=2",
+      "center_linetype": "list:dwg.linetype?=CENTER2",
+      "edge_linetype": "list:dwg.linetype?=Continuous",
+      "boundary_linetype": "list:dwg.linetype?=Continuous",
+      "linetype_scale": "number?=5",
+      "spiral_step": "number?=5",
+      "probe_points": "integer?=20",
+      "offset_tolerance": "number?=200"
+    },
+    "outputs": {
+      "output": "file.dwg",
+      "items": "object[]",
+      "total": "integer",
+      "bytes": "integer",
+      "notes": "string[]"
+    },
+    "effect": "persist"
+  },
+  {
+    "id": "measure_channel_width",
+    "name": "量通道沿程实际疏浚宽度",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "engine",
+    "inputs": {
+      "alignment": "civil.alignment"
+    },
+    "parameters": {
+      "interval": "number?=50",
+      "min_area": "number?=100",
+      "channel": "string?"
+    },
+    "outputs": {
+      "channels": "object[]"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "find_write_open",
+    "name": "找出仍处于写打开状态的对象",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "engine",
+    "inputs": {},
+    "parameters": {
+      "max": "integer?=100"
+    },
+    "outputs": {
+      "scanned": "integer",
+      "write_open_count": "integer",
+      "by_type": "object",
+      "items": "object[]"
+    },
+    "effect": "read"
+  }
+]

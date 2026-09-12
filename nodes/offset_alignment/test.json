@@ -1,0 +1,12 @@
+{
+  "node": "offset_alignment",
+  "version": 1,
+  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "prerequisite": "create_alignment",
+  "assertions": [
+    "data.created contains at least one negative offset",
+    "data.created contains at least one positive offset",
+    "all returned Alignment names exist in current DWG"
+  ],
+  "status": "awaiting_real_dwg_regression"
+}

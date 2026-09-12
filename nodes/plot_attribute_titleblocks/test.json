@@ -1,0 +1,19 @@
+{
+  "node": "plot_attribute_titleblocks",
+  "version": 1,
+  "executor": "powershell_external",
+  "fixture": "tests/dwg/titleblocks-model-and-layout.dwg",
+  "task": {
+    "output_directory": "${temp}/titleblock-pdfs"
+  },
+  "assertions": [
+    "result.ok == true",
+    "result.backend == 'accoreconsole + CadPlotPlugin'",
+    "result.pdf_count equals matched model-space plus layout-space title blocks",
+    "every PDF exists and bytes >= 10000",
+    "model-space far-coordinate title block renders nonblank",
+    "layout-space title block renders nonblank",
+    "source fixture SHA256 is unchanged"
+  ],
+  "status": "mature_backend_fixture_pending"
+}

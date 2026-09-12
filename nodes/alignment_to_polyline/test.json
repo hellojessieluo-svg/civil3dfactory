@@ -1,0 +1,13 @@
+{
+  "ops": [
+    {
+      "op": "alignment_to_polyline",
+      "alignment": "B1",
+      "layer": "C3DF-CL",
+      "color_index": 3,
+      "linetype": "CENTER2",
+      "linetype_scale": 5,
+      "erase_source": false
+    }
+  ]
+}

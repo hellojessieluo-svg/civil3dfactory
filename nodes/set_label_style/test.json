@@ -1,0 +1,12 @@
+{
+  "node": "set_label_style",
+  "version": 1,
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "assertions": [
+    "edits_applied 等于命中的组件数（name='*' 时=样式全部组件）",
+    "visible=false 立竿见影（导出件里该样式的字消失，2026-08-26 实测 430→0）",
+    "找不到样式名必须抛错，不静默"
+  ],
+  "note": "实测档案（2026-08-26 项目B）：@C3DF-centerline 9 组件关可见性 ok；CL_Elev_WL_Label_1-400 改 y_offset/开可见性 ok。⚠ 已证教训：关样式解决不了双份（同一样式渲染两份，关=两份全没）；样式改了但图上没变化时先查该样式是否真被这张图引用（CL_Elev_WL 开了组件也不渲染——根本没被断面引用）。",
+  "status": "draft_assertions_pending_owner_review"
+}

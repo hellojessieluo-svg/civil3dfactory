@@ -1,0 +1,36 @@
+{
+  "node": "offset_cone_contours",
+  "version": 1,
+  "executor": "engine",
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "prerequisite": "边界必须闭合（或首末点捕捉重合）且已赋高程（Elevation=起始高程 z0）；target_z 高于 z0 = 岛收顶，低于 z0 = 坑收底",
+  "fixture_requirements": [
+    "≥2 条闭合 LWPOLYLINE，Elevation 非零（一岛一坑，验向上/向下两个方向）",
+    "至少一条含弧段、含凹角（验凹边界偏移分裂成多环的分支）",
+    "至少一条'捕捉画闭'的假开放线：Closed=false 但首末点重合（验 IsSnapClosed 规范化）",
+    "一条故意画小的边界，target_z 拉远（验塌缩提前终止，collapsed=true）"
+  ],
+  "task": {
+    "layer": "01-边界",
+    "target_z": 3.0,
+    "slope_n": 10.0,
+    "step_dz": 0.5
+  },
+  "assertions": [
+    "内存改动不落盘：要留成果必须显式 save_dwg",
+    "零圈即抛错：rings_total == 0 时必须报错并给出边界数/未闭合数/同高程数，严禁 ok:true 空跑",
+    "boundaries 句柄数组优先于 layer；句柄不是多段线或不存在时抛错点名句柄",
+    "layer 上没有多段线时抛错点名图层；未闭合的线跳过并计入 skipped_open",
+    "每圈等高线 Elevation ∈ {z0±k·dz} ∪ {target_z}，最后一圈必为 target_z（未塌缩时）",
+    "偏移方向恒向内：每圈面积严格小于上一圈（岛坑同理，方向由两侧试偏面积判定）",
+    "凹边界偏移分裂出的多环全部保留且赋同一高程（ring_handles 数 ≥ rings 数）",
+    "生成的圈在源边界图层上（Layer == src.Layer），源边界一根线不动",
+    "fillet_r > 0 时输出圈含弧段（CountArcs > 0）；fillet_r = 0 时不平滑不归圆",
+    "fillet_r 缺省 = round(2·n·dz, 3)（两圈水平步距）",
+    "塌缩边界：reached 停在最后成功圈，collapsed=true，per_boundary 里可见，不抛错不拖垮别的边界",
+    "target_z == 边界高程时该边界跳过并计入 skipped_same_elevation",
+    "target_z / slope_n 缺失抛错；slope_n <= 0、step_dz <= 0、fillet_r < 0 抛错",
+    "与 products\\waterbox 的 C3DF-OffsetCone(YT) 同参数跑同一张图，逐圈几何一致（同一份 OffsetConeCore）"
+  ],
+  "status": "draft_assertions_pending_real_drawing_regression"
+}

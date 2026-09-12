@@ -1,0 +1,18 @@
+{
+  "node": "export_to_autocad",
+  "version": 1,
+  "fixture": "tests/dwg/civil-objects-for-export.dwg",
+  "task": {
+    "out": "${temp}/civil-objects-for-export_pure-cad.dwg",
+    "version": "2018",
+    "overwrite": false
+  },
+  "assertions": [
+    "data.exported exists",
+    "data.bytes > 0",
+    "data.version == '2018'",
+    "source fixture SHA256 is unchanged",
+    "exported drawing can be reopened by accoreconsole"
+  ],
+  "status": "implementation_mature_fixture_pending"
+}

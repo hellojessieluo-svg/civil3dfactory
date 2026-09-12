@@ -1,0 +1,29 @@
+{
+  "node": "insert_title_blocks",
+  "version": 1,
+  "fixture": "tests/dwg/pure-cad-for-titleblocks.dwg",
+  "prerequisite": "fixture or from_dwg contains an attribute title-block definition",
+  "task": {
+    "block": "${title_block_name}",
+    "from_dwg": "${title_block_library}",
+    "count": 2,
+    "cols": 2,
+    "x": 0.0,
+    "y": 0.0,
+    "paper": "A3",
+    "scale": 500.0,
+    "gap_x": 10.0,
+    "gap_y": 10.0,
+    "attributes": {
+      "03图号": "TEST-{n}"
+    }
+  },
+  "assertions": [
+    "data.inserted == 2",
+    "data.attributes_filled >= 2",
+    "second run erases 2 previously marked blocks before inserting 2",
+    "save_dwg persists exactly 2 C3DF_TITLEBLOCK references",
+    "source fixture SHA256 is unchanged when save_dwg writes a copy"
+  ],
+  "status": "implementation_mature_fixture_pending"
+}

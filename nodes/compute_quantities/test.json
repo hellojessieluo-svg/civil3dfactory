@@ -1,0 +1,14 @@
+{
+  "node": "compute_quantities",
+  "version": 1,
+  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "prerequisite": "create_sample_lines",
+  "assertions": [
+    "data.sections > 0",
+    "data.mapped_slots is complete",
+    "data.total_cut_m3 is finite",
+    "data.total_fill_m3 is finite",
+    "simultaneous zero cut/fill is flagged for manual review"
+  ],
+  "status": "awaiting_real_dwg_regression"
+}

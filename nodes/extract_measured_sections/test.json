@@ -1,0 +1,41 @@
+{
+  "node": "extract_measured_sections",
+  "version": 1,
+  "executor": "engine",
+  "fixture": "",
+  "fixture_requirements": [
+    "一张纯 CAD 测量图，模型空间平铺多个断面",
+    "地面线在 dmx* 图层，多段线且顶点 ≥2",
+    "刻度文字在 zdmt* 图层，位于地面线包围盒下方 table_depth 以内：形如 -0+012.5 的判为偏距刻度，纯数字判为高程刻度",
+    "图名文字在 1-图名* 图层且含「断面」二字，形如 A2-K0+250断面",
+    "至少含一个标定通过的断面、一个刻度不足 2 个的断面（用来验 invalid 分支）"
+  ],
+  "task": {},
+  "assertions": [
+    "只读：跑完 DBMOD 不变，图上不新增任何实体",
+    "section_count == valid_count + invalid_count",
+    "刻度不足（偏距或高程 < 2 个）的断面 valid=false，report 含「配对不足」并报出两个刻度个数",
+    "偏距残差 > offset_tolerance 或高程残差 > elev_tolerance 时 valid=false",
+    "把 offset_tolerance 调到 0.001 后，原本 valid 的断面转为 invalid（证明容差真的在判定链上）",
+    "标定用最小二乘：同一断面重复跑结果逐位一致",
+    "scale_x / scale_y 是 Kx/Ky ×1000（对应 report 里的「横1:x 纵1:y」）",
+    "图名不匹配 title_regex 时 line_name 为空、stake 为 null、stake_m 为 0，但断面仍出现在 sections 里",
+    "ground_points 为地面线顶点数，按偏距升序、连续重复点按 1mm 去重后计数",
+    "offset_min/max、elev_min/max 与 ground 点列的极值一致",
+    "include_ground_points=false（默认）时 item 里没有 points 键；=true 时 points 长度 == ground_points",
+    "残差为 NaN 时输出 null 而不是 NaN 字面量（Sections.Num 的哨兵处理）",
+    "lines[] 按 line_name 聚合并升序；stake_from/to 取组内桩号极值",
+    "单断面测线的 spacing_min/max 为 null（无相邻桩号可测）",
+    "crest_elev_max == 组内各断面地面线最高点",
+    "line_name 为空的断面不进 lines[]（只进 sections[]）",
+    "ground_layer 匹配不到任何多段线时抛错，不是返回空结果",
+    "line_filter 一个都匹配不到时抛错，且错误里报出总共读到多少个断面",
+    "line_filter 不是合法正则时抛错并回显正则错误",
+    "title_regex 不是合法正则时抛错",
+    "offset_tolerance / elev_tolerance / table_depth / pair_tol_x ≤ 0 时抛错（Sections.Check）",
+    "ground_layer 为空时抛错",
+    "图层名支持 * 通配且大小写不敏感（dmx* 能命中 DMX-01）",
+    "刻度文字与地面线顶点 X 距离超过 pair_tol_x 的不参与标定"
+  ],
+  "status": "draft_assertions_pending_real_drawing_regression"
+}

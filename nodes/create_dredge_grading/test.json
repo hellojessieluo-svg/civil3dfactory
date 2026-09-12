@@ -1,0 +1,56 @@
+{
+  "node": "create_dredge_grading",
+  "version": 1,
+  "executor": "engine",
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "prerequisite": "先跑 survey_dredge_regions 看每区的句柄/区名/起坡高程与试算方量，再据此给 bottom_elev / slope_ratio_m / regions",
+  "fixture_requirements": [
+    "边界图层上有 ≥2 条闭合多段线（含弧段、含凹角）",
+    "有一条顺时针画的边界（验绕向判断，内法线不能反）",
+    "至少两条区要用不同坡比（验 regions 逐区覆盖）",
+    "原地形曲面覆盖全部边界",
+    "至少一条边界局部超出原地形曲面范围（验 off_surface 分支）"
+  ],
+  "task": {
+    "boundary_layer": "01-水流通道",
+    "surface": "项目A原地形0506 (1)",
+    "bottom_elev": 3.0,
+    "slope_ratio_m": 5.0,
+    "regions": [
+      { "label": "CR8", "slope_ratio_m": 6.0 }
+    ]
+  },
+  "assertions": [
+    "内存改动不落盘：要留成果必须显式 save_dwg",
+    "surfaces == regions == 边界图层上闭合多段线条数（未闭合的不进）",
+    "每区建一个 TIN，名字 = surface_prefix + id；同名冲突时自动加 -2 后缀，不静默覆盖别人的面",
+    "设计面最低高程 == bottom_elev（平底），最高高程 == 该区 z_top_max",
+    "边界多段线是放坡起点线：设计面包围盒不超出边界包围盒（放坡向内，不向外扩）",
+    "顺时针与逆时针画的同一条边界，建出的设计面逐点高程一致（绕向由有向面积判，Polyline.Area 恒正判不了）",
+    "凹角处坡脚点不跑出边界：所有 toe 点满足 GridPointInPolygon 且到边界距离 ≥ 0.9×本地带宽",
+    "任取设计面上一点，其高程 == max(bottom_elev, 起坡高程 − 到边界距离/m)，误差在 slope_step/m 量级内",
+    "regions 按 handle 精确匹配优先，其次 label（区内文字），都没有才用全局参数",
+    "regions 里给了 slope_ratio_m 的区，per_region.slope_ratio_m 是覆盖值，其余区是全局值",
+    "regions 里点名的 handle/label 在图上不存在时进 warnings，不静默忽略",
+    "start_elev 给值时该区整圈起坡高程固定（z_top_min == z_top_max == start_elev）",
+    "start_elev_cap 给值时 z_top_max <= cap，低于 cap 的地方仍跟地形走",
+    "起坡高程低于 bottom_elev 的段 band == 0，该处设计面 == bottom_elev（不放坡也不填方造坡）",
+    "边界采样点落在原地形曲面外时按 bottom_elev 处理并进 warnings（宁可少挖不乱挖）",
+    "band_max == (z_top_max − bottom_elev) × m",
+    "放坡带内网格点全留、平底区只留 flat_step 稀疏格点（vertices 数量与 slope_step/flat_step 相符）",
+    "slope_step 减半时设计面体积变化 < 2%（收敛性）",
+    "外边界裁剪生效：设计面三角形不越出边界多段线；裁剪 API 抛错时进该区 warnings 并退回凸包三角化，不整批失败",
+    "draw_crest_line=true 时每区一条 3D 坡顶线在 crest_layer 上，顶点高程 == 该处起坡高程",
+    "draw_toe_line=true 且坡脚点 ≥3 时每区一条 3D 坡脚线在 toe_layer 上，全部顶点高程 == bottom_elev",
+    "全区平底（起坡高程都不高于底高程）时不画坡脚线，进 warnings，不抛错",
+    "clear_existing=true 重跑：只删 surface_prefix 前缀的曲面与带 C3DF_DREDGE XData 的线，用户自画的线与别的曲面不动",
+    "幂等性：同参数连跑两次，surfaces/crest_lines/toe_lines 与第一次相同，图上不叠加",
+    "clear_existing=false 重跑会叠加（确认清场开关真的生效）",
+    "bottom_elev 缺失时抛错并点名参数（不静默按 0 挖）",
+    "slope_ratio_m 缺失或 <= 0 抛错；regions 里某区的 slope_ratio_m <= 0 时抛错并点名该区 id",
+    "sample_step <= 0 / slope_step <= 0 抛错",
+    "边界图层上没有闭合多段线时抛错并点名图层",
+    "画完的设计面可人工改：下游 calculate_surface_volume 读图上实际曲面，不读本节点的内存结果"
+  ],
+  "status": "draft_assertions_pending_real_drawing_regression"
+}

@@ -1,0 +1,12 @@
+{
+  "node": "dedupe_entities",
+  "version": 1,
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "assertions": [
+    "erased_duplicates 与 DXF 逐实体统计一致（项目B实测 1844：SECT-LABL 675 + XSEC-TABL 1075 + 其它）",
+    "moves 匹配数 = 断面数（疏浚控制线 215 处，一断面一个）",
+    "去重后 DXF 里 (内容,图层,位置) 无重复组"
+  ],
+  "note": "实测档案（2026-08-26 项目B）：断面标签引擎画两遍在导出件上唯一可治。⚠ moves 匹配必须先解 \U+XXXX 转义——proxy 炸开产物的 MTEXT 中文以转义存储，字面 IndexOf 匹配 0 个（首轮踩过）。体积表(XSEC-TABL)也是双份，一并清。",
+  "status": "draft_assertions_pending_owner_review"
+}

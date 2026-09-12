@@ -1,0 +1,13 @@
+{
+  "node": "restore_corridor_section_labels",
+  "version": 1,
+  "fixture": "tests/dwg/road-to-section-drawings-with-section-views.dwg",
+  "prerequisite": "run through civil3dfactory.ps1 after save_dwg",
+  "assertions": [
+    "data.executed == true",
+    "data.command == 'CORRIDORSECTIONLABELSCONV -> ALL -> C'",
+    "data.output exists and bytes > 0",
+    "data.dbmod_after_command >= 0"
+  ],
+  "status": "awaiting_pipeline_regression"
+}

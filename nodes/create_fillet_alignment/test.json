@@ -1,0 +1,14 @@
+{
+  "node": "create_fillet_alignment",
+  "version": 1,
+  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "prerequisite": "无（自带两条固定线几何）",
+  "assertions": [
+    "data.entities == 3（固定线+自由弧+固定线）",
+    "data.radius 与入参一致（±0.01），弧与两线相切为约束性质",
+    "几何编辑器中弧行为'自由'，改半径自动重解保切（GUI 验证项）",
+    "len<=0 或半径回读偏差>0.01 视为解算异常直接抛错"
+  ],
+  "status": "awaiting_real_dwg_regression",
+  "first_real_use": "项目B初设 次水道设计.dwg 92 角约束化重铸（2026-08-23）"
+}

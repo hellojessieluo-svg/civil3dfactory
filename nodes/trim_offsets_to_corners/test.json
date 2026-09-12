@@ -1,0 +1,14 @@
+{
+  "node": "trim_offsets_to_corners",
+  "version": 1,
+  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "prerequisite": "offset_alignment 分段（段伸过角点） + create_connected_alignment（偏移段父线构型）",
+  "assertions": [
+    "data.ends_trimmed == 2 × 角数（每角两端各收一次）",
+    "收口后角的两端点仍严格切在段上（StationOffset 偏移=0）",
+    "区间端与切点距离 == margin（默认 0.05）",
+    "被吃光区间的病态输入要跳过并点名，不许静默"
+  ],
+  "status": "awaiting_real_dwg_regression",
+  "first_real_use": "项目B初设 次水道设计.dwg 48 角收口（2026-08-23）"
+}

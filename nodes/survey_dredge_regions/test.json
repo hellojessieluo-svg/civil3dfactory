@@ -1,0 +1,43 @@
+{
+  "node": "survey_dredge_regions",
+  "version": 1,
+  "executor": "engine",
+  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "prerequisite": "图上有闭合边界多段线图层（如 01-水流通道）和原地形 TIN 曲面",
+  "fixture_requirements": [
+    "边界图层上有 ≥2 条闭合多段线，其中至少一条带弧段",
+    "至少一条边界内部有一个文字对象（验区名自动识别）",
+    "至少一条边界完全落在原地形曲面内（验 off_surface_points == 0）",
+    "同图层上有一条未闭合多段线（验只收闭合的）"
+  ],
+  "task": {
+    "boundary_layer": "01-水流通道",
+    "surface": "项目A原地形0506 (1)",
+    "bottom_elev": 3.0,
+    "slope_ratio_m": 5.0
+  },
+  "assertions": [
+    "只读节点：不 Commit，跑完图纸 dbmod 与文件字节数不变",
+    "regions == 边界图层上闭合多段线条数；未闭合的不计入",
+    "boundaries 给了句柄白名单时只盘白名单里的，全不命中时抛错并点名 boundary_layer",
+    "area/perimeter 与 CAD 里 LIST 该多段线的面积/长度一致（弧段按真实弧长，不是弦长）",
+    "winding 按有向面积判，不是 Polyline.Area（Area 恒正，判不了绕向）",
+    "labels 取落在边界内的文字；label_layer 留空时 C3DF-* 图层的文字（网格高程标注等）不进 labels",
+    "id 取第一个区内文字，没有文字才回落 R01/R02 序号",
+    "没给 surface 也没给 start_elev 时只出几何列，warnings 里说明，不抛错",
+    "surface 给了图上没有的曲面名时抛错并点名该名字",
+    "start_elev 给值时 z_top_min == z_top_max == start_elev（整圈固定）",
+    "start_elev_cap 给值时 z_top_max <= cap",
+    "起坡高程低于 bottom_elev 的采样点被抬到 bottom_elev（该处 band = 0，不放坡）",
+    "bottom_elev 不给时不出 est_* 列（只盘不试算）",
+    "est_cut_volume 与下游 create_dredge_grading + calculate_surface_volume 的三角网结果同量级（默认 5m 网格，偏差应在 5% 内）",
+    "grid_step 减半时 est_cut_volume 变化 < 2%（收敛性）",
+    "slope_ratio_m 增大时 est_cut_volume 单调增大（坡放得更缓、挖得更多）",
+    "网格点落在原地形曲面外时计入 est_off_surface_cells 并在 warnings 里点名，不静默按 0 处理",
+    "slope_ratio_m <= 0 抛错",
+    "sample_step <= 0 / grid_step <= 0 抛错",
+    "export_excel=true 时出参数表骨架，末行是合计，excel_files 非空",
+    "同参数连跑两次结果逐字相同（只读幂等）"
+  ],
+  "status": "draft_assertions_pending_real_drawing_regression"
+}

@@ -1,0 +1,13 @@
+{
+  "node": "create_profiles",
+  "version": 1,
+  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "prerequisite": "create_alignment",
+  "assertions": [
+    "data.ground_profile exists",
+    "data.design_profile exists and is FG",
+    "data.from_surface equals requested surface",
+    "data.design_elev equals approved project elevation"
+  ],
+  "status": "awaiting_real_dwg_regression"
+}

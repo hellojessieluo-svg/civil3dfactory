@@ -1,0 +1,5 @@
+{
+  "ops": [
+    { "op": "erase_alignments", "names": ["转角01"] }
+  ]
+}

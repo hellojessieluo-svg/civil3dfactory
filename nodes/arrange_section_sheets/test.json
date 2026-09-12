@@ -1,0 +1,15 @@
+{
+  "node": "arrange_section_sheets",
+  "version": 1,
+  "fixture": "tests/dwg/road-to-section-drawings-base.dwg",
+  "prerequisite": "create_section_views",
+  "assertions": [
+    "data.alignments_arranged > 0",
+    "data.frames_drawn > 0",
+    "data.frames_erased >= 0",
+    "data.grid_per_sheet is not empty",
+    "data.frame_layer is not empty"
+  ],
+  "note": "断言为 AI 依据实现产出键草拟的结构性检查；frames_drawn > 0 对应厂规「分幅出图必画闭合图框辅助框」。领域验收（断面落入图框内、无跨页截断）待厂长补充。",
+  "status": "draft_assertions_pending_owner_review"
+}

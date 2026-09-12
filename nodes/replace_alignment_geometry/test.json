@@ -1,0 +1,15 @@
+{
+  "ops": [
+    {
+      "op": "list_polylines",
+      "layer": "C3DF-CL",
+      "min_length": 100
+    },
+    {
+      "op": "replace_alignment_geometry",
+      "alignment": "B1",
+      "polyline": "<多段线句柄，先跑 list_polylines 拿>",
+      "erase_polyline": false
+    }
+  ]
+}

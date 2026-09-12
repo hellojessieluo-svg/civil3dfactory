@@ -1,0 +1,12 @@
+{
+  "node": "dump_material_styles",
+  "version": 1,
+  "fixture": "tests/dwg/road-to-section-drawings-base.dwg",
+  "prerequisite": "compute_quantities",
+  "assertions": [
+    "data.material_lists is not empty（有材质列表的图）",
+    "data.material_lists[].items[].ShapeStyleId 形如 ShapeStyle:<样式名>"
+  ],
+  "note": "只读诊断零件。实测档案（2026-08-16 项目B）：两张主通道图的挖方材质都挂 ShapeStyle:Standard，据此定位『材质填充不对』并用 restyle_section_views 的 material_shape_style 换成 @C3DF-CutFill。坑：Civil 样式对象 GetProperty(\"Name\") 会抛 AmbiguousMatchException，要强类型走 StyleBase.Name。",
+  "status": "draft_assertions_pending_owner_review"
+}

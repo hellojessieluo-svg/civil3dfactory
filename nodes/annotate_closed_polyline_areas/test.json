@@ -1,0 +1,22 @@
+{
+  "node": "annotate_closed_polyline_areas",
+  "version": 1,
+  "fixture": "tests/dwg/closed-polyline-areas.dwg",
+  "prerequisite": null,
+  "fixture_requirements": [
+    "模型空间至少包含两条闭合 LWPOLYLINE，其中一条包含弧段",
+    "至少包含一条非凸闭合 LWPOLYLINE",
+    "可选：包含两条中心点重合的退化闭合 LWPOLYLINE，用于验证自动错位"
+  ],
+  "assertions": [
+    "data.polylines > 0",
+    "data.labels == data.polylines",
+    "data.per_polyline length == data.polylines",
+    "所有 label_point 位于对应非退化区域内部",
+    "area_overrides 中的句柄 final_area 等于覆盖值且 corrected == true",
+    "data.final_total_area == 各 per_polyline.final_area 之和",
+    "export_excel == true 时 data.excel_files 中的文件存在",
+    "重跑一次后 data.cleared_old == 首次 data.labels，且标签总数不增长"
+  ],
+  "status": "awaiting_real_dwg_regression"
+}

@@ -1,0 +1,14 @@
+{
+  "node": "restyle_section_views",
+  "version": 1,
+  "fixture": "tests/dwg/road-to-section-drawings-base.dwg",
+  "prerequisite": "create_section_views",
+  "assertions": [
+    "data.views_restyled > 0",
+    "data.alignments > 0",
+    "data.per_alignment is not empty",
+    "后跟 save_dwg 必须 ok（本零件的存在理由就是绕开 create_section_views 覆盖重建后 save_dwg 的 eWasOpenForWrite）"
+  ],
+  "note": "实测档案（2026-08-16 项目B 200m出图 dwg，路线 Z3）：21 张视图换 @C3DF-SimpleGrid + 高程 0~10，视图数据高度 150→10 m；地面线断面 42 条换 C3DF-GroundLine；save_dwg ok。坑：改断面来源样式时采样线组必须 ForWrite 打开，只开读 eNotOpenForWrite 硬崩进程。",
+  "status": "draft_assertions_pending_owner_review"
+}

@@ -1,0 +1,9 @@
+{
+  "_comment": "只读侦察：列出图里各类 Civil 样式集合的名字。2026-08-26 项目B纵断面修复实跑过（对照两图样式是否同名）。⚠ 实现只走 civ.Styles 两级属性，不递归深爬——深爬摸到 Database/Document 会把 accoreconsole 原生崩掉。",
+  "ops": [
+    {
+      "op": "list_styles",
+      "contains": "纵断面"
+    }
+  ]
+}
