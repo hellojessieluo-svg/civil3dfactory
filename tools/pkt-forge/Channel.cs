@@ -266,7 +266,9 @@ internal static class ChannelXaml
             {
                 PointXY("P1", "Origin", null, "0", "0", "Origin", "origin"),
                 PointXY("P2", "Bottom edge", "P1", "[BottomHalfWidth]", "0", "Bottom", "Toe", "toe-" + side),
-                Link("L1", "Flat bottom", "P1", "P2", "Top", "Datum", "Bottom", "Flat", "Cut", "bottom")
+                // bottom half runs left -> right on both sides (left side: toe -> origin) so a length label reads the same way up as the slopes
+                isLeft ? Link("L1", "Flat bottom", "P2", "P1", "Top", "Datum", "Bottom", "Flat", "Cut", "bottom")
+                       : Link("L1", "Flat bottom", "P1", "P2", "Top", "Datum", "Bottom", "Flat", "Cut", "bottom")
             };
             if (lining)
             {

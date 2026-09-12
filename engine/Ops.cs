@@ -588,7 +588,7 @@ namespace Civil3DFactory
                             + "CodeSetStyles branch (same source as dump_label_styles). Used to turn off one branch of the 655 doubled labels in project B's preliminary-design sections "
                             + "(code set branch + marker branch each drew one)",
                 Parameters = "style(label style name, required) components(array, required): each {name(component name, * = all), "
-                           + "visible?, x_offset?, y_offset?, contents?, angle_deg?, length?, height?, "
+                           + "visible?, x_offset?, y_offset?, contents?, angle_deg?, length?, height?, start_x_offset?, start_y_offset?, end_x_offset?, end_y_offset?(line components, plotted units) "
                            + "attachment?(TopCenter/MiddleCenter/BottomCenter...), anchor_component?(component name or <Feature>), "
                            + "anchor_location?(TopCenter/BottomCenter…)} "
                            + "dragged_state?({property:value}, keys as reported by dump_label_styles under dragged_state, e.g. DisplayType/TextHeight)",

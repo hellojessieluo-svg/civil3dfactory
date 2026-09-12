@@ -49,10 +49,12 @@ parameter: each side slopes from its own line down to the design bottom and the 
 
 ```
 PktForge.exe slopetop --name SlopeTop --slope1-h 3 --out <folder>        LEFT/RIGHT pair: TopLine offset target + EG_Surface, toe coded toe-left / toe-right
-create_assembly  name, items:[                                            in this order:
-   {pkt: SlopeTop_LEFT.pkt},  {pkt: SlopeTop_RIGHT.pkt},                    the two slopes on the baseline
-   {stock: "Subassembly.MarkPoint",         params:{PointName:"TOE_L"},                 attach:{to:<left>,  point_code:"toe-left"}},
-   {stock: "Subassembly.LinkToMarkedPoint", params:{MarkedPointName:"TOE_L", SurfaceCodes:"Top,Datum,Bottom,bottom"}, attach:{to:<right>, point_code:"toe-right"}} ]
+create_assembly  name, items:[                                            item order = processing order:
+   {pkt: SlopeTop_RIGHT.pkt},                                                right slope on the baseline
+   {stock: "Subassembly.MarkPoint",         params:{PointName:"TOE_R"},                 attach:{to:<right>, point_code:"toe-right"}},
+   {pkt: SlopeTop_LEFT.pkt},                                                 left slope on the baseline
+   {stock: "Subassembly.LinkToMarkedPoint", params:{MarkedPointName:"TOE_R", SurfaceCodes:"Top,Datum,Bottom,bottom"}, attach:{to:<left>,  point_code:"toe-left"}} ]
+                                                                          (the marked point must exist before the link runs; left -> right link = label the same way up as the slopes)
 create_corridor                                                           offset alignments named <alignment>_L* / _R* are assigned to the TopLine slots automatically (same-side)
 ```
 

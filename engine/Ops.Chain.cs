@@ -1833,6 +1833,8 @@ namespace Civil3DFactory
             int corridorSurfaceSections = 0;
             int corridorDisplayOverrides = 0;
             string creationMode = "";
+            int materialShapeStylesSet = 0;
+            int materialSectionsStyled = 0;
             string creationNote = "";
             string corridorCodeSetBefore = "";
             bool corridorCodeSetSet = false;
@@ -1921,6 +1923,19 @@ namespace Civil3DFactory
                     matStyleId = FindStyleIdStrict(tr, civ.Styles.ShapeStyles, matStyleName);
                     if (matStyleId.IsNull) matStyleId = FindStyleIdStrict(tr, civ.Styles.SectionStyles, matStyleName);
                     if (matStyleId.IsNull) throw new InvalidOperationException("material_style '" + matStyleName + "' not found in ShapeStyles or SectionStyles.");
+                    // A shape style also goes onto QTOMaterial.ShapeStyleId: that is what draws the material hatch in the views
+                    // (the stock material list starts at "Basic" = solid fill); same as restyle_section_views material_shape_style.
+                    ObjectId matShapeId = FindStyleIdStrict(tr, civ.Styles.ShapeStyles, matStyleName);
+                    if (!matShapeId.IsNull)
+                    {
+                        foreach (CivQtoMaterialList ml in slg.MaterialLists)
+                            foreach (object item in (System.Collections.IEnumerable)ml)
+                            {
+                                var pShape = item?.GetType().GetProperty("ShapeStyleId");
+                                if (pShape == null || !pShape.CanWrite) continue;
+                                try { pShape.SetValue(item, matShapeId); materialShapeStylesSet++; } catch { }
+                            }
+                    }
                 }
 
                 // Follow the path verified on the old console: five-argument draft creation.
@@ -1995,6 +2010,32 @@ namespace Civil3DFactory
                     else if (sourceType.IndexOf("CorridorSurface",
                              StringComparison.OrdinalIgnoreCase) >= 0)
                         corridorSurfaceSections += sourceSectionCount;
+                }
+                // Material sections (cut/fill hatch) are not listed under the group's section sources: reach them through each
+                // sample line's own sections and set their style slot, which is what the views render from (same as restyle_section_views;
+                // without this the hatch stays at the default style and shows as a solid fill).
+                if (!matStyleId.IsNull)
+                {
+                    foreach (ObjectId slId in slg.GetSampleLineIds())
+                    {
+                        CivSampleLine sl;
+                        try { sl = (CivSampleLine)tr.GetObject(slId, OpenMode.ForRead); } catch { continue; }
+                        ObjectIdCollection secIds = null;
+                        try { secIds = sl.GetSectionIds(); } catch { }
+                        if (secIds == null) continue;
+                        foreach (ObjectId secId in secIds)
+                        {
+                            try
+                            {
+                                DBObject so = tr.GetObject(secId, OpenMode.ForRead);
+                                if (so.GetType().Name != "MaterialSection") continue;
+                                so.UpgradeOpen();
+                                ((Autodesk.Civil.DatabaseServices.Section)so).StyleId = matStyleId;
+                                materialSectionsStyled++;
+                            }
+                            catch { }
+                        }
+                    }
                 }
                 tr.Commit();
             }
@@ -2206,6 +2247,8 @@ namespace Civil3DFactory
                 ["surface_sections_styled"] = surfStyled,
                 ["creation_mode"] = creationMode,
                 ["placement"] = placement,
+                ["material_shape_styles_set"] = materialShapeStylesSet,
+                ["material_sections_styled"] = materialSectionsStyled,
                 ["template"] = templateFile,
                 ["layout"] = layoutName,
                 ["group_plot_style"] = groupPlotStyle,

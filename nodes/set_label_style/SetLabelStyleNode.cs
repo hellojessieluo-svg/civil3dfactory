@@ -146,6 +146,9 @@ namespace Civil3DFactory
                                     if (e["length"] != null &&
                                         SetGroupProp(c, "Line", "Length", e["length"].GetValue<double>()))
                                     { log["length"] = e["length"].GetValue<double>(); touched = true; }
+                                    foreach (var kv in new[] { ("start_x_offset", "StartPointXOffset"), ("start_y_offset", "StartPointYOffset"), ("end_x_offset", "EndPointXOffset"), ("end_y_offset", "EndPointYOffset") })
+                                        if (e[kv.Item1] != null && SetGroupProp(c, "Line", kv.Item2, e[kv.Item1].GetValue<double>()))
+                                        { log[kv.Item1] = e[kv.Item1].GetValue<double>(); touched = true; }
                                 }
 
                                 if (touched) applied.Add(log);

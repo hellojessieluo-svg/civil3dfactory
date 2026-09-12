@@ -98,6 +98,17 @@
       "_comment": "the bottom link (channel template, or the LinkToMarkedPoint closing link) gets its length labelled like the slopes"
     },
     {
+      "op": "shape_style",
+      "name": "@C3DF-CutFill",
+      "hatch": {
+        "type": "Pattern",
+        "pattern": "ANSI37",
+        "angle": 0,
+        "scale": 0.6
+      },
+      "_comment": "cross hatch readable on screen and on paper at 1:500 (hatch scale multiplies the annotation scale: 0.25 is nearly solid, 0.6 spaces the lines about 1 m, 2 is sparse)"
+    },
+    {
       "op": "set_scale",
       "scale": 500,
       "_comment": "1:500 - the usual sheet scale for channel sections (text 2.5 mm = 1.25 m)"
