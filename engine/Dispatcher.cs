@@ -18,11 +18,11 @@ using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 操作台派发器：一次 acc 启动可执行任务文件里的多个操作。
-    /// 约定（全部走环境变量，避免命令行交互）：
-    ///   C3DF_TASK   = 任务 JSON 路径（必需）
-    ///   C3DF_RESULT = 结果 JSON 路径（可选，缺省为任务文件同目录 result.json）
-    /// 任务格式： { "ops": [ {"op":"list_alignments"}, {"op":"export_stations","interval":50} ] }
+    /// Console dispatcher: one accoreconsole launch runs every op listed in a task file.
+    /// Convention (everything via environment variables, no command-line interaction):
+    ///   C3DF_TASK   = task JSON path (required)
+    ///   C3DF_RESULT = result JSON path (optional; defaults to result.json next to the task file)
+    /// Task format: { "ops": [ {"op":"list_alignments"}, {"op":"export_stations","interval":50} ] }
     /// </summary>
     public class Dispatcher
     {
@@ -40,16 +40,16 @@ namespace Civil3DFactory
         static JsonNode LoadTaskFile(string taskPath)
         {
             if (string.IsNullOrEmpty(taskPath) || !File.Exists(taskPath))
-                throw new InvalidOperationException("找不到任务文件，请设置环境变量 C3DF_TASK。当前值: " + (taskPath ?? "(空)"));
+                throw new InvalidOperationException("Task file not found; set the C3DF_TASK environment variable. Current value: " + (taskPath ?? "(empty)"));
             return JsonNode.Parse(File.ReadAllText(taskPath, Encoding.UTF8));
         }
 
         /// <summary>
-        /// 执行一份任务，返回结果对象。冷启动（C3DF-Run）和常驻（C3DF-Serve）共用这一段——
-        /// 两条路径的审计事件、结果结构、错误处理必须完全一致，否则常驻跑出来的结果
-        /// 和工单台账对不上账。
-        /// <paramref name="taskPath"/> 只用于审计字段；常驻模式任务直接从管道来，传 null。
-        /// <paramref name="resultPath"/> 为空时不落盘，只把结果返回给调用方（常驻走管道回传）。
+        /// Runs one task and returns the result object. Cold start (C3DF-Run) and resident mode (C3DF-Serve) share this code:
+        /// audit events, result structure and error handling must be identical on both paths, otherwise
+        /// resident-mode results will not reconcile with the work-order ledger.
+        /// <paramref name="taskPath"/> is only used for audit fields; resident mode receives tasks from the pipe and passes null.
+        /// When <paramref name="resultPath"/> is empty nothing is written to disk; the result is only returned to the caller (resident mode sends it back over the pipe).
         /// </summary>
         internal static JsonObject RunTask(
             Func<JsonNode> loadTask, string taskPath, string resultPath, Document doc, bool echoToEditor)
@@ -79,7 +79,7 @@ namespace Civil3DFactory
             try
             {
                 JsonNode task = loadTask();
-                if (task == null) throw new InvalidOperationException("任务内容为空。");
+                if (task == null) throw new InvalidOperationException("Task content is empty.");
                 JsonObject pipeline = task["pipeline"] as JsonObject;
                 bool pipelineTask = pipeline != null;
                 bool stopOnError = pipelineTask
@@ -89,17 +89,17 @@ namespace Civil3DFactory
                     ? pipeline["id"].GetValue<string>()
                     : null;
                 if (pipelineTask && string.IsNullOrWhiteSpace(pipelineId))
-                    throw new InvalidOperationException("pipeline.id 不能为空。");
+                    throw new InvalidOperationException("pipeline.id must not be empty.");
 
                 JsonArray ops = task["ops"] as JsonArray;
-                if (ops == null) throw new InvalidOperationException("任务文件缺少 ops 数组。");
+                if (ops == null) throw new InvalidOperationException("Task file has no ops array.");
 
                 result["dwg"] = SafeName(doc);
                 if (pipelineTask) result["pipeline"] = pipeline.DeepClone();
                 JsonObject resolved = Ops.ResolveFactoryTask(task as JsonObject, doc);
                 if (resolved.Count > 0) result["resolved"] = resolved;
                 result["total_ops"] = ops.Count;
-                Dump(result, resultPath, null);   // 先落一次盘：即使后面硬崩也留证据
+                Dump(result, resultPath, null);   // Write once up front: evidence survives even a hard crash later
 
                 bool allOk = true;
                 int opIndex = 0;
@@ -135,7 +135,7 @@ namespace Civil3DFactory
                     try
                     {
                         if (string.IsNullOrEmpty(opName))
-                            throw new InvalidOperationException("操作缺少 op 字段。");
+                            throw new InvalidOperationException("Operation has no op field.");
                         JsonNode data = Ops.Execute(opName, o, doc);
                         r["ok"] = true;
                         r["data"] = data;
@@ -147,7 +147,7 @@ namespace Civil3DFactory
                         r["ok"] = false;
                         r["error"] = ex.Message;
                         r["type"] = ex.GetType().Name;
-                        // 带上堆栈：AutoCAD 的异常消息常常只有 eXxx 一个词，没有堆栈根本定不了位
+                        // Include the stack: AutoCAD exception messages are often a single eXxx word, impossible to locate without it
                         r["stack"] = FirstFrames(ex, 6);
                         opError = ex.Message;
                         opErrorType = ex.GetType().Name;
@@ -180,7 +180,7 @@ namespace Civil3DFactory
                     }
                     Audit(completed);
                     opResults.Add(r);
-                    Dump(result, resultPath, null);   // 每个操作跑完就更新结果文件
+                    Dump(result, resultPath, null);   // Update the result file after every op
                     if (!opOk && stopOnError) break;
                 }
                 result["ok"] = allOk;
@@ -199,8 +199,8 @@ namespace Civil3DFactory
                     ["type"] = ex.GetType().Name,
                     ["stack"] = FirstFrames(ex, 6)
                 });
-                // 冷启动没给结果路径时兜底到「我的文档」，至少留下证据；
-                // 常驻模式结果走管道回传，不需要兜底文件。
+                // Cold start without a result path falls back to My Documents so at least some evidence remains;
+                // resident mode returns results over the pipe and needs no fallback file.
                 if (string.IsNullOrEmpty(resultPath) && !string.IsNullOrEmpty(taskPath))
                     resultPath = Path.Combine(
                         Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
@@ -249,13 +249,13 @@ namespace Civil3DFactory
         }
 
         /// <summary>
-        /// 取工位标签（S01/S02…）。
-        /// `step` 这个键名是共享的：Dispatcher 拿它当工位标签，而某些 op 自己也有叫
-        /// `step` 的参数（如 create_surface_grid 的网格步长）。所以**只认字符串**，
-        /// 数值一律当成 op 自己的参数忽略掉，回退到按序号编号。
-        /// 曾经无条件 GetValue&lt;string&gt;()，一个数值 step 就让整张工单在解析阶段抛
-        /// "An element of type 'Number' cannot be converted to a 'System.String'"，
-        /// completed_ops=0。
+        /// Gets the station label (S01/S02...).
+        /// The key `step` is shared: Dispatcher treats it as the station label, but some ops also have
+        /// their own `step` parameter (e.g. the grid step of create_surface_grid). So **only strings count**;
+        /// numbers are ignored as the op's own parameter and we fall back to sequential numbering.
+        /// An unconditional GetValue&lt;string&gt;() once let a single numeric step make the whole work order throw during parsing:
+        /// "An element of type 'Number' cannot be converted to a 'System.String'",
+        /// completed_ops=0.
         /// </summary>
         static string StationLabel(JsonObject o, int opIndex)
         {
@@ -266,20 +266,20 @@ namespace Civil3DFactory
             string s;
             try
             {
-                if (n.GetValueKind() != JsonValueKind.String) return fallback;  // 数值/布尔 → 不是标签
+                if (n.GetValueKind() != JsonValueKind.String) return fallback;  // number/bool -> not a label
                 s = n.GetValue<string>();
             }
             catch { return fallback; }
             return string.IsNullOrWhiteSpace(s) ? fallback : s;
         }
 
-        /// <summary>取异常堆栈的前 n 帧（只留本插件的帧，方便一眼定位）。</summary>
+        /// <summary>Takes the first n frames of the exception stack (only this plugin's frames, for quick localisation).</summary>
         static string FirstFrames(System.Exception ex, int n)
         {
             try
             {
                 string st = ex.StackTrace;
-                if (string.IsNullOrEmpty(st)) return "(无堆栈)";
+                if (string.IsNullOrEmpty(st)) return "(no stack)";
                 var lines = st.Split('\n');
                 var sb = new StringBuilder();
                 int taken = 0;
@@ -293,28 +293,28 @@ namespace Civil3DFactory
                 }
                 return sb.ToString();
             }
-            catch { return "(堆栈读取失败)"; }
+            catch { return "(stack unavailable)"; }
         }
 
-        // AutoCAD 2025 宿主里反射式序列化默认关闭，自定义 JsonSerializerOptions
-        // 必须显式给 TypeInfoResolver，否则报 "must specify a TypeInfoResolver"。
+        // Reflection-based serialization is off by default in the AutoCAD 2025 host; custom JsonSerializerOptions
+        // must set TypeInfoResolver explicitly or it fails with "must specify a TypeInfoResolver".
         internal static JsonSerializerOptions NewOpts()
         {
             return new JsonSerializerOptions
             {
                 WriteIndented = true,
-                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,  // 中文不转义，人能直接读
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,  // keep non-ASCII text unescaped so people can read it directly
                 TypeInfoResolver = new DefaultJsonTypeInfoResolver()
             };
         }
 
-        /// <summary>三级降级序列化：带中文友好选项 → 默认选项 → 纯文本，保证一定有输出。</summary>
+        /// <summary>Three-level fallback serialization: readable options -> default options -> plain text, so there is always output.</summary>
         internal static string ToJson(JsonNode node)
         {
             try { return node.ToJsonString(NewOpts()); } catch { }
             try { return node.ToJsonString(); } catch (System.Exception ex)
             {
-                return "{\"ok\":false,\"error\":\"序列化失败: " +
+                return "{\"ok\":false,\"error\":\"Serialization failed: " +
                        ex.Message.Replace("\"", "'").Replace("\\", "/") + "\"}";
             }
         }
@@ -338,12 +338,12 @@ namespace Civil3DFactory
         }
 
         /// <summary>
-        /// 落盘 + 可选打印。序列化本身也要防崩：任何一步失败都退化成一行纯文本，
-        /// 绝不让"写结果"这步把整条命令带崩（曾因序列化异常导致 ops 已成功却无任何结果）。
+        /// Write to disk + optional print. Serialization itself must be crash-proof: any failure degrades to one line of plain text;
+        /// the "write result" step must never take the whole command down (a serialization exception once left successful ops with no result at all).
         /// </summary>
         static void Dump(JsonNode result, string path, Document doc)
         {
-            if (string.IsNullOrEmpty(path) && doc == null) return;   // 常驻模式无结果文件时不白序列化
+            if (string.IsNullOrEmpty(path) && doc == null) return;   // resident mode without a result file: skip pointless serialization
             string json = ToJson(result);
             try
             {

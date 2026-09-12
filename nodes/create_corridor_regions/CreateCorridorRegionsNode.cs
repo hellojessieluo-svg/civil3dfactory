@@ -16,17 +16,17 @@ using CivilDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// create_corridor_regions（S04）：建**多区域**走廊，每段用各自的装配。
+    /// create_corridor_regions (S04): build a **multi-region** corridor, each region with its own assembly.
     ///
-    /// 既有 create_corridor 只能建单区域单装配，而本项目一条通道要分 1~7 段，
-    /// 每段按左右工况（常规/荷花/交叉口）挑不同装配 —— B1 就有 7 段。
+    /// The existing create_corridor builds one region with one assembly, but a channel in this project splits into 1~7 segments,
+    /// each picking a different assembly by left/right condition (normal/lotus/intersection); B1 alone has 7.
     ///
-    /// 建法：CorridorCollection.Add(名) 建空壳 → Baselines.Add(基线, 路线, 设计纵断面)
-    ///       → BaselineRegions.Add(区域名, 装配, 起桩号, 止桩号) 逐段加。
-    /// 目标：曲面槽 → 原地形；偏移槽 → {通道}_左 / {通道}_右（S02 的产物）。
+    /// Method: CorridorCollection.Add(name) creates an empty shell -> Baselines.Add(baseline, alignment, design profile)
+    ///       -> BaselineRegions.Add(region name, assembly, start station, end station) per segment.
+    /// Targets: surface slots -> existing ground; offset slots -> {channel}_L / {channel}_R (output of S02).
     ///
-    /// 桩号会按路线实际范围裁剪：参数表里的桩号可能来自旧线位
-    /// （B1 改线后从 3308.655 缩到 3285.119），超出的段会被裁掉或丢弃并在 notes 里报出来。
+    /// Stations are clipped to the actual alignment range: stations in the parameter table may come from an old alignment
+    /// (B1 shrank from 3308.655 to 3285.119 after realignment); segments beyond it are clipped or dropped and reported in notes.
     /// </summary>
     public static partial class Ops
     {
@@ -37,11 +37,11 @@ namespace Civil3DFactory
         {
             string alName = Need(a, "alignment");
             string sfName = Need(a, "surface");
-            string corridorName = GetString(a, "name", alName + "_走廊");
-            string baselineName = GetString(a, "baseline", alName + "_基线");
+            string corridorName = GetString(a, "name", alName + "_Corridor");
+            string baselineName = GetString(a, "baseline", alName + "_Baseline");
             JsonArray regions = a["regions"] as JsonArray;
             if (regions == null || regions.Count == 0)
-                throw new InvalidOperationException("regions 不能为空：需要 [{assembly,start,end,name?}, ...]");
+                throw new InvalidOperationException("regions cannot be empty: [{assembly,start,end,name?}, ...] is required");
 
             Database db = doc.Database;
             CivilDoc civ = Civ(db);
@@ -56,7 +56,7 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 CivAlign al = FindAlignment(tr, civ, alName);
-                if (al == null) throw new InvalidOperationException("找不到路线 '" + alName + "'。");
+                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "' not found.");
                 double s0 = al.StartingStation, s1 = al.EndingStation;
 
                 ObjectId fgId = ObjectId.Null;
@@ -66,10 +66,10 @@ namespace Civil3DFactory
                     if (p != null && p.ProfileType == CivProfileType.FG) { fgId = pid; break; }
                 }
                 if (fgId.IsNull)
-                    throw new InvalidOperationException("路线 '" + alName + "' 没有设计纵断面，先跑 create_design_profiles。");
+                    throw new InvalidOperationException("Alignment '" + alName + "' has no design profile; run create_design_profiles first.");
 
                 ObjectId sfId = FindSurfaceId(tr, civ, sfName);
-                if (sfId.IsNull) throw new InvalidOperationException("找不到曲面 '" + sfName + "'。");
+                if (sfId.IsNull) throw new InvalidOperationException("Surface '" + sfName + "' not found.");
 
                 var asmByName = new Dictionary<string, ObjectId>(StringComparer.OrdinalIgnoreCase);
                 foreach (ObjectId id in ModelSpace(db, tr))
@@ -83,15 +83,15 @@ namespace Civil3DFactory
                 {
                     var x = tr.GetObject(aid, OpenMode.ForRead) as CivAlign;
                     if (x == null) continue;
-                    if (x.Name == alName + "_左") leftId = aid;
-                    else if (x.Name == alName + "_右") rightId = aid;
+                    if (x.Name == alName + "_L") leftId = aid;
+                    else if (x.Name == alName + "_R") rightId = aid;
                 }
                 if (leftId.IsNull || rightId.IsNull)
-                    notes.Add("缺少宽度目标（" + alName + "_左/" + alName + "_右），走廊将只按装配自身放坡");
+                    notes.Add("Width targets missing (" + alName + "_L/" + alName + "_R); the corridor will grade by the assembly alone");
 
                 ObjectId corridorId = civ.CorridorCollection.Add(corridorName);
                 var corridor = tr.GetObject(corridorId, OpenMode.ForWrite) as CivCorridor;
-                if (corridor == null) throw new InvalidOperationException("走廊建出来但取不到对象。");
+                if (corridor == null) throw new InvalidOperationException("Corridor created but the object cannot be retrieved.");
 
                 CivBaseline bl = corridor.Baselines.Add(baselineName, al.ObjectId, fgId);
 
@@ -104,9 +104,9 @@ namespace Civil3DFactory
                     if (r == null) continue;
                     string asmName = GetString(r, "assembly", null);
                     if (string.IsNullOrWhiteSpace(asmName))
-                    { notes.Add("第 " + idx + " 段没写 assembly，跳过"); skipped++; continue; }
+                    { notes.Add("Segment " + idx + " has no assembly, skipped"); skipped++; continue; }
                     if (!asmByName.ContainsKey(asmName))
-                    { notes.Add("第 " + idx + " 段装配 '" + asmName + "' 图里没有，跳过"); skipped++; continue; }
+                    { notes.Add("Segment " + idx + ": assembly '" + asmName + "' not in the drawing, skipped"); skipped++; continue; }
 
                     double st = GetDouble(r, "start", double.NaN);
                     double en = GetDouble(r, "end", double.NaN);
@@ -117,13 +117,13 @@ namespace Civil3DFactory
                     if (en > s1) en = s1;
                     if (en - st < 1e-6)
                     {
-                        notes.Add("第 " + idx + " 段 " + Math.Round(rawSt, 3) + "~" + Math.Round(rawEn, 3) +
-                                  " 完全落在路线范围 [" + Math.Round(s0, 3) + "," + Math.Round(s1, 3) + "] 之外，丢弃");
+                        notes.Add("Segment " + idx + " " + Math.Round(rawSt, 3) + "~" + Math.Round(rawEn, 3) +
+                                  " lies entirely outside the alignment range [" + Math.Round(s0, 3) + "," + Math.Round(s1, 3) + "], dropped");
                         skipped++; continue;
                     }
-                    // 阈值取 1mm：路线端点本身有亚毫米浮点差，用 1e-6 会把无害的裁剪全报出来
+                    // Threshold 1 mm: alignment endpoints carry sub-millimetre float noise; 1e-6 would report every harmless clip
                     if (Math.Abs(rawSt - st) > 0.001 || Math.Abs(rawEn - en) > 0.001)
-                        notes.Add("第 " + idx + " 段桩号被裁剪：" + Math.Round(rawSt, 3) + "~" + Math.Round(rawEn, 3) +
+                        notes.Add("Segment " + idx + " stations clipped: " + Math.Round(rawSt, 3) + "~" + Math.Round(rawEn, 3) +
                                   " → " + Math.Round(st, 3) + "~" + Math.Round(en, 3));
 
                     string rName = GetString(r, "name", "RG-" + idx.ToString("00") + "-" + asmName);
@@ -141,15 +141,15 @@ namespace Civil3DFactory
                         });
                     }
                     catch (System.Exception ex)
-                    { notes.Add("第 " + idx + " 段建区域失败：" + ex.Message); skipped++; }
+                    { notes.Add("Segment " + idx + " region creation failed: " + ex.Message); skipped++; }
                 }
 
                 if (added.Count == 0)
-                    throw new InvalidOperationException("一个区域都没建成，走廊无效。");
+                    throw new InvalidOperationException("No region was created; the corridor is invalid.");
 
                 corridor.Rebuild();
 
-                // 设目标
+                // Set targets
                 var targets = corridor.GetTargets();
                 var sfIds = new ObjectIdCollection { sfId };
                 var offIds = new ObjectIdCollection();
@@ -169,16 +169,16 @@ namespace Civil3DFactory
                 try { foreach (string c in corridor.GetLinkCodes()) codes.Add(c); }
                 catch (System.Exception) { }
 
-                // 「安静地成功 = 没成功」护栏（2026-08-13 项目A实图教训）：
-                // 放坡子装配（RiverSlope PKT）执行了才会声明曲面目标槽并产出 slope-*/bottom-* 链接码；
-                // 一个曲面目标都没有 = 子装配没跑（典型：PKT 未嵌入图纸 UseEmbeddedProject=False、外部 .pkt 找不到），
-                // 走廊只剩 ZCD 退化面，后面 62 步全 ok=true 而方量全 0。这里直接拦下。
+                // "Silent success = failure" guard (lesson from project A drawings, 2026-08-13):
+                // the grading subassembly (RiverSlope PKT) declares surface target slots and emits slope-*/bottom-* link codes only when it actually runs;
+                // no surface target at all = the subassembly did not run (typically PKT not embedded, UseEmbeddedProject=False, external .pkt missing),
+                // leaving only the degenerate ZCD surface: the next 62 steps all report ok=true with zero volumes. Stop it here.
                 if (sCount == 0 && !GetBool(a, "allow_no_surface_targets", false))
                     throw new InvalidOperationException(
-                        "走廊 '" + corridorName + "' 建成后没有任何曲面目标槽（surface_targets_set=0），链接码只有 [" +
-                        string.Join(",", codes.Select(c => c?.ToString())) + "]。放坡子装配没有执行——先在 Civil 3D 界面里核对装配的子装配状态" +
-                        "（Status=FileNotFound / UseEmbeddedProject=False 就是它），重导 PKT 并嵌入图纸后再跑；" +
-                        "确认装配本来就不搜地面时传 allow_no_surface_targets:true 放行。");
+                        "Corridor '" + corridorName + "' has no surface target slot after creation (surface_targets_set=0); link codes are only [" +
+                        string.Join(",", codes.Select(c => c?.ToString())) + "]. The grading subassembly did not run: check the subassembly status of the assembly in the Civil 3D UI first" +
+                        " (Status=FileNotFound / UseEmbeddedProject=False is the symptom), re-import the PKT and embed it in the drawing, then rerun; " +
+                        "pass allow_no_surface_targets:true to proceed if the assembly is known not to target a surface.");
 
                 var res = new JsonObject
                 {

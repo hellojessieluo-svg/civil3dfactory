@@ -11,13 +11,13 @@ using CivProfile = Autodesk.Civil.DatabaseServices.Profile;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 节点 attach_baseline_profile：给走廊基线重挂纵断面引用。
+    /// Node attach_baseline_profile: re-attach the profile reference of corridor baselines.
     ///
-    /// 病根：设计纵断面被删（典型：框选删纵断面图时把剖面线一起删了），
-    /// 走廊基线的 profile 引用悬空——走廊区间、链接码看着都在，但几何是死的，
-    /// 道路曲面评估不出来，rebuild_corridor 也救不活。后补的设计线不会自动
-    /// 挂回基线，必须用 BaseBaseline.SetAlignmentAndProfile 显式重挂再重建。
-    /// （API 签名用 api 零件在进程内查实：BaseBaseline.SetAlignmentAndProfile(ObjectId, ObjectId)）
+    /// Root cause: the design profile was deleted (typically a window-select delete of the profile view took the profile with it),
+    /// leaving the baseline's profile reference dangling: regions and link codes look intact but the geometry is dead,
+    /// corridor surfaces cannot be evaluated and rebuild_corridor does not help. A recreated design profile is not
+    /// re-attached automatically; BaseBaseline.SetAlignmentAndProfile must be called explicitly, then rebuild.
+    /// (API signature verified in-process with the api node: BaseBaseline.SetAlignmentAndProfile(ObjectId, ObjectId))
     /// </summary>
     public static partial class Ops
     {
@@ -37,7 +37,7 @@ namespace Civil3DFactory
             {
                 CivCorridor corridor = FindCorridor(tr, db, corridorName);
                 if (corridor == null)
-                    throw new InvalidOperationException("找不到走廊 '" + corridorName + "'。");
+                    throw new InvalidOperationException("Corridor '" + corridorName + "' not found.");
                 corridor.UpgradeOpen();
 
                 foreach (CivBaseline bl in corridor.Baselines)
@@ -50,7 +50,7 @@ namespace Civil3DFactory
                         !string.Equals(al.Name, onlyAlignment, StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    // 选 profile：点名优先；否则按 create_profile_view 同一套设计线识别规则（FG/Layout）
+                    // Pick the profile: explicit name first; otherwise the same design-profile rule as create_profile_view (FG/Layout)
                     ObjectId profId = ObjectId.Null;
                     string profPicked = null;
                     var candidates = new List<string>();
@@ -74,9 +74,9 @@ namespace Civil3DFactory
                     }
                     if (profId.IsNull)
                         throw new InvalidOperationException(
-                            "基线路线 '" + al.Name + "' 上找不到" +
-                            (string.IsNullOrWhiteSpace(profileName) ? "设计纵断面（FG/Layout）" : "剖面线 '" + profileName + "'") +
-                            "。现有：" + (candidates.Count == 0 ? "无" : string.Join("、", candidates)));
+                            "Baseline alignment '" + al.Name + "' has no " +
+                            (string.IsNullOrWhiteSpace(profileName) ? "design profile (FG/Layout)" : "profile '" + profileName + "'") +
+                            ". Existing: " + (candidates.Count == 0 ? "none" : string.Join(", ", candidates)));
 
                     bl.SetAlignmentAndProfile(bl.AlignmentId, profId);
                     attached.Add(new JsonObject
@@ -88,8 +88,8 @@ namespace Civil3DFactory
 
                 if (attached.Count == 0)
                     throw new InvalidOperationException(
-                        "走廊 '" + corridorName + "' 没有匹配的基线" +
-                        (string.IsNullOrWhiteSpace(onlyAlignment) ? "" : "（筛选：" + onlyAlignment + "）") + "。");
+                        "Corridor '" + corridorName + "' has no matching baseline" +
+                        (string.IsNullOrWhiteSpace(onlyAlignment) ? "" : " (filter: " + onlyAlignment + ")") + ".");
 
                 bool rebuilt = false;
                 string rebuildError = null;

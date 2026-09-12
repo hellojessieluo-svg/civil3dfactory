@@ -20,14 +20,14 @@ namespace Civil3DFactory
     {
         public string Description;
         public string Parameters;
-        public bool WritesDrawing;              // true = 会修改 dwg（v1 全为 false）
+        public bool WritesDrawing;              // true = modifies the dwg (all false in v1)
         public Func<JsonObject, Document, JsonNode> Run;
     }
 
     /// <summary>
-    /// 操作注册表——新增一个操作 = 在这里加一条，之后永久可用（这就是“沉淀”）。
-    /// 注意：全程不碰 CivilApplication.ActiveDocument（accoreconsole 里不可用），
-    ///       Civil 3D 对象一律从数据库 ModelSpace 遍历取得。
+    /// Operation registry: adding an operation = adding one entry here; it stays available forever (this is how know-how "settles").
+    /// Note: never touch CivilApplication.ActiveDocument (unavailable in accoreconsole);
+    ///       Civil 3D objects are always obtained by iterating the database ModelSpace.
     /// </summary>
     public static partial class Ops
     {
@@ -36,156 +36,156 @@ namespace Civil3DFactory
         {
             ["drawing_info"] = new OpDef
             {
-                Description = "图纸概况：路线/曲面/图层数量、单位、文件路径",
-                Parameters = "(无)",
+                Description = "Drawing overview: alignment/surface/layer counts, units, file path",
+                Parameters = "(none)",
                 WritesDrawing = false,
                 Run = DrawingInfo
             },
             ["list_alignments"] = new OpDef
             {
-                Description = "列出全部路线：名称、图层、长度、起终点桩号",
-                Parameters = "(无)",
+                Description = "List all alignments: name, layer, length, start/end station",
+                Parameters = "(none)",
                 WritesDrawing = false,
                 Run = ListAlignments
             },
             ["list_surfaces"] = new OpDef
             {
-                Description = "列出全部曲面：名称、类型、图层、高程范围",
-                Parameters = "(无)",
+                Description = "List all surfaces: name, type, layer, elevation range",
+                Parameters = "(none)",
                 WritesDrawing = false,
                 Run = ListSurfaces
             },
             ["export_stations"] = new OpDef
             {
-                Description = "按间距导出路线各桩号平面坐标（xlsx/csv）",
-                Parameters = "name?(路线名) names?[] all?(bool,默认全部) interval?(默认50) outdir? format?(xlsx|csv|both,默认both)",
+                Description = "Export plan coordinates of an alignment at each station by interval (xlsx/csv)",
+                Parameters = "name?(alignment name) names?[] all?(bool, default all) interval?(default 50) outdir? format?(xlsx|csv|both, default both)",
                 WritesDrawing = false,
                 Run = ExportStations
             },
             ["station_elevations"] = new OpDef
             {
-                Description = "沿路线按间距采集指定曲面的地面高程（xlsx/csv），曲面外记 null",
-                Parameters = "alignment(必需) surface(必需) interval?(默认50) outdir? format?",
+                Description = "Sample ground elevation of a surface along an alignment by interval (xlsx/csv); null outside the surface",
+                Parameters = "alignment(required) surface(required) interval?(default 50) outdir? format?",
                 WritesDrawing = false,
                 Run = StationElevations
             },
             ["export_surface_grid"] = new OpDef
             {
-                Description = "把曲面按网格采样导出 CSV 点云（x,y,z，只读，曲面外的点跳过）。"
-                            + "三维可视化/渲染取地形用；走 FindElevationAtXY 逐点查询，样式断链的曲面照样能导"
-                            + "（headless 禁止遍历 Vertices/Triangles，会硬崩——见 surface_stats 的注释）",
-                Parameters = "surface(必需,曲面名) out(必需,csv绝对路径) minx miny maxx maxy(必需,采样范围) "
-                           + "step?(默认10) overwrite?(默认false)",
+                Description = "Sample a surface on a grid and export a CSV point cloud (x,y,z; read-only; points outside the surface are skipped). "
+                            + "For 3D visualisation/rendering terrain; uses FindElevationAtXY per point, so surfaces with broken styles still export "
+                            + "(headless must not iterate Vertices/Triangles, it hard-crashes; see the note in surface_stats)",
+                Parameters = "surface(required, surface name) out(required, absolute csv path) minx miny maxx maxy(required, sample extent) "
+                           + "step?(default 10) overwrite?(default false)",
                 WritesDrawing = false,
                 Run = ExportSurfaceGrid
             },
             ["create_dwg"] = new OpDef
             {
-                Description = "新建一个 DWG 文件并画入图元（圆/直线/圆弧/多段线/文字），不影响当前打开的图纸",
-                Parameters = "path(必需,绝对路径) layers?[{name,color}] circles?[{x,y,r,layer}] lines?[{x1,y1,x2,y2,layer}] "
-                           + "arcs?[{x,y,r,start_angle,end_angle,layer}(角度制)] polylines?[{points:[[x,y]..],closed,width,layer}] "
-                           + "texts?[{x,y,text,height,rotation,layer,style?,width_factor?,color?}] layer?(默认图层,缺省\"0\") overwrite?(默认false)",
-                WritesDrawing = true,   // 产生新 dwg 文件（不改动 /i 传入的图纸）
+                Description = "Create a new DWG file and draw entities into it (circles/lines/arcs/polylines/texts) without touching the open drawing",
+                Parameters = "path(required, absolute path) layers?[{name,color}] circles?[{x,y,r,layer}] lines?[{x1,y1,x2,y2,layer}] "
+                           + "arcs?[{x,y,r,start_angle,end_angle,layer}(degrees)] polylines?[{points:[[x,y]..],closed,width,layer}] "
+                           + "texts?[{x,y,text,height,rotation,layer,style?,width_factor?,color?}] layer?(default layer, default \"0\") overwrite?(default false)",
+                WritesDrawing = true,   // produces a new dwg file (does not modify the drawing passed with /i)
                 Run = CreateDwg
             },
             ["list_blocks"] = new OpDef
             {
-                Description = "列出图中的块定义（名称、是否带属性、属性标签、已插入次数）",
-                Parameters = "include_layout?(默认false,不列 *Model_Space 等系统块)",
+                Description = "List block definitions in the drawing (name, has attributes, attribute tags, insert count)",
+                Parameters = "include_layout?(default false, do not list *Model_Space and other system blocks)",
                 WritesDrawing = false,
                 Run = ListBlocks
             },
             ["block_refs"] = new OpDef
             {
-                Description = "列出块引用：块名、所在空间、图层、插入点、旋转、比例、包围盒（找图框位置就用它）",
-                Parameters = "name?(块名子串筛选，如\"图框\") space?(model|layout|all，默认all) max?(默认200)",
+                Description = "List block references: block name, space, layer, insertion point, rotation, scale, bounding box (use it to locate title blocks)",
+                Parameters = "name?(block-name substring filter, e.g. \"TitleBlock\") space?(model|layout|all, default all) max?(default 200)",
                 WritesDrawing = false,
                 Run = BlockRefs
             },
             ["dump_block_attributes"] = new OpDef
             {
-                Description = "导出块引用的属性到 JSON（图签图框就用它）：逐个块引用报句柄、块名、所在空间和全部「标签→值」",
-                Parameters = "name?(块名子串筛选，如\"图框\") space?(model|layout|all，默认all) max?(默认500) "
-                           + "with_attributes_only?(默认true，跳过没有属性的块) out?(把结果另写一份 JSON 到该绝对路径)",
+                Description = "Export block reference attributes to JSON (use it for title blocks): per reference reports handle, block name, space and all tag->value pairs",
+                Parameters = "name?(block-name substring filter, e.g. \"TitleBlock\") space?(model|layout|all, default all) max?(default 500) "
+                           + "with_attributes_only?(default true, skip blocks without attributes) out?(also write the result as JSON to this absolute path)",
                 WritesDrawing = false,
                 Run = DumpBlockAttributes
             },
             ["set_block_attributes"] = new OpDef
             {
-                Description = "按 JSON 反写块属性：逐句柄精确回填，或按块名批量改同一批标签（改图签日期/图号/说明就用它）",
-                Parameters = "from?(dump_block_attributes 导出并改过的 JSON 绝对路径) items?[{handle,attributes:{标签:值}}] "
-                           + "name?(块名子串，配合 attributes 批量改) attributes?{标签:值} space?(model|layout|all，默认all) "
-                           + "width_factors?{标签:因子}(长文字塞窄格：把该标签的属性文字横向压扁，可单独给、"
-                           + "不改值也能跑；多行(MText)属性不吃宽度因子，会记进 mtext_skipped 不假装成功) "
-                           + "missing_ok?(默认true，图里没有该标签只记录不报错)",
+                Description = "Write block attributes back from JSON: exact per-handle fill, or batch-edit the same tags by block name (use it to change title-block date/sheet number/notes)",
+                Parameters = "from?(absolute path of a JSON exported by dump_block_attributes and edited) items?[{handle,attributes:{tag:value}}] "
+                           + "name?(block-name substring, batch edit together with attributes) attributes?{tag:value} space?(model|layout|all, default all) "
+                           + "width_factors?{tag:factor}(squeeze long text into a narrow cell: horizontally compresses that tag's attribute text; can be given alone, "
+                           + "runs without changing values; multi-line (MText) attributes ignore width factor and are recorded in mtext_skipped instead of faking success) "
+                           + "missing_ok?(default true, a tag missing from the drawing is only recorded, not an error)",
                 WritesDrawing = true,
                 Run = SetBlockAttributes
             },
             ["model_extents"] = new OpDef
             {
-                Description = "模型空间总包围盒 + INSBASE（查\"这张图/这个图例多大、整体插块时基点在哪\"）",
-                Parameters = "layer?(图层名子串筛选)",
+                Description = "Model space overall bounding box + INSBASE (answers \"how big is this drawing/legend and where is the base point when inserting it as a block\")",
+                Parameters = "layer?(layer-name substring filter)",
                 WritesDrawing = false,
                 Run = ModelExtents
             },
             ["list_marked_regions"] = new OpDef
             {
-                Description = "列出模型空间的闭合框候选及其Note/XData/扩展字典/超链接，识别用户标记的成图区域",
-                Parameters = "marked_only?(默认true，只返回带附加信息的对象) layer?(图层名子串) max?(默认100)",
+                Description = "List closed-frame candidates in model space with their Note/XData/extension dictionary/hyperlink, to identify user-marked sheet regions",
+                Parameters = "marked_only?(default true, only return objects with attached info) layer?(layer-name substring) max?(default 100)",
                 WritesDrawing = false,
                 Run = ListMarkedRegions
             },
             ["list_civil_views"] = new OpDef
             {
-                Description = "列出模型空间中的横断面图/纵断面图对象及包围盒，用于校核是否落在材料框内",
-                Parameters = "type?(section|profile|all，默认all) max?(默认1000)",
+                Description = "List section view / profile view objects in model space with bounding boxes, to check whether they fall inside sheet frames",
+                Parameters = "type?(section|profile|all, default all) max?(default 1000)",
                 WritesDrawing = false,
                 Run = ListCivilViews
             },
             ["modify_dwg"] = new OpDef
             {
-                Description = "改动既有图纸（画图元/插块）。**默认副本预演**，不碰原图；apply:true 才写回原图并自动备份",
-                Parameters = "dwg(必需,目标图纸) apply?(默认false=预演到副本) backup?(默认true,apply时先备份) "
-                           + "space?(默认Model,可给布局名；对图元与填充生效，块另有逐项 space) "
-                           + "blocks?[{name,from_dwg?,source_block?,x,y,scale?,rotation?,layer?,space?(布局名),attributes?{标签:值}}] "
-                           + "circles?/lines?/arcs?/polylines?/texts?/layers?(同 create_dwg；线/文字均可给 color=ACI 色号，文字另可给 style/width_factor) "
-                           + "hatches?[{points:[[x,y],...],pattern?(默认SOLID),scale?,angle?,layer?,color?}] "
-                           + "xrefs?[{path(必需,绝对路径),name?,x?,y?,layer?,overlay?}](挂外参+插引用进模型；"
-                           + "同名已在就跳过可重跑；相对路径外参会被打印器搬家搬丢，一律绝对路径) "
-                           + "out?(预演文件路径,缺省自动命名)",
+                Description = "Modify an existing drawing (draw entities/insert blocks). **Defaults to a preview copy**, never touches the original; apply:true writes back to the original with an automatic backup",
+                Parameters = "dwg(required, target drawing) apply?(default false = preview to a copy) backup?(default true, back up before apply) "
+                           + "space?(default Model, or a layout name; applies to entities and hatches, blocks have their own per-item space) "
+                           + "blocks?[{name,from_dwg?,source_block?,x,y,scale?,rotation?,layer?,space?(layout name),attributes?{tag:value}}] "
+                           + "circles?/lines?/arcs?/polylines?/texts?/layers?(same as create_dwg; lines/texts accept color=ACI index, texts also style/width_factor) "
+                           + "hatches?[{points:[[x,y],...],pattern?(default SOLID),scale?,angle?,layer?,color?}] "
+                           + "xrefs?[{path(required, absolute path),name?,x?,y?,layer?,overlay?}](attach xref + insert a reference into model space; "
+                           + "skipped if the same name already exists, so re-runnable; relative xref paths get lost when the plotter moves files, always absolute) "
+                           + "out?(preview file path, auto-named by default)",
                 WritesDrawing = true,
                 Run = ModifyDwg
             },
             ["plot_pdf"] = new OpDef
             {
-                Description = "把图纸打印成 PDF（DWG To PDF.pc3）。默认打印当前图纸模型空间范围，也可指定窗口或外部 dwg",
-                Parameters = "out(必需,pdf路径) dwg?(打印外部文件,缺省用当前图纸) layout?(默认Model) "
-                           + "window?{minx,miny,maxx,maxy}(模型空间=世界坐标自动换DCS；纸空间布局=布局图纸坐标mm，"
-                           + "2026-08-28 起支持——从横排多图框合并布局逐框抠单页 A3 用它) "
-                           + "paper?(默认A3) ctb?(默认monochrome.ctb,传\"\"则彩色) "
-                           + "lineweights?(默认true) overwrite?(默认false) "
-                           + "fit?(默认false；只对纸空间布局有效：按布局图形范围缩放到整纸打一页，"
-                           + "用来把横排多图框的总览布局一页出全。默认 false 仍是 Layout 类型 1:1，"
-                           + "纸有多大只截多大)",
-                WritesDrawing = false,  // 只产出 PDF，不改图纸
+                Description = "Plot the drawing to PDF (DWG To PDF.pc3). Plots the current drawing's model space extents by default; a window or an external dwg can be given",
+                Parameters = "out(required, pdf path) dwg?(plot an external file, default current drawing) layout?(default Model) "
+                           + "window?{minx,miny,maxx,maxy}(model space = world coordinates, converted to DCS automatically; paper-space layout = layout paper coordinates in mm, "
+                           + "supported since 2026-08-28; use it to cut single A3 pages out of a merged layout with several frames in a row) "
+                           + "paper?(default A3) ctb?(default monochrome.ctb, pass \"\" for colour) "
+                           + "lineweights?(default true) overwrite?(default false) "
+                           + "fit?(default false; paper-space layouts only: scale the layout extents to fill one page, "
+                           + "used to get a whole overview layout with several frames on one page. Default false is still Layout type at 1:1, "
+                           + "cropped to the paper size)",
+                WritesDrawing = false,  // only produces a PDF, drawing untouched
                 Run = PlotPdf
             },
             ["normalize_textstyles"] = new OpDef
             {
-                Description = "宿主外部节点：把 -黑体/txt1 两个文字样式归化到标准字体（打印前强制节点），另存副本不改原图",
-                Parameters = "out(必需,另存路径) overwrite? visible? timeout_sec?；实际执行入口 nodes/normalize_textstyles/run.ps1",
+                Description = "Host external node: normalise the -SimHei/txt1 text styles to standard fonts (mandatory node before plotting), saves a copy without changing the original",
+                Parameters = "out(required, save-as path) overwrite? visible? timeout_sec?; actual entry point nodes/normalize_textstyles/run.ps1",
                 WritesDrawing = false,
                 Run = RunNodeNormalizeTextStyles
             },
             ["plot_attribute_titleblocks"] = new OpDef
             {
-                Description = "宿主外部节点：用锁定版本的 ACC 专用 EXE 批量打印模型空间和布局空间属性图框",
-                Parameters = "output_directory(必需)；实际执行入口 nodes/plot_attribute_titleblocks/run.ps1",
+                Description = "Host external node: batch-plot model-space and layout-space attribute title blocks with the pinned-version ACC-only EXE",
+                Parameters = "output_directory(required); actual entry point nodes/plot_attribute_titleblocks/run.ps1",
                 WritesDrawing = false,
                 Run = RunNodePlotAttributeTitleblocks
             },
-            // ── 从一条直线到工程量的整条链（实现见 Ops.Chain.cs）────────────────
-            // 全部只改内存中的图纸，最后必须显式 save_dwg 才落盘。
+            // ── The whole chain from a single line to quantities (implementation in Ops.Chain.cs) ────────────
+            // All of these only change the in-memory drawing; an explicit save_dwg is required to persist.
             ["create_assembly"] = new OpDef
             {
                 Description = "Import a LEFT/RIGHT pair of Subassembly Composer .pkt files as a new assembly and embed the PKT projects in the drawing (the assembly then survives the files moving). Existing assembly of the same name is replaced",
@@ -206,1078 +206,1078 @@ namespace Civil3DFactory
             },
             ["check_sac_paths"] = new OpDef
             {
-                Description = "流水线前置节点：检查两个固定 PKT；失联时自动原位替换 SAC 子装配并复检",
-                Parameters = "assembly(必需) paths(必需且只能为左右两个绝对 PKT 路径)",
+                Description = "Pipeline pre-check node: verify the two fixed PKTs; if unlinked, replace the SAC subassemblies in place and re-check",
+                Parameters = "assembly(required) paths(required, exactly two absolute PKT paths, left and right)",
                 WritesDrawing = true,
                 Run = RunNodeCheckSacPaths
             },
             ["create_surface_grid"] = new OpDef
             {
-                Description = "造一块网格原地形曲面（做链路自测用；真实项目用已有地形曲面即可）",
+                Description = "Build a gridded existing-ground surface (for chain self-tests; real projects use the existing terrain surface)",
                 Parameters = "name(required) minx miny maxx maxy(required) step?(20) elev?(0) slope_x? slope_y?(rise per metre) undulation_amp?(0, metres) undulation_len?(200, metres; adds amp*sin(2*pi*x/len)*cos(2*pi*y/len)) style?",
                 WritesDrawing = true,
                 Run = CreateSurfaceGrid
             },
             ["create_alignment"] = new OpDef
             {
-                Description = "画一条线并把它定义为路线（也可把图中已有的线转成路线）",
-                Parameters = "name(必需) points?[[x,y],...](现画一条) handle?(图中已有的线) style? label_set? site? layer? "
-                           + "erase_source?(默认true) add_curves?(默认false)",
+                Description = "Draw a line and define it as an alignment (or convert an existing line in the drawing into an alignment)",
+                Parameters = "name(required) points?[[x,y],...](draw a new one) handle?(existing line in the drawing) style? label_set? site? layer? "
+                           + "erase_source?(default true) add_curves?(default false)",
                 WritesDrawing = true,
                 Run = RunNodeCreateAlignment
             },
             ["alignment_to_polyline"] = new OpDef
             {
-                Description = "把路线的平面几何转成普通多段线（直线/圆弧精确，缓和曲线按步长采样）——出纯 CAD 图用",
-                Parameters = "alignment(路线名) 或 handle(路线句柄) 二选一 layer?(默认\"5-中心线\") color_index?(默认3绿) "
-                           + "color_bylayer?(默认false) linetype?(默认CENTER2) linetype_file?(默认acadiso.lin) "
-                           + "linetype_scale?(默认5) elevation?(默认0) spiral_step?(默认5) erase_source?(默认false)",
+                Description = "Convert the plan geometry of an alignment into a plain polyline (lines/arcs exact, spirals sampled by step) for pure-CAD output",
+                Parameters = "alignment(alignment name) or handle(alignment handle), one of the two; layer?(default \"C3DF-CL\") color_index?(default 3 green) "
+                           + "color_bylayer?(default false) linetype?(default CENTER2) linetype_file?(default acadiso.lin) "
+                           + "linetype_scale?(default 5) elevation?(default 0) spiral_step?(default 5) erase_source?(default false)",
                 WritesDrawing = true,
                 Run = RunNodeAlignmentToPolyline
             },
             ["export_alignments_to_dwg"] = new OpDef
             {
-                Description = "把路线抽成纯多段线写进一张全新空白 DWG（无任何 Civil 对象）；偏移路线按 ParentAlignmentId 自动归到父通道并分左右",
-                Parameters = "out(必需,绝对路径) overwrite?(默认false) alignments?([]只导这几条) centers_only?(默认false,只导中心线) "
-                           + "center_layer?(默认\"CL-{channel}\") edge_layer?(默认\"EDGE-{channel}-{side}\") "
-                           + "center_color?(默认3) edge_color?(默认4) center_linetype?(默认CENTER2) edge_linetype?(默认Continuous) "
-                           + "linetype_scale?(默认5) spiral_step?(默认5)",
+                Description = "Extract alignments as plain polylines into a brand-new blank DWG (no Civil objects); offset alignments are grouped under their parent channel via ParentAlignmentId and split left/right",
+                Parameters = "out(required, absolute path) overwrite?(default false) alignments?([] export only these) centers_only?(default false, centerlines only) "
+                           + "center_layer?(default \"CL-{channel}\") edge_layer?(default \"EDGE-{channel}-{side}\") "
+                           + "center_color?(default 3) edge_color?(default 4) center_linetype?(default CENTER2) edge_linetype?(default Continuous) "
+                           + "linetype_scale?(default 5) spiral_step?(default 5)",
                 WritesDrawing = true,
                 Run = RunNodeExportAlignmentsToDwg
             },
             ["export_corridor_feature_lines"] = new OpDef
             {
-                Description = "把走廊要素线（按点码）抽成三维多段线写进一张全新空白 DWG（无 Civil 对象），逐点保留高程；点码沿用 PKT 码表（daylight/toe/mp/controlpoint…±left/right）",
-                Parameters = "out(必需,绝对路径) overwrite?(默认false) corridors?([]只导这几个走廊) codes?([]只导这些点码,默认全部) "
-                           + "layer?(默认\"FL-{corridor}-{code}\",占位符 {corridor}/{baseline}/{code}) color?(默认2) min_points?(默认2)",
+                Description = "Extract corridor feature lines (by point code) as 3D polylines into a brand-new blank DWG (no Civil objects), keeping elevation per point; point codes follow the PKT code table (daylight/toe/mp/controlpoint... +-left/right)",
+                Parameters = "out(required, absolute path) overwrite?(default false) corridors?([] export only these corridors) codes?([] export only these point codes, default all) "
+                           + "layer?(default \"FL-{corridor}-{code}\", placeholders {corridor}/{baseline}/{code}) color?(default 2) min_points?(default 2)",
                 WritesDrawing = true,
                 Run = RunNodeExportCorridorFeatureLines
             },
             ["dump_corridor_params"] = new OpDef
             {
-                Description = "摊平走廊模型全部设计参数：走廊→基线→区域→装配→子装配→每个参数的显示名和当前值（只读）",
-                Parameters = "corridors?(默认true) assemblies?(默认true) assembly?(只导某一个装配)",
+                Description = "Flatten all corridor design parameters: corridor -> baseline -> region -> assembly -> subassembly -> display name and current value of every parameter (read-only)",
+                Parameters = "corridors?(default true) assemblies?(default true) assembly?(export only one assembly)",
                 WritesDrawing = false,
                 Run = RunNodeDumpCorridorParams
             },
             ["list_polylines"] = new OpDef
             {
-                Description = "按图层列出模型空间多段线：句柄、长度、顶点数、圆弧段数、起终点（给 replace_alignment_geometry 找源线用）",
-                Parameters = "layer?(精确匹配,缺省全部) min_length?(默认0) max?(默认200)",
+                Description = "List model-space polylines by layer: handle, length, vertex count, arc-segment count, start/end (to find source lines for replace_alignment_geometry)",
+                Parameters = "layer?(exact match, default all) min_length?(default 0) max?(default 200)",
                 WritesDrawing = false,
                 Run = RunNodeListPolylines
             },
             ["sample_polyline_elevations"] = new OpDef
             {
-                Description = "按多段线取曲面高程（只读）：图层或句柄白名单上每条多段线逐顶点采指定曲面，"
-                            + "报最低/最高/平均/中位高程与落在曲面外的点数；**开口线照收**，"
-                            + "这是它跟 survey_dredge_regions（只认闭合边界、只报聚合值）的分工。"
-                            + "拿到一圈设计边线先看脚下原地形有多高时用它；出量走 calculate_surface_volume",
-                Parameters = "surface(必需,曲面名) layer?(与 handles 至少给一个) handles?([]句柄白名单) "
-                           + "names?({句柄:名称},给了就把编号带进结果) step?(默认0=只取顶点,>0 在顶点之间等距加密) "
-                           + "interior_step?(默认0;>0 时另在闭合线**面内**打网格采样,出 z_in_*——岛屿/地块的「现状高程」取这个,不是边线一圈) "
-                           + "include_open?(默认true,开口线也算) min_length?(默认0) points?(默认false,结果里带逐点[x,y,z]) "
-                           + "export_excel?(默认false,出汇总+逐点两张表) outdir? excel_format?(xlsx|csv|both,默认xlsx)",
+                Description = "Sample surface elevation along polylines (read-only): every polyline on the layer or in the handle whitelist is sampled vertex by vertex on the given surface; "
+                            + "reports min/max/mean/median elevation and the number of points outside the surface; **open polylines are accepted**, "
+                            + "which is how it differs from survey_dredge_regions (closed boundaries only, aggregates only). "
+                            + "Use it to see how high the existing ground is under a set of design edge lines; for quantities use calculate_surface_volume",
+                Parameters = "surface(required, surface name) layer?(give at least one of layer/handles) handles?([] handle whitelist) "
+                           + "names?({handle:name}, if given the id is carried into the result) step?(default 0 = vertices only, >0 densifies between vertices) "
+                           + "interior_step?(default 0; >0 also samples a grid **inside** closed polylines and outputs z_in_*; the 'existing elevation' of an island/parcel is this, not the edge ring) "
+                           + "include_open?(default true, open polylines count too) min_length?(default 0) points?(default false, include per-point [x,y,z] in the result) "
+                           + "export_excel?(default false, summary + per-point sheets) outdir? excel_format?(xlsx|csv|both, default xlsx)",
                 WritesDrawing = false,
                 Run = RunNodeSamplePolylineElevations
             },
             ["replace_alignment_geometry"] = new OpDef
             {
-                Description = "原位重写路线几何：清空实体集并按多段线逐段重建（全 Fixed 实体）。ObjectId 不变，偏移路线/纵断面/采样线等挂接保留",
-                Parameters = "alignment(路线名) 或 alignment_handle 二选一 polyline(必需,多段线句柄) erase_polyline?(默认false)",
+                Description = "Rewrite alignment geometry in place: clear the entity set and rebuild segment by segment from a polyline (all Fixed entities). ObjectId unchanged, so offset alignments/profiles/sample lines stay attached",
+                Parameters = "alignment(alignment name) or alignment_handle, one of the two; polyline(required, polyline handle) erase_polyline?(default false)",
                 WritesDrawing = true,
                 Run = RunNodeReplaceAlignmentGeometry
             },
             ["import_design_lines"] = new OpDef
             {
-                Description = "S01：把设计线 DWG 搬进当前图，中心线-{通道} 转成路线，边界-{通道} 留作宽度目标源（身份靠图层名）",
-                Parameters = "dwg(必需,设计线图纸绝对路径) center_prefix?(默认\"中心线-\") boundary_prefix?(默认\"边界-\") "
-                           + "style? label_set? alignment_layer? add_curves?(默认false) replace_existing?(默认true) "
-                           + "min_boundary_area?(默认100,小于此面积的闭合线当碎片丢)",
+                Description = "S01: bring the design-line DWG into the current drawing; CL-{channel} becomes an alignment, BOUNDARY-{channel} is kept as the width target source (identity by layer name)",
+                Parameters = "dwg(required, absolute path of the design-line drawing) center_prefix?(default \"CL-\") boundary_prefix?(default \"BOUNDARY-\") "
+                           + "style? label_set? alignment_layer? add_curves?(default false) replace_existing?(default true) "
+                           + "min_boundary_area?(default 100, closed lines smaller than this are dropped as fragments)",
                 WritesDrawing = true,
                 Run = RunNodeImportDesignLines
             },
             ["create_corridor_regions"] = new OpDef
             {
-                Description = "S04：建多区域走廊，每段用各自装配（既有 create_corridor 只能单区域）；桩号按路线实际范围裁剪",
-                Parameters = "alignment(必需) surface(必需,原地形) regions(必需,[{assembly,start,end,name?}]) "
-                           + "name?(默认\"{路线}_走廊\") baseline?(默认\"{路线}_基线\")",
+                Description = "S04: build a multi-region corridor, each region with its own assembly (the existing create_corridor is single-region only); stations are clipped to the alignment's actual range",
+                Parameters = "alignment(required) surface(required, existing ground) regions(required, [{assembly,start,end,name?}]) "
+                           + "name?(default \"{alignment}_Corridor\") baseline?(default \"{alignment}_Baseline\")",
                 WritesDrawing = true,
                 Run = RunNodeCreateCorridorRegions
             },
             ["create_design_profiles"] = new OpDef
             {
-                Description = "S03：建地面线+设计线；端部地面高于底高程时按 1:10 放坡接地形（坡长由高差算），否则平坡",
-                Parameters = "surface(必需,原地形曲面名) design_elev?(默认3.0) end_slope?(默认10,即1:10) "
-                           + "ramps?({通道:[\"start\",\"end\"]},逐端指定放坡,缺省全平坡) "
-                           + "ramp_tolerance?(默认0.05,高差小于它不放坡) channels?([]只做这几条) "
-                           + "ground_name?(默认\"{channel}-地面\") design_name?(默认\"{channel}-设计\") "
-                           + "ground_style? design_style? label_set? replace_existing?(默认true)",
+                Description = "S03: build ground profile + design profile; where the ground at an end is above the bottom elevation, ramp at 1:10 to meet the terrain (ramp length from the height difference), otherwise flat",
+                Parameters = "surface(required, existing ground surface name) design_elev?(default 3.0) end_slope?(default 10, i.e. 1:10) "
+                           + "ramps?({channel:[\"start\",\"end\"]}, ramps per end, default all flat) "
+                           + "ramp_tolerance?(default 0.05, no ramp if the height difference is below it) channels?([] only these) "
+                           + "ground_name?(default \"{channel}-EG\") design_name?(default \"{channel}-FG\") "
+                           + "ground_style? design_style? label_set? replace_existing?(default true)",
                 WritesDrawing = true,
                 Run = RunNodeCreateDesignProfiles
             },
             ["offsets_from_boundary"] = new OpDef
             {
-                Description = "S02：闭合边界劈成左右偏移路线 {通道}_左/{通道}_右（走廊宽度目标），按桩号分桶取左右极值并抽稀",
-                Parameters = "boundary_prefix?(默认\"边界-\") interval?(默认25,采样与抽稀步长) channel?(只做某一条) "
-                           + "style? label_set? erase_boundary?(默认false) replace_existing?(默认true) min_boundary_area?(默认100)",
+                Description = "S02: split a closed boundary into left/right offset alignments {channel}_L/{channel}_R (corridor width targets); left/right extremes are bucketed by station and thinned",
+                Parameters = "boundary_prefix?(default \"BOUNDARY-\") interval?(default 25, sampling and thinning step) channel?(only this one) "
+                           + "style? label_set? erase_boundary?(default false) replace_existing?(default true) min_boundary_area?(default 100)",
                 WritesDrawing = true,
                 Run = RunNodeOffsetsFromBoundary
             },
             ["measure_channel_width"] = new OpDef
             {
-                Description = "量每条通道沿程实际疏浚宽度：边界顶点投影到中心线取(桩号,偏距)分桶统计左右半宽（通道是变宽的，单个平均上口宽表达不了）",
-                Parameters = "interval?(默认50) min_area?(默认100,小于此面积的边界当碎片丢) channel?(只量某一条)",
+                Description = "Measure the actual dredging width along each channel: boundary vertices projected onto the centerline give (station, offset), bucketed into left/right half widths (channels vary in width; a single mean top width cannot express it)",
+                Parameters = "interval?(default 50) min_area?(default 100, boundaries smaller than this are dropped as fragments) channel?(only this one)",
                 WritesDrawing = false,
                 Run = RunNodeMeasureChannelWidth
             },
             ["export_design_lines"] = new OpDef
             {
-                Description = "导出建模输入线到全新空白 DWG：中心线/边线/道路边界（闭合）三类，图层即身份；边线归属与左右按 StationOffset 实测",
-                Parameters = "out(必需,绝对路径) overwrite?(默认false) boundaries?(默认true,是否导走廊曲面外边界) "
-                           + "center_layer?(默认\"CL-{channel}\") edge_layer?(默认\"EDGE-{channel}-{side}\") "
-                           + "boundary_layer?(默认\"BOUNDARY-{channel}\") center_color?(3) edge_color?(4) boundary_color?(2) "
+                Description = "Export modelling input lines to a brand-new blank DWG: centerlines/edge lines/corridor boundaries (closed), layer = identity; edge ownership and side measured via StationOffset",
+                Parameters = "out(required, absolute path) overwrite?(default false) boundaries?(default true, export corridor surface outer boundaries) "
+                           + "center_layer?(default \"CL-{channel}\") edge_layer?(default \"EDGE-{channel}-{side}\") "
+                           + "boundary_layer?(default \"BOUNDARY-{channel}\") center_color?(3) edge_color?(4) boundary_color?(2) "
                            + "center_linetype?(CENTER2) edge_linetype?(Continuous) boundary_linetype?(Continuous) "
-                           + "linetype_scale?(默认5) spiral_step?(默认5) probe_points?(默认20) offset_tolerance?(默认200)",
+                           + "linetype_scale?(default 5) spiral_step?(default 5) probe_points?(default 20) offset_tolerance?(default 200)",
                 WritesDrawing = true,
                 Run = RunNodeExportDesignLines
             },
             ["offset_alignment"] = new OpDef
             {
-                Description = "按距离生成左右偏移路线（名字带 _左/_右 前缀，走廊那步靠它找目标）",
-                Parameters = "alignment(必需) distance?(默认15) offsets?[数=整条; 对象{distance,start_station,end_station,name?}=分段偏移] style?",
+                Description = "Create left/right offset alignments by distance (names carry _L/_R; the corridor step finds its targets by them)",
+                Parameters = "alignment(required) distance?(default 15) offsets?[number = whole length; object {distance,start_station,end_station,name?} = segmented offset] style?",
                 WritesDrawing = true,
                 Run = RunNodeOffsetAlignment
             },
             ["create_connected_alignment"] = new OpDef
             {
-                Description = "两条路线间按半径建连接路线（交叉口转角，动态跟随父路线；配分段偏移用）",
-                Parameters = "name(必需) in_alignment/in_station(必需) out_alignment/out_station(必需) radius?(默认20) "
-                           + "greater_than_180?(默认false) offset_in?/offset_out?(默认0) style? label_set?",
+                Description = "Create a connected alignment between two alignments by radius (intersection corner, dynamically follows the parents; pair with segmented offsets)",
+                Parameters = "name(required) in_alignment/in_station(required) out_alignment/out_station(required) radius?(default 20) "
+                           + "greater_than_180?(default false) offset_in?/offset_out?(default 0) style? label_set?",
                 WritesDrawing = true,
                 Run = RunNodeCreateConnectedAlignment
             },
             ["create_fillet_alignment"] = new OpDef
             {
-                Description = "约束正确的转角路线：固定线+自由圆弧(相切,半径参数)+固定线（改半径自动保切）",
-                Parameters = "name(必需) line1:[[x,y],[x,y]](必需) line2:同(必需) radius?(默认20) greater_than_180?(默认false) style? label_set?",
+                Description = "Properly constrained corner alignment: fixed line + free arc (tangent, radius parameter) + fixed line (changing the radius keeps tangency)",
+                Parameters = "name(required) line1:[[x,y],[x,y]](required) line2:same(required) radius?(default 20) greater_than_180?(default false) style? label_set?",
                 WritesDrawing = true,
                 Run = RunNodeCreateFilletAlignment
             },
             ["trim_offsets_to_corners"] = new OpDef
             {
-                Description = "台田角收口：偏移段区间端原位缩回连接路线弧切点外（不删不重建，角存活）",
-                Parameters = "corners:[{corner,in_alignment,out_alignment},...](必需) margin?(默认0.05)",
+                Description = "Parcel corner close-up: pull the offset-segment range ends back in place to just outside the connected alignment's arc tangent points (no delete, no rebuild, corner survives)",
+                Parameters = "corners:[{corner,in_alignment,out_alignment},...](required) margin?(default 0.05)",
                 WritesDrawing = true,
                 Run = RunNodeTrimOffsetsToCorners
             },
             ["rebuild_fillet_network"] = new OpDef
             {
-                Description = "转角网络重铸（点对点契约）：按配对表逐角解析重解并原位重建（缺则新建），"
-                            + "写 C3DF_FILLET XData 认亲（WaterBox 联动用），父段区间端精确收到腿外端——段尾点==角首点，"
-                            + "报账带每个连接点实测缝宽",
-                Parameters = "corners:[{corner,a,b,radius?},...](必需) radius?(默认20) leg?(默认0.1) erase?([]先清这些废件)",
+                Description = "Recast the corner network (point-to-point contract): per corner from the pairing table, resolve, re-solve and rebuild in place (create if missing), "
+                            + "write C3DF_FILLET XData for identity (used by WaterBox), pull parent segment range ends exactly to the outer leg ends (segment end point == corner start point), "
+                            + "report the measured gap width at every joint",
+                Parameters = "corners:[{corner,a,b,radius?},...](required) radius?(default 20) leg?(default 0.1) erase?([] delete these leftovers first)",
                 WritesDrawing = true,
                 Run = RunNodeRebuildFilletNetwork
             },
             ["assign_layers"] = new OpDef
             {
-                Description = "批量归层：按分组把路线（按名）/实体（按句柄）挪到指定图层，图层不存在就建（带色号）；只动 Layer 不碰几何",
-                Parameters = "groups:[{layer(必需) color?(ACI,默认7) alignments?([]路线名) handles?([]句柄)},...](必需)",
+                Description = "Batch re-layer: per group move alignments (by name) / entities (by handle) to the given layer, creating it (with colour) if missing; only Layer changes, geometry untouched",
+                Parameters = "groups:[{layer(required) color?(ACI, default 7) alignments?([] alignment names) handles?([] handles)},...](required)",
                 WritesDrawing = true,
                 Run = RunNodeAssignLayers
             },
             ["list_site_parcels"] = new OpDef
             {
-                Description = "宗地清点（只读）：逐站点报宗地数+逐宗名称/面积（台田成环对账用）。路线挪站点托管API没有，人走 Prospector 多选右键移动到站点",
-                Parameters = "site?(只看这个站点,缺省全部)",
+                Description = "Parcel inventory (read-only): per site reports parcel count + each parcel's name/area (to reconcile parcel ring closure). No managed API to move alignments between sites; do it in Prospector: multi-select, right-click, Move to Site",
+                Parameters = "site?(only this site, default all)",
                 WritesDrawing = false,
                 Run = RunNodeListSiteParcels
             },
             ["draw_polylines"] = new OpDef
             {
-                Description = "往宿主图批量画多段线（带 bulge 弧段）：台田边界等派生物落图；clear_layers 先清旧线保证重跑幂等",
-                Parameters = "polylines:[{vertices:[[x,y,bulge?],...](必需) layer? color? closed?(默认true) name?},...](必需) "
-                           + "layer?(默认\"0\") color?(默认7) clear_layers?([]先清这些层上的多段线)",
+                Description = "Batch-draw polylines (with bulge arcs) into the host drawing: parcel boundaries and other derived products; clear_layers removes old lines first so re-runs are idempotent",
+                Parameters = "polylines:[{vertices:[[x,y,bulge?],...](required) layer? color? closed?(default true) name?},...](required) "
+                           + "layer?(default \"0\") color?(default 7) clear_layers?([] delete polylines on these layers first)",
                 WritesDrawing = true,
                 Run = RunNodeDrawPolylines
             },
             ["draw_table"] = new OpDef
             {
-                Description = "自画数据表（纯CAD线+文字）：rows 二维数组直接画成表格，模型空间或指定布局都行；工程量表上图用，"
-                            + "替代 OLE（OLE 无头贴不进、改不了、accore 打不出）。实体带 XData(C3DF_TBL:name) 认亲，同名重跑先清旧表",
-                Parameters = "rows(必需,[[单元格,...],...]) x,y(必需,表左上角;布局=图纸mm) space?(默认Model,或布局名) "
-                           + "width?(总宽,给了按比例缩放各列) col_widths?([]逐列宽) row_height?(默认5) text_height?(默认2.5) "
-                           + "header_rows?(默认1) header_row_height?(默认=row_height) layer?(默认C3DF-TABLE) color?(默认7) "
-                           + "text_style?(缺省自动挑 -黑体) name?(默认\"表\",清旧表的认亲标签) clear?(默认true) "
-                           + "mask?(默认false,表底垫 Wipeout 白底,遮住视口里的模型内容) lineweight?(图层线宽mm,默认0.25,0=不设)；"
-                           + "新实体一律 draworder 置顶（布局里视口常被置前，不置顶会被视口内容压住）",
+                Description = "Self-drawn data table (pure CAD lines + text): rows as a 2D array drawn as a table, in model space or a given layout; for quantity tables on sheets, "
+                            + "replacing OLE (OLE cannot be pasted headless, edited, or plotted by accore). Entities carry XData (C3DF_TBL:name) for identity; re-running with the same name clears the old table first",
+                Parameters = "rows(required, [[cell,...],...]) x,y(required, table top-left; in a layout = paper mm) space?(default Model, or a layout name) "
+                           + "width?(total width, columns scaled proportionally if given) col_widths?([] per-column widths) row_height?(default 5) text_height?(default 2.5) "
+                           + "header_rows?(default 1) header_row_height?(default = row_height) layer?(default C3DF-TABLE) color?(default 7) "
+                           + "text_style?(default auto-picks -SimHei) name?(default \"Table\", identity tag used to clear the old table) clear?(default true) "
+                           + "mask?(default false, Wipeout white background under the table to hide model content in the viewport) lineweight?(layer lineweight mm, default 0.25, 0 = unset); "
+                           + "new entities always go to the top of the draw order (viewports are often brought to front in layouts and would otherwise cover them)",
                 WritesDrawing = true,
                 Run = RunNodeDrawTable
             },
             ["set_offset_width"] = new OpDef
             {
-                Description = "改通道半宽（无头版）：主线全部偏移子线 NominalOffset=±width；报账带改后回读值防快照属性安静失败",
-                Parameters = "alignment(必需,主线名) width?(默认15)",
+                Description = "Change channel half width (headless): set NominalOffset = +-width on all offset children of the main alignment; the report includes read-back values to catch silent failures of snapshot properties",
+                Parameters = "alignment(required, main alignment name) width?(default 15)",
                 WritesDrawing = true,
                 Run = RunNodeSetOffsetWidth
             },
             ["list_offset_widths"] = new OpDef
             {
-                Description = "偏移宽度清单（只读）：每条偏移路线的父线/NominalOffset/区间数（成田逐通道宽度对账用）",
-                Parameters = "无",
+                Description = "Offset width list (read-only): parent/NominalOffset/range count of every offset alignment (to reconcile per-channel widths when making parcels)",
+                Parameters = "none",
                 WritesDrawing = false,
                 Run = RunNodeListOffsetWidths
             },
             ["erase_alignments"] = new OpDef
             {
-                Description = "批量删路线：按名或按句柄（句柄免疫名字编码问题）；找不到的只报不炸",
-                Parameters = "names?([]路线名) handles?([]句柄) 至少给一个",
+                Description = "Batch-delete alignments by name or by handle (handles are immune to name-encoding issues); missing ones are reported, not thrown",
+                Parameters = "names?([] alignment names) handles?([] handles), give at least one",
                 WritesDrawing = true,
                 Run = RunNodeEraseAlignments
             },
             ["create_profiles"] = new OpDef
             {
-                Description = "生成地面线（从曲面采）+ 设计线（平坡）",
-                Parameters = "alignment(必需) surface(必需) design_elev?(默认0) ground_style? design_style? label_set?",
+                Description = "Create ground profile (sampled from a surface) + design profile (flat)",
+                Parameters = "alignment(required) surface(required) design_elev?(default 0) ground_style? design_style? label_set?",
                 WritesDrawing = true,
                 Run = RunNodeCreateProfiles
             },
             ["create_corridor"] = new OpDef
             {
-                Description = "建走廊并设目标（曲面槽→原地形，偏移槽→左右偏移路线）",
-                Parameters = "alignment(必需) assembly(必需,用 civil_env 查名) surface(必需,原地形) name? baseline? region?",
+                Description = "Create a corridor and set targets (surface slot -> existing ground, offset slots -> left/right offset alignments)",
+                Parameters = "alignment(required) assembly(required, look up the name with civil_env) surface(required, existing ground) name? baseline? region?",
                 WritesDrawing = true,
                 Run = RunNodeCreateCorridor
             },
             ["create_corridor_surface"] = new OpDef
             {
-                Description = "在走廊上建道路曲面（默认取带 Top 的链接代码，取不到则全取）+ 外边界",
-                Parameters = "alignment(必需) corridor? name? link_codes?[] boundary?(默认true)",
+                Description = "Create a corridor surface on the corridor (defaults to link codes containing Top, falls back to all) + outer boundary",
+                Parameters = "alignment(required) corridor? name? link_codes?[] boundary?(default true)",
                 WritesDrawing = true,
                 Run = RunNodeCreateCorridorSurface
             },
             ["create_sample_lines"] = new OpDef
             {
-                Description = "建采样线组（建前清空本路线所有旧组），并把原地形/走廊/道路曲面设为已采样；支持等间距或显式端点两种模式",
-                Parameters = "alignment(必需) surface(必需,原地形) interval?(默认50) swath?(默认50) style? corridor? road_surface? "
-                           + "lines?([{name?,points:[[x,y],...]}],给了就按显式端点建线,忽略interval/swath)",
+                Description = "Create a sample line group (clears all old groups on this alignment first) and mark existing ground/corridor/corridor surface as sampled; supports equal spacing or explicit endpoints",
+                Parameters = "alignment(required) surface(required, existing ground) interval?(default 50) swath?(default 50) style? corridor? road_surface? "
+                           + "lines?([{name?,points:[[x,y],...]}], if given lines are built from explicit endpoints and interval/swath are ignored)",
                 WritesDrawing = true,
                 Run = RunNodeCreateSampleLines
             },
             ["import_surface"] = new OpDef
             {
-                Description = "从外部 DWG 把指定名称的 TIN 曲面 WblockClone 进当前图纸（已存在同名则跳过）",
-                Parameters = "dwg(必需,来源图纸绝对路径) name(必需,曲面名)",
+                Description = "WblockClone a TIN surface of the given name from an external DWG into the current drawing (skipped if the name already exists)",
+                Parameters = "dwg(required, absolute path of the source drawing) name(required, surface name)",
                 WritesDrawing = true,
                 Run = RunNodeImportSurface
             },
             ["create_dike_sample_lines"] = new OpDef
             {
-                Description = "堤埝批处理：中线图层逐条转路线（起点按沿线K桩号文字定向），按图上已画断面线建采样线组并采指定原地形；原中线保留",
-                Parameters = "centerline_layers(必需,[]中线图层名) surface(必需,原地形曲面名) number_layer?(默认6堤埝编号) "
-                           + "station_layer?(默认0) section_layers?([]，默认[2横断面线]) number_max_dist?(150) station_max_dist?(60) "
-                           + "section_margin?(120) fallback_swath?(50,无相交断面线时按桩号文字兜底的单侧宽) "
-                           + "rebuild_only?(默认false;true=路线已存在只重建采样线组,走廊建成后用) corridor_suffix?(_走廊) road_surface_suffix?(_道路曲面)",
+                Description = "Embankment batch: convert each centerline on the layers into an alignment (start oriented by K-station texts along it), build a sample line group from section lines already drawn and sample the given existing ground; original centerlines are kept",
+                Parameters = "centerline_layers(required, [] centerline layer names) surface(required, existing ground surface name) number_layer?(default DIKE-NO) "
+                           + "station_layer?(default 0) section_layers?([], default [SECTION-LINE]) number_max_dist?(150) station_max_dist?(60) "
+                           + "section_margin?(120) fallback_swath?(50, one-side width used as fallback from station texts when no section line intersects) "
+                           + "rebuild_only?(default false; true = alignment exists, only rebuild the sample line group; use after the corridor is built) corridor_suffix?(_Corridor) road_surface_suffix?(_Design)",
                 WritesDrawing = true,
                 Run = RunNodeCreateDikeSampleLines
             },
             ["extract_measured_sections"] = new OpDef
             {
-                Description = "测量断面标定与地面线提取（只读）：一张图平铺多个断面的测量图，按图层约定"
-                            + "（地面线 dmx*、刻度文字 zdmt*、图名 1-图名*）逐断面用刻度文字最小二乘标定图纸→工程坐标，"
-                            + "报每断面 PASS/FAIL、残差、桩号、测点数、堤顶高程。拆堤链路第一步，参数怎么给靠它的输出推",
-                Parameters = "ground_layer?(默认dmx*,支持*通配) column_layer?(默认zdmt*) title_layer?(默认1-图名*) "
-                           + "title_regex?(图名解析式,默认按「测线名-K公里+米断面」,须含 ln/km/m 三个命名组) "
-                           + "offset_tolerance?(0.06) elev_tolerance?(0.02) table_depth?(80,向下找刻度文字的深度,图纸单位) "
-                           + "pair_tol_x?(3,刻度文字与顶点X配对容差) line_filter?(正则,只处理匹配的测线/图名) "
-                           + "include_ground_points?(默认false,true=输出每断面全部(偏距,高程))",
+                Description = "Calibrate surveyed sections and extract ground lines (read-only): one drawing tiles many surveyed sections; by layer convention "
+                            + "(ground line dmx*, scale texts zdmt*, title 1-SheetTitle*) each section is calibrated paper -> engineering coordinates by least squares on the scale texts, "
+                            + "reporting PASS/FAIL, residuals, station, point count and crest elevation per section. First step of the embankment-demolition chain; derive the parameters of later steps from its output",
+                Parameters = "ground_layer?(default dmx*, * wildcard) column_layer?(default zdmt*) title_layer?(default 1-SheetTitle*) "
+                           + "title_regex?(title parsing regex, default 'line name-K km+m section', must contain the named groups ln/km/m) "
+                           + "offset_tolerance?(0.06) elev_tolerance?(0.02) table_depth?(80, how far down to look for scale texts, paper units) "
+                           + "pair_tol_x?(3, X tolerance for pairing scale texts with vertices) line_filter?(regex, only process matching survey lines/titles) "
+                           + "include_ground_points?(default false, true = output all (offset, elevation) pairs per section)",
                 WritesDrawing = false,
                 Run = RunNodeExtractMeasuredSections
             },
             ["generate_demolition_design_lines"] = new OpDef
             {
-                Description = "拆堤断面设计线：逐断面画清表线（地面高于阈值的段下移清表厚度）、开挖线"
-                            + "（清表后表面高于底高程的段，限宽 ±half_width，越界端按 1:m 放坡至接地）、"
-                            + "ANSI31/ANSI37 填充与引出线标注。搬自拆堤插件 V1 的 C3DF-GenDesignLine；"
-                            + "画完可人工改边界，方量由 compute_embankment_demolition 按图上实际线重算",
+                Description = "Embankment-demolition section design lines: per section draw the stripping line (segments where ground is above the threshold lowered by the stripping thickness), the excavation line "
+                            + "(segments where the stripped surface is above the bottom elevation, limited to +-half_width, out-of-range ends sloped at 1:m to daylight), "
+                            + "ANSI31/ANSI37 hatches and leader labels. Ported from C3DF-GenDesignLine of the demolition plugin V1; "
+                            + "boundaries can be edited by hand afterwards, quantities are recomputed by compute_embankment_demolition from the lines actually in the drawing",
                 Parameters = "ground_layer? column_layer? title_layer? title_regex? offset_tolerance? elev_tolerance? "
-                           + "table_depth? pair_tol_x? line_filter?(同 extract_measured_sections) "
-                           + "strip_threshold_elev?(6.5,清表阈值高程;设到堤顶以上即不清表) strip_thickness?(0.3,清表厚度) "
-                           + "bottom_elev?(5.0,设计拆堤底高程) bottom_elev_by_section?({图名或测线名:高程},逐断面覆盖) "
-                           + "slope_ratio_m?(3.0,放坡1:m的m) excavation_half_width?(8.0,距中心线开挖半宽,仅放坡侧生效) "
+                           + "table_depth? pair_tol_x? line_filter?(same as extract_measured_sections) "
+                           + "strip_threshold_elev?(6.5, stripping threshold elevation; set above the crest to disable stripping) strip_thickness?(0.3, stripping thickness) "
+                           + "bottom_elev?(5.0, design demolition bottom elevation) bottom_elev_by_section?({title or line name:elevation}, per-section override) "
+                           + "slope_ratio_m?(3.0, m of slope 1:m) excavation_half_width?(8.0, excavation half width from centerline, sloped side only) "
                            + "strip_line_layer?(C3DF-STRIP-LINE) excavation_line_layer?(C3DF-CUT-LINE) hatch_layer?(C3DF-HATCH) "
-                           + "annotation_layer?(C3DF-LABEL) centerline_layer?(C3DF-CL) hatch_scale?(15) text_height?(2.5,图纸单位) "
-                           + "text_style?(标注文字样式,缺省用图纸当前样式;默认样式配 txt.shx 时中文会成 ????,那就指一个中文样式或先跑 normalize_textstyles) "
-                           + "draw_hatch?(true) draw_labels?(true) clear_existing?(true,重跑前清掉这5个图层上的线/填充/文字)",
+                           + "annotation_layer?(C3DF-LABEL) centerline_layer?(C3DF-CL) hatch_scale?(15) text_height?(2.5, paper units) "
+                           + "text_style?(label text style, default the drawing's current style; if the default style uses txt.shx Chinese renders as ????, so give a CJK-capable style or run normalize_textstyles first) "
+                           + "draw_hatch?(true) draw_labels?(true) clear_existing?(true, clear lines/hatches/texts on these 5 layers before re-running)",
                 WritesDrawing = true,
                 Run = RunNodeGenerateDemolitionDesignLines
             },
             ["compute_embankment_demolition"] = new OpDef
             {
-                Description = "拆堤工程量（平均断面法）：读图上实际的清表线/开挖线（允许人工修过），"
-                            + "逐断面量清表面积与底土开挖面积并标在断面上方，同测线相邻桩号按平均断面法出方量表（xlsx/csv）。"
-                            + "搬自拆堤插件 V1 的 C3DF-CalcVolume；须在设计线画完（并修完）之后跑",
+                Description = "Embankment-demolition quantities (average end area): reads the actual stripping/excavation lines in the drawing (manual edits allowed), "
+                            + "measures stripping area and subsoil excavation area per section, labels them above the section, and outputs a volume table (xlsx/csv) by average end area between adjacent stations on the same survey line. "
+                            + "Ported from C3DF-CalcVolume of the demolition plugin V1; run after the design lines are drawn (and edited)",
                 Parameters = "ground_layer? column_layer? title_layer? title_regex? offset_tolerance? elev_tolerance? "
-                           + "table_depth? pair_tol_x? line_filter?(同 extract_measured_sections) "
-                           + "strip_line_layer?(C3DF-STRIP-LINE) excavation_line_layer?(C3DF-CUT-LINE) own_margin?(30,设计线归属断面的包围盒外扩,图纸单位) "
-                           + "annotate_sections?(true,在断面上方写面积) annotation_layer?(C3DF-QTY-LABEL) text_height?(2.5) "
-                           + "text_style?(同 generate_demolition_design_lines) "
-                           + "clear_existing?(true,只清 annotation_layer) export_excel?(true) outdir? excel_out_path? excel_format?(xlsx|csv|both)",
+                           + "table_depth? pair_tol_x? line_filter?(same as extract_measured_sections) "
+                           + "strip_line_layer?(C3DF-STRIP-LINE) excavation_line_layer?(C3DF-CUT-LINE) own_margin?(30, bounding-box expansion for assigning design lines to sections, paper units) "
+                           + "annotate_sections?(true, write areas above sections) annotation_layer?(C3DF-QTY-LABEL) text_height?(2.5) "
+                           + "text_style?(same as generate_demolition_design_lines) "
+                           + "clear_existing?(true, only clears annotation_layer) export_excel?(true) outdir? excel_out_path? excel_format?(xlsx|csv|both)",
                 WritesDrawing = true,
                 Run = RunNodeComputeEmbankmentDemolition
             },
             ["compute_quantities"] = new OpDef
             {
-                Description = "按工程量准则算材质列表，得到逐桩号挖填方",
-                Parameters = "alignment(必需) surface(必需,原地形) criteria(必需,准则名) road_surface_slot?(默认\"道路曲面\") road_surface? corridor?",
+                Description = "Compute a material list by QTO criteria, giving cut/fill per station",
+                Parameters = "alignment(required) surface(required, existing ground) criteria(required, criteria name) road_surface_slot?(default \"Design\") road_surface? corridor?",
                 WritesDrawing = true,
                 Run = RunNodeComputeQuantities
             },
             ["create_profile_view"] = new OpDef
             {
-                Description = "在模型空间出纵断面图（地面线+设计线都会画进去）",
-                Parameters = "alignment(必需) x? y?(缺省摆在路线起点下方200m) style? band_set? name?",
+                Description = "Create a profile view in model space (both ground and design profiles are drawn)",
+                Parameters = "alignment(required) x? y?(default 200 m below the alignment start) style? band_set? name?",
                 WritesDrawing = true,
                 Run = RunNodeCreateProfileView
             },
             ["create_section_views"] = new OpDef
             {
-                Description = "在模型空间出横断面图：按采样线逐张出图 + 网格摆放 + 体积表格",
-                Parameters = "alignment(必需) group?(采样线组名,缺省找<alignment>_SampleLines,找不到且只有一个组则用它) "
-                           + "style? code_set? section_style?(地面线断面样式,如 @C3DF-GroundLine) elev_min? elev_max?(min>=max则自动) "
+                Description = "Create section views in model space: one per sample line + grid placement + volume table",
+                Parameters = "alignment(required) group?(sample line group name, default <alignment>_SampleLines; if not found and there is exactly one group, that one is used) "
+                           + "style? code_set? section_style?(ground-line section style, e.g. @C3DF-GroundLine) elev_min? elev_max?(automatic if min>=max) "
                            + "offset_left?(50) offset_right?(50) x? y? rows?(2) cols?(2) col_spacing?(130) row_spacing?(45) group_spacing?(0) "
-                           + "volume_table?(默认true) corridor?",
+                           + "volume_table?(default true) corridor?",
                 WritesDrawing = true,
                 Run = RunNodeCreateSectionViews
             },
             ["dump_label_styles"] = new OpDef
             {
-                Description = "只读诊断：反射摊平标签样式（LabelStyle）的文本组件内容与偏移。"
-                            + "标签在图上显示的固定文字藏在样式的文本组件里，DXFOUT 落不到明文（Civil 对象走 proxy），"
-                            + "只能靠 API 读；要调标签位置先用它认准是哪个样式、哪个组件在出这行字",
-                Parameters = "contains?(只报摊平结果里含这个串的样式，如 疏浚控制线；不给则全报) "
-                           + "depth?(摊平深度,默认4) max_styles?(最多扫多少个样式,默认400)。"
-                           + "每个组件报 anchor_component/anchor_location（锚在哪个组件的哪个点）＋attachment；"
-                           + "样式级报 dragged_state（拖曳状态页：DisplayType/TextHeight/LeaderType…）与 leader",
+                Description = "Read-only diagnostic: reflect and flatten the text components (content and offsets) of label styles (LabelStyle). "
+                            + "The fixed text a label shows lives inside the style's text components and never reaches plain text via DXFOUT (Civil objects are proxies), "
+                            + "so only the API can read it; before adjusting label positions use it to identify which style and component produces the text",
+                Parameters = "contains?(only report styles whose flattened result contains this string, e.g. DredgeControlLine; all if omitted) "
+                           + "depth?(flatten depth, default 4) max_styles?(max styles to scan, default 400). "
+                           + "Each component reports anchor_component/anchor_location (which point of which component it is anchored to) + attachment; "
+                           + "each style reports dragged_state (Dragged State page: DisplayType/TextHeight/LeaderType...) and leader",
                 WritesDrawing = false,
                 Run = RunNodeDumpLabelStyles
             },
             ["list_styles"] = new OpDef
             {
-                Description = "只读侦察：列出图里各类 Civil 样式集合的名字（纵断面视图样式/带状图集/标签集/断面图样式…）。"
-                            + "换样式或跨图搬样式前，先用它对照两张图有没有同名样式",
-                Parameters = "contains?(只报集合名含该串的，如 Profile / Band / LabelSet)",
+                Description = "Read-only survey: list the names in each Civil style collection of the drawing (profile view styles/band sets/label sets/section view styles...). "
+                            + "Before swapping styles or moving styles between drawings, use it to check whether both drawings have same-named styles",
+                Parameters = "contains?(only collections whose name contains this string, e.g. Profile / Band / LabelSet)",
                 WritesDrawing = false,
                 Run = RunNodeListStyles
             },
             ["dedupe_entities"] = new OpDef
             {
-                Description = "模型空间同位置同内容实体去重（MTEXT/TEXT/LINE/PLINE/块参照/SOLID），"
-                            + "可选按内容匹配平移 MTEXT。项目B初设横断面 655 个引擎画两遍的重合标签在导出件上就靠它清",
-                Parameters = "layer?(限定图层) tol?(位置量化精度米,默认0.001) "
-                           + "moves?(数组：{contains, dx?, dy?}，去重后把内容含 contains 的文字平移)",
+                Description = "Deduplicate entities with identical position and content in model space (MTEXT/TEXT/LINE/PLINE/block refs/SOLID), "
+                            + "optionally moving MTEXT matched by content. Used to clean the 655 overlapping labels drawn twice by the engine in project B's preliminary-design sections on the exported file",
+                Parameters = "layer?(restrict to layer) tol?(position quantisation in metres, default 0.001) "
+                           + "moves?(array of {contains, dx?, dy?}; after dedup, move texts whose content contains 'contains')",
                 WritesDrawing = true,
                 Run = RunNodeDedupeEntities
             },
             ["set_label_style"] = new OpDef
             {
-                Description = "改标签样式组件：可见性/文本偏移/文本内容/线角度长度。样式在 LabelStyles 根和 "
-                            + "CodeSetStyles 支里找（与 dump_label_styles 同源）。项目B初设横断面 655 个双份标签"
-                            + "（code set 分支+marker 分支各画一遍）就靠它关掉一支",
-                Parameters = "style(标签样式名,必填) components(数组,必填)：每项 {name(组件名,*=全部), "
+                Description = "Edit label style components: visibility/text offset/text content/line angle and length. Styles are searched in the LabelStyles root and "
+                            + "CodeSetStyles branch (same source as dump_label_styles). Used to turn off one branch of the 655 doubled labels in project B's preliminary-design sections "
+                            + "(code set branch + marker branch each drew one)",
+                Parameters = "style(label style name, required) components(array, required): each {name(component name, * = all), "
                            + "visible?, x_offset?, y_offset?, contents?, angle_deg?, length?, height?, "
-                           + "attachment?(TopCenter/MiddleCenter/BottomCenter…), anchor_component?(组件名或<Feature>), "
+                           + "attachment?(TopCenter/MiddleCenter/BottomCenter...), anchor_component?(component name or <Feature>), "
                            + "anchor_location?(TopCenter/BottomCenter…)} "
-                           + "dragged_state?({属性名:值}，键名照 dump_label_styles 报的 dragged_state，如 DisplayType/TextHeight)",
+                           + "dragged_state?({property:value}, keys as reported by dump_label_styles under dragged_state, e.g. DisplayType/TextHeight)",
                 WritesDrawing = true,
                 Run = RunNodeSetLabelStyle
             },
             ["add_note_label"] = new OpDef
             {
-                Description = "批量放通用标签（General Note Label）：按点位逐点放指定样式的标签。坐标标注自动化走这里——"
-                            + "样式里写 <[Northing]>/<[Easting]> 字段，落点即取值、拖动随动，不用手抄坐标。"
-                            + "点可带 dx/dy 直接拖成拖曳态（看拖曳排版或批量引出）",
-                Parameters = "style(通用标签样式名,必填,大小写敏感) points(必填,[{x,y,dx?,dy?}] dx/dy=拖曳偏移,图形单位) layer?(放到哪层,没有就建)",
+                Description = "Batch-place General Note Labels: one label of the given style per point. Coordinate labelling automation goes here: "
+                            + "put <[Northing]>/<[Easting]> fields in the style, the value is taken at the drop point and follows drags, no manual copying. "
+                            + "Points may carry dx/dy to drop straight into the dragged state (for dragged layout or batch leaders)",
+                Parameters = "style(general note label style name, required, case-sensitive) points(required, [{x,y,dx?,dy?}] dx/dy = drag offset, drawing units) layer?(target layer, created if missing)",
                 WritesDrawing = true,
                 Run = RunNodeAddNoteLabel
             },
             ["dump_material_styles"] = new OpDef
             {
-                Description = "只读诊断：摊平「材质列表→材质→样式」与 MaterialSection 实体的样式指向（反射），查材质填充用错样式",
-                Parameters = "sample?(MaterialSection 抽样条数,默认5)",
+                Description = "Read-only diagnostic: flatten 'material list -> material -> style' and the style references of MaterialSection entities (reflection), to find material hatches using the wrong style",
+                Parameters = "sample?(number of MaterialSection samples, default 5)",
                 WritesDrawing = false,
                 Run = RunNodeDumpMaterialStyles
             },
             ["restyle_section_views"] = new OpDef
             {
-                Description = "给已存在的横断面图就地换样式/定高程，不删不重建（create_section_views 覆盖重建"
-                            + "要先删带体积表的旧视图，之后 save_dwg 必报 eWasOpenForWrite；本节点绕开删除路径，"
-                            + "且完全不碰采样线、材质列表、体积表和工程量）",
-                Parameters = "alignment?(缺省全部路线) style?(断面图样式) section_style?(地面线断面样式) "
-                           + "material_style?(材质断面样式,缺省跟 section_style) "
-                           + "material_shape_style?(材质填充样式=ShapeStyles,如 @C3DF-CutFill；挂在材质列表 QTOMaterial.ShapeStyleId 上) "
-                           + "corridor_surface_style?(道路曲面断面样式，指个不打印样式即隐藏道路曲面线) "
-                           + "elev_min? elev_max?(min<max 才生效) elev_auto?(显式回自动高程)；至少给一样。"
-                           + "material_style 先查 SectionStyles 再查 ShapeStyles（@C3DF-CutFill 在后者）；不给就不碰，"
-                           + "别拿地面线样式垫底冲掉用户手设的值。走廊本体断面的代码集样式不碰",
+                Description = "Swap styles / set elevations on existing section views in place, without delete or rebuild (create_section_views rebuilds by overwriting, "
+                            + "which requires deleting old views with volume tables, after which save_dwg always throws eWasOpenForWrite; this node avoids the delete path "
+                            + "and never touches sample lines, material lists, volume tables or quantities)",
+                Parameters = "alignment?(default all alignments) style?(section view style) section_style?(ground-line section style) "
+                           + "material_style?(material section style, default follows section_style) "
+                           + "material_shape_style?(material hatch style = ShapeStyles, e.g. @C3DF-CutFill; set on QTOMaterial.ShapeStyleId of the material list) "
+                           + "corridor_surface_style?(corridor surface section style; point it at a no-plot style to hide corridor surface lines) "
+                           + "elev_min? elev_max?(only applied if min<max) elev_auto?(explicitly back to automatic elevation); give at least one. "
+                           + "material_style is looked up in SectionStyles first, then ShapeStyles (@C3DF-CutFill is in the latter); untouched if omitted, "
+                           + "never fall back to the ground-line style and overwrite values the user set by hand. Code set styles of the corridor section itself are untouched",
                 WritesDrawing = true,
                 Run = RunNodeRestyleSectionViews
             },
             ["restyle_profile_view_bands"] = new OpDef
             {
-                Description = "给已存在的纵断面图换标注栏（Band）样式：按「旧样式名→新样式名」映射就地替换，"
-                            + "不删不重建、不碰标注栏数据源和视图样式（create_profile_view 只能建图时套整套 band set，"
-                            + "对已出好的视图无能为力；GUI 里只能一张张开 Profile View Properties → Bands 改）",
-                Parameters = "bottom?([]底部标注栏样式名,按从上到下的位置一一对应,null/空串=该位置不动) top?([]同理) 至少给一个；"
-                           + "views?([]视图名,缺省全部纵断面图) dry_run?(默认false,true 只报告不落盘)。"
-                           + "样式名要在图里 BandStyles 下精确存在，找不到直接报错不兜底；"
-                           + "band 条数与数组长度不等的视图整张跳过（views_mismatched），绝不半写。"
-                           + "**只能按位置换**：BandStyleId 在 Civil 2025 API 里只写不可读，读不出旧样式名，"
-                           + "做不了「认名换名」——先 dry_run 看 per_view.fingerprint 各视图是否逐位置同构再落盘",
+                Description = "Swap band styles on existing profile views: replaced in place by an 'old style name -> new style name' mapping, "
+                            + "no delete/rebuild, band data sources and view styles untouched (create_profile_view can only apply a whole band set at creation "
+                            + "and cannot help finished views; in the GUI it is Profile View Properties -> Bands, one view at a time)",
+                Parameters = "bottom?([] bottom band style names, one per position from top to bottom, null/empty = leave that position) top?([] likewise); give at least one; "
+                           + "views?([] view names, default all profile views) dry_run?(default false, true = report only, no save). "
+                           + "Style names must exist exactly under BandStyles in the drawing; a missing one is an error, no fallback; "
+                           + "views whose band count differs from the array length are skipped as a whole (views_mismatched), never half-written. "
+                           + "**Positional replacement only**: BandStyleId is write-only in the Civil 2025 API, the old style name cannot be read, "
+                           + "so 'match by name' is impossible; dry_run first and check per_view.fingerprint to see whether the views are position-isomorphic before saving",
                 WritesDrawing = true,
                 Run = RunNodeRestyleProfileViewBands
             },
             ["sync_corridor_range"] = new OpDef
             {
-                Description = "走廊区间对齐路线起终点（换中线后配套）：逐基线首区间起点/末区间终点拉到路线两端，中间区间收进范围，然后 Rebuild",
-                Parameters = "corridor(必需,走廊名)",
+                Description = "Align corridor regions to the alignment start/end (after a centerline swap): first region start / last region end of each baseline pulled to the alignment ends, middle regions clipped into range, then Rebuild",
+                Parameters = "corridor(required, corridor name)",
                 WritesDrawing = true,
                 Run = RunNodeSyncCorridorRange
             },
             ["refresh_sample_lines"] = new OpDef
             {
-                Description = "采样线组不动、组内线沿新几何重生（换中线后配套；create_sample_lines 是删组重建，本节点保组保采样源）",
-                Parameters = "alignment(必需) interval?(默认按现有线数反推) swath?(默认按现有线长反推)",
+                Description = "Keep the sample line group, regenerate the lines along new geometry (after a centerline swap; create_sample_lines deletes and rebuilds the group, this node keeps the group and its sampled sources)",
+                Parameters = "alignment(required) interval?(default inferred from the existing line count) swath?(default inferred from the existing line lengths)",
                 WritesDrawing = true,
                 Run = RunNodeRefreshSampleLines
             },
             ["restore_sample_line_labels"] = new OpDef
             {
-                Description = "把被删光的采样线标签（桩号名字）重建回来：一个采样线组建一个 SampleLineLabelGroup。"
-                            + "⚠ SampleLine 上没有 LabelStyleId，标签不是挂在线上而是挂在组上的独立实体，"
-                            + "「给每条线赋标签样式」这条路不通；导出前 ERASE 采样线族会连标签一起清光，就用本节点补回",
-                Parameters = "style?(采样线标签样式名,默认 @C3DF-AlignmentStation,大小写敏感) alignment?(只修这条路线的组,缺省全图) "
-                           + "skip_existing?(默认true,已有标签组的跳过) dry_run?(默认false,只盘点不建)。"
-                           + "验收内建：标签组数=采样线组数 且 SubEntityCount 合计=采样线总数，不到数抛异常不提交",
+                Description = "Rebuild sample line labels (station names) that were erased: one SampleLineLabelGroup per sample line group. "
+                            + "Note: SampleLine has no LabelStyleId; labels are separate entities attached to the group, not to the lines, "
+                            + "so 'assign a label style to each line' is a dead end; ERASE on the sample line family before export wipes the labels too, use this node to restore them",
+                Parameters = "style?(sample line label style name, default @C3DF-AlignmentStation, case-sensitive) alignment?(only this alignment's groups, default whole drawing) "
+                           + "skip_existing?(default true, groups that already have labels are skipped) dry_run?(default false, inventory only). "
+                           + "Built-in acceptance: label group count = sample line group count and total SubEntityCount = total sample lines; throws without committing if short",
                 WritesDrawing = true,
                 Run = RunNodeRestoreSampleLineLabels
             },
             ["arrange_section_sheets"] = new OpDef
             {
-                Description = "横断面图排版真源：把断面图集中摆到全部路线右侧。layout=rows(默认)一条路线一行、行首写路线名；"
-                            + "layout=sheets 图框排成网格。改 Location 不重建，样式标注全保留。"
-                            + "批量出图走「create_section_views 生成 → 本节点统一排版」；create_section_views 自带的 x/y/spacing 只用于单路线自测",
-                Parameters = "layout?(rows|sheets,默认rows) scale?(默认200,出图比例) paper?(默认A3) paper_w? paper_h?(mm) "
-                           + "rows?(1) cols?(1,一个图框内的断面网格;A3@1:200只放得下1张) "
-                           + "row_pitch?/col_pitch?(模型单位,相邻断面中心距;0=按图框均分。断面比格子矮时均分会留白,这是收紧行距的旋钮) "
-                           + "sheets_per_row?(10,仅sheets版式) "
-                           + "margin?(200,离路线区距离) sheet_gap?(0) row_gap?(0) inner_margin_ratio?(0.05) "
-                           + "offset_left? offset_right?(给了就顺手收窄断面显示宽度,解决格子装不下) "
-                           + "draw_frames?(默认true,每页画闭合多段线图框,可直接喂 DWGTitleblockPlotter 批量打印) "
-                           + "row_label?(默认true) label_height?(缺省图框高5%) label_gap? "
-                           + "per_alignment_new_sheet?(默认true,仅sheets版式) alignments?[](缺省全部) x? y?(排版起点,缺省自动)",
+                Description = "Section view layout source of truth: place section views to the right of all alignments. layout=rows (default) one alignment per row with the alignment name at the row start; "
+                            + "layout=sheets arranges frames in a grid. Only Location changes, no rebuild, all styles and labels kept. "
+                            + "Batch output goes 'create_section_views generates -> this node lays out'; the x/y/spacing of create_section_views are for single-alignment self-tests only",
+                Parameters = "layout?(rows|sheets, default rows) scale?(default 200, plot scale) paper?(default A3) paper_w? paper_h?(mm) "
+                           + "rows?(1) cols?(1, section grid inside one frame; A3@1:200 only fits 1) "
+                           + "row_pitch?/col_pitch?(model units, centre distance between adjacent sections; 0 = divide the frame evenly. When sections are shorter than the cells even division leaves gaps; this is the knob to tighten row spacing) "
+                           + "sheets_per_row?(10, sheets layout only) "
+                           + "margin?(200, distance from the alignment area) sheet_gap?(0) row_gap?(0) inner_margin_ratio?(0.05) "
+                           + "offset_left? offset_right?(if given also narrows the section display width, to fix cells that do not fit) "
+                           + "draw_frames?(default true, draw a closed polyline frame per sheet, can be fed straight to DWGTitleblockPlotter for batch plotting) "
+                           + "row_label?(default true) label_height?(default 5% of frame height) label_gap? "
+                           + "per_alignment_new_sheet?(default true, sheets layout only) alignments?[](default all) x? y?(layout origin, default automatic)",
                 WritesDrawing = true,
                 Run = RunNodeArrangeSectionSheets
             },
             ["restore_corridor_section_labels"] = new OpDef
             {
-                Description = "宿主COM节点：对成果DWG执行 CORRIDORSECTIONLABELSCONV → ALL → C（选择集与动作在命令里写死，不是参数）",
-                Parameters = "out(必需,另存路径) overwrite? visible?；实际执行入口 nodes/restore_corridor_section_labels/run.ps1，"
-                           + "由 civil3dfactory.ps1 在 save_dwg 后调用；本入口只登记延期执行",
+                Description = "Host COM node: run CORRIDORSECTIONLABELSCONV -> ALL -> C on the result DWG (selection set and action are hard-coded in the command, not parameters)",
+                Parameters = "out(required, save-as path) overwrite? visible?; actual entry point nodes/restore_corridor_section_labels/run.ps1, "
+                           + "called by civil3dfactory.ps1 after save_dwg; this entry only registers the deferred execution",
                 WritesDrawing = false,
                 Run = RunNodeRestoreCorridorSectionLabels
             },
             ["export_quantities"] = new OpDef
             {
-                Description = "把算好的工程量导出 xlsx/csv（逐桩号累计/增量挖填 + 合计）",
-                Parameters = "alignment(必需) outdir? format?(xlsx|csv|both,默认both)",
+                Description = "Export computed quantities to xlsx/csv (cumulative/incremental cut and fill per station + totals)",
+                Parameters = "alignment(required) outdir? format?(xlsx|csv|both, default both)",
                 WritesDrawing = false,
                 Run = RunNodeExportQuantities
             },
             ["insert_title_blocks"] = new OpDef
             {
-                Description = "按模型比例批量插图框块（A3@1:500 = 210×148.5 m 一张）；带 XData 标记可重复跑",
-                Parameters = "block(必需,块名) from_dwg?(块库文件,图里没有该块时用) count?(默认1) cols?(默认1) x? y? "
-                           + "paper?(A0..A4,默认A3) paper_w? paper_h?(mm,覆盖预设) scale?(缺省取图纸当前注释比例) "
-                           + "block_scale?(缺省=scale/1000) gap_x? gap_y? layer? attributes?{标签:值}(值里 {n} 替换为序号) "
-                           + "at?[{x,y,attributes?}](给定就逐点插并忽略网格参数；插入点=块外包左下角，"
-                           + "喂 arrange_section_sheets 的 sheets[].origin_x/y 正好贴齐定位框；逐点 attributes 覆盖全局同名项) "
-                           + "erase_same_block?(默认true，重跑前把模型空间同名块引用全清掉——XData 标记存盘会丢，只靠它会越插越摞) "
-                           + "width_factors?{标签:因子}(长文字塞窄格：按标签把属性文字压扁) "
-                           + "attsync?(默认true：插完对本块跑 ATTSYNC 同步属性位置/格式回块定义，再补一遍 width_factors)",
+                Description = "Batch-insert title block references at model scale (A3@1:500 = 210x148.5 m per sheet); XData-marked so it can be re-run",
+                Parameters = "block(required, block name) from_dwg?(block library file, used when the block is not in the drawing) count?(default 1) cols?(default 1) x? y? "
+                           + "paper?(A0..A4, default A3) paper_w? paper_h?(mm, override presets) scale?(default the drawing's current annotation scale) "
+                           + "block_scale?(default = scale/1000) gap_x? gap_y? layer? attributes?{tag:value}({n} in a value is replaced by the index) "
+                           + "at?[{x,y,attributes?}](if given, insert point by point and ignore grid parameters; insertion point = lower-left of the block extents, "
+                           + "feeding sheets[].origin_x/y from arrange_section_sheets aligns exactly with the locating frames; per-point attributes override same-named global ones) "
+                           + "erase_same_block?(default true, erase all model-space references of the same block before re-running; XData marks are lost on save, relying on them alone would stack up inserts) "
+                           + "width_factors?{tag:factor}(squeeze long text into narrow cells: compress attribute text by tag) "
+                           + "attsync?(default true: after inserting run ATTSYNC on this block to sync attribute position/format back to the definition, then re-apply width_factors)",
                 WritesDrawing = true,
                 Run = RunNodeInsertTitleBlocks
             },
             ["create_layout_sheet"] = new OpDef
             {
-                Description = "创建布局图纸：图框放布局空间，视口按模型窗口定位，可固定比例并选择是否锁定",
-                Parameters = "layout?(默认C3DF-A3) block(必需) from_dwg?(图中没有块定义时用) "
-                           + "model_window?{minx,miny,maxx,maxy} boundary_handle? boundary_layer? paper?(默认A3) "
-                           + "viewport?{x,y,width,height,scale?,locked?,layer?(默认C3DF-VPORT-NOPLOT不打印，"
-                           + "要打印边框就给可打印层),freeze_layers?[]} frame_x? frame_y? frame_scale?(默认1) "
-                           + "frame_layer?(默认0) attributes?{标签:值} width_factors?{标签:因子}(长图名塞窄格) "
-                           + "extra_viewports?[{x,y,width,height,scale(必需),center_x?,center_y?,locked?,layer?,"
-                           + "freeze_layers?[]}](同框附加小视口，如分幅图的平面索引钥匙图；缺中心沿用主窗中心) "
-                           + "凡新建视口都先全层解冻再按 freeze_layers 冻——洗掉源图「新视口中冻结」层状态"
-                           + "（那状态 DXF 解析读不到，会让整层内容在成图里凭空消失） "
-                           + "clear?(默认true=重跑先清空本布局；false=在本布局里叠加一张，"
-                           + "配合 frame_x/viewport.x 逐张平移就能把多幅分平面图横排进同一个布局)",
+                Description = "Create a layout sheet: title block in paper space, viewport positioned by a model window, fixed scale optional, locked or not",
+                Parameters = "layout?(default C3DF-A3) block(required) from_dwg?(used when the block definition is not in the drawing) "
+                           + "model_window?{minx,miny,maxx,maxy} boundary_handle? boundary_layer? paper?(default A3) "
+                           + "viewport?{x,y,width,height,scale?,locked?,layer?(default C3DF-VPORT-NOPLOT non-plotting; "
+                           + "give a plottable layer to plot the border),freeze_layers?[]} frame_x? frame_y? frame_scale?(default 1) "
+                           + "frame_layer?(default 0) attributes?{tag:value} width_factors?{tag:factor}(squeeze long sheet titles into narrow cells) "
+                           + "extra_viewports?[{x,y,width,height,scale(required),center_x?,center_y?,locked?,layer?,"
+                           + "freeze_layers?[]}](additional small viewports in the same frame, e.g. the key map of a plan sheet; centre defaults to the main window centre) "
+                           + "Every new viewport first thaws all layers and then freezes freeze_layers, washing out the source drawing's 'frozen in new viewports' layer state "
+                           + "(that state is invisible to DXF parsing and makes whole layers vanish from the finished sheet) "
+                           + "clear?(default true = clear this layout before re-running; false = stack another sheet in the same layout, "
+                           + "shifting frame_x/viewport.x per sheet lines up several plan sheets in one layout)",
                 WritesDrawing = true,
                 Run = CreateLayoutSheet
             },
             ["create_sheet_region"] = new OpDef
             {
-                Description = "在模型空间建立不打印的成图材料框；框尺寸由纸张和出图比例换算",
-                Parameters = "x y(左下角；或给 alignment 自动按路线起点定位) paper?(默认A3) scale?(默认500) "
-                           + "alignment? offset_x?(默认-100) offset_y?(默认-1600) "
-                           + "name?(默认SHEET-01) layer?(默认C3DF-SHEET-REGION-NOPLOT) "
-                           + "count?(默认1) pitch_x?(默认0) pitch_y?(默认0；批量时名称自动加-01/-02)",
+                Description = "Create non-plotting sheet frames in model space; frame size derived from paper size and plot scale",
+                Parameters = "x y(lower-left; or give alignment to position automatically at the alignment start) paper?(default A3) scale?(default 500) "
+                           + "alignment? offset_x?(default -100) offset_y?(default -1600) "
+                           + "name?(default SHEET-01) layer?(default C3DF-SHEET-REGION-NOPLOT) "
+                           + "count?(default 1) pitch_x?(default 0) pitch_y?(default 0; in batches names get -01/-02 appended)",
                 WritesDrawing = true,
                 Run = RunNodeCreateSheetRegion
             },
             ["create_plan_frames_from_alignment"] = new OpDef
             {
-                Description = "沿Civil路线生成连续水平分平面图框；固定世界坐标方向，不建立图纸集",
-                Parameters = "alignment(必需) paper?(默认A3) scale?(默认5000) "
-                           + "viewport_width_mm?(默认350) viewport_height_mm?(默认267) "
-                           + "edge_margin_mm?(默认10) sample_step?(默认10m) overlap_ratio?(默认0.10) "
-                           + "start_station? end_station? max_frames?(0=全部) frame_prefix? layer? replace_existing?",
+                Description = "Generate consecutive horizontal plan-sheet frames along a Civil alignment; fixed world orientation, no sheet set created",
+                Parameters = "alignment(required) paper?(default A3) scale?(default 5000) "
+                           + "viewport_width_mm?(default 350) viewport_height_mm?(default 267) "
+                           + "edge_margin_mm?(default 10) sample_step?(default 10 m) overlap_ratio?(default 0.10) "
+                           + "start_station? end_station? max_frames?(0 = all) frame_prefix? layer? replace_existing?",
                 WritesDrawing = true,
                 Run = RunNodeCreatePlanFramesFromAlignment
             },
             ["create_plan_layouts_from_frames"] = new OpDef
             {
-                Description = "把水平分幅框批量转成当前DWG普通布局；创建锁定的0旋转视口并插入属性图框",
-                Parameters = "block(必需) from_dwg? paper?(默认A3) scale?(默认5000) "
-                           + "frame_layer? layout_prefix? max_layouts?(0=全部) viewport?{} "
+                Description = "Batch-convert horizontal plan-sheet frames into ordinary layouts of the current DWG; creates locked zero-rotation viewports and inserts the attribute title block",
+                Parameters = "block(required) from_dwg? paper?(default A3) scale?(default 5000) "
+                           + "frame_layer? layout_prefix? max_layouts?(0 = all) viewport?{} "
                            + "frame_x? frame_y? frame_scale? frame_block_layer? attributes?{}",
                 WritesDrawing = true,
                 Run = RunNodeCreatePlanLayoutsFromFrames
             },
             ["compose_layout_sheet"] = new OpDef
             {
-                Description = "创建实体化布局图纸：把当前/外部 DWG 模型空间实体缩放复制到布局空间，再套整张图框 DWG",
-                Parameters = "layout?(默认C3DF-A3-实体) paper?(默认A3) clear?(默认true) "
-                           + "sources?[{dwg?(缺省当前图),source_window?{minx,miny,maxx,maxy},crossing?(默认false),"
-                           + "exclude_layers?[],paper_scale?(固定模型→纸空间倍率),target?{x,y,width,height},rotation?}] "
-                           + "frame{block,from_dwg,x?,y?,scale?,attributes?{}}(必需) "
-                           + "notes?[字符串] notes_x? notes_y? notes_width? notes_height?",
+                Description = "Create an entity-based layout sheet: scale-copy model-space entities of the current/external DWG into paper space, then wrap them with a whole title-block DWG",
+                Parameters = "layout?(default C3DF-A3-Entities) paper?(default A3) clear?(default true) "
+                           + "sources?[{dwg?(default current drawing),source_window?{minx,miny,maxx,maxy},crossing?(default false),"
+                           + "exclude_layers?[],paper_scale?(fixed model -> paper factor),target?{x,y,width,height},rotation?}] "
+                           + "frame{block,from_dwg,x?,y?,scale?,attributes?{}}(required) "
+                           + "notes?[strings] notes_x? notes_y? notes_width? notes_height?",
                 WritesDrawing = true,
                 Run = ComposeLayoutSheet
             },
             ["entity_stats"] = new OpDef
             {
-                Description = "模型空间实体统计（按类型或图层分组），查\"这张图上到底是些什么\"",
-                Parameters = "by?(type|layer,默认type) top?(默认30)",
+                Description = "Model-space entity statistics (grouped by type or layer), to answer \"what is actually in this drawing\"",
+                Parameters = "by?(type|layer, default type) top?(default 30)",
                 WritesDrawing = false,
                 Run = EntityStats
             },
             ["set_scale"] = new OpDef
             {
-                Description = "设模型空间比例：注释比例 CANNOSCALE + Civil 图形比例（图形设置→单位和比例，断面/纵断面标注字号看的是它）；图里没有这档就现建。回执带 civil_drawing_scale_before/after",
-                Parameters = "scale?(纸1:图N 的 N；米制 1:500 传 0.5，传 500 会建成 1:500000) name?(比例名，如 \"1：500\" 注意全角/半角要跟图里那档一致) "
-                           + "drawing_scale?(Civil 图形比例，缺省=注释比例同款比值 DrawingUnits/PaperUnits；项目A实测米制 0.5→注记 1:500、500→1:500000 且字号×1000)",
+                Description = "Set the model-space scale: annotation scale CANNOSCALE + Civil drawing scale (Drawing Settings -> Units and Scale; section/profile label text heights depend on it); created if the drawing lacks that entry. Result carries civil_drawing_scale_before/after",
+                Parameters = "scale?(N of paper 1:drawing N; metric 1:500 passes 0.5, passing 500 creates 1:500000) name?(scale name, e.g. \"1:500\"; must match the drawing's entry exactly, including fullwidth vs. ASCII colon) "
+                           + "drawing_scale?(Civil drawing scale, default the same ratio as the annotation scale DrawingUnits/PaperUnits; project A metric measurements: 0.5 -> labels 1:500, 500 -> 1:500000 with text x1000)",
                 WritesDrawing = true,
                 Run = SetScale
             },
             ["set_model_view"] = new OpDef
             {
-                Description = "设置并保存模型空间初始视图窗口，避免大批Civil对象图纸打开时立即绘制全图",
-                Parameters = "minx miny maxx maxy(必需)",
+                Description = "Set and save the initial model-space view window, so drawings with many Civil objects do not draw everything on open",
+                Parameters = "minx miny maxx maxy(required)",
                 WritesDrawing = true,
                 Run = SetModelView
             },
             ["export_to_autocad"] = new OpDef
             {
-                Description = "把 Civil 3D 对象炸成纯 CAD 实体、另存新文件（-EXPORTTOAUTOCAD），原图不动",
-                Parameters = "out(必需,绝对路径) version?(默认2018) overwrite?(默认false) "
-                           + "explode_classes?([]DXF类名,导出前在内存里先把这些类就地炸成普通图元——"
-                           + "断面 QTO 体积表 AECC_SECTION_VIEW_QUANTITY_TAKEOFF_TABLE 不炸会让导出 eLockViolation 流产；"
-                           + "配合先 save_dwg 后导出，底稿保住活表)",
+                Description = "Explode Civil 3D objects into pure CAD entities and save as a new file (-EXPORTTOAUTOCAD); the original is untouched",
+                Parameters = "out(required, absolute path) version?(default 2018) overwrite?(default false) "
+                           + "explode_classes?([] DXF class names, exploded in place in memory into plain entities before export; "
+                           + "the section QTO volume table AECC_SECTION_VIEW_QUANTITY_TAKEOFF_TABLE aborts the export with eLockViolation unless exploded; "
+                           + "save_dwg first and then export so the master keeps its live tables)",
                 WritesDrawing = false,
                 Run = RunNodeExportToAutocad
             },
             ["annotate_grid_elevations"] = new OpDef
             {
-                Description = "网格角点高程标注：边界图层上每条闭合多段线内打方格网，交叉点标设计/现有/差值三值",
-                Parameters = "boundary_layer(必需,边界所在图层) design_surface(必需) existing_surface(必需) "
-                           + "spacing?(默认50) text_height?(默认2.5) decimals?(默认2) offset_factor?(默认0.4) "
-                           + "closed_only?(默认true) draw_grid?(默认true) clear_existing?(默认true,只删本节点XData对象) "
-                           + "grid_layer?/design_layer?/exist_layer?/diff_layer?(默认 C3DF-网格/C3DF-DesignElevation/C3DF-现有高程/C3DF-差值)",
+                Description = "Grid corner elevation labels: inside every closed polyline on the boundary layer lay a square grid and label design/existing/difference at each intersection",
+                Parameters = "boundary_layer(required, layer of the boundaries) design_surface(required) existing_surface(required) "
+                           + "spacing?(default 50) text_height?(default 2.5) decimals?(default 2) offset_factor?(default 0.4) "
+                           + "closed_only?(default true) draw_grid?(default true) clear_existing?(default true, only deletes this node's XData objects) "
+                           + "grid_layer?/design_layer?/exist_layer?/diff_layer?(default C3DF-GRID/C3DF-DESIGN-ELEV/C3DF-EXISTING-ELEV/C3DF-DIFFERENCE)",
                 WritesDrawing = true,
                 Run = RunNodeAnnotateGridElevations
             },
             ["annotate_closed_polyline_areas"] = new OpDef
             {
-                Description = "闭合多段线面积标注与 Excel 汇总：支持按句柄修正面积、重合标签自动错位和安全重跑",
-                Parameters = "source_layer?(默认全部图层) text_height?(默认2.5) decimals?(默认2) "
-                           + "annotation_layer?(默认C3DF-面积标注) color_index?(默认1) prefix? suffix?(默认 m²) "
-                           + "include_zero?(默认true) clear_existing?(默认true) "
-                           + "area_overrides?({句柄:面积}) label_offsets?({句柄:[dx,dy]}) "
-                           + "export_excel?(默认true) outdir? excel_out_path? excel_format?(xlsx|csv|both)",
+                Description = "Closed polyline area labels with Excel summary: supports per-handle area overrides, automatic offset of overlapping labels and safe re-runs",
+                Parameters = "source_layer?(default all layers) text_height?(default 2.5) decimals?(default 2) "
+                           + "annotation_layer?(default C3DF-AREA-LABEL) color_index?(default 1) prefix? suffix?(default m²) "
+                           + "include_zero?(default true) clear_existing?(default true) "
+                           + "area_overrides?({handle:area}) label_offsets?({handle:[dx,dy]}) "
+                           + "export_excel?(default true) outdir? excel_out_path? excel_format?(xlsx|csv|both)",
                 WritesDrawing = true,
                 Run = RunNodeAnnotateClosedPolylineAreas
             },
             ["calculate_surface_volume"] = new OpDef
             {
-                Description = "曲面体积计算与疏浚统计（两曲面全范围 GetVolumeProperties；按闭合边界分块算量走 bounded_volumes。"
-                            + "boundary_polyline 假参数 2026-08-20 已裁——它从不参与计算，收到即报错）",
-                Parameters = "base_surface(必需) comparison_surface(必需) cut_factor? fill_factor? export_excel? excel_out_path? draw_dwg_table? table_insertion_point?",
+                Description = "Surface volume calculation and dredging statistics (full-extent GetVolumeProperties between two surfaces; per closed boundary use bounded_volumes. "
+                            + "The fake boundary_polyline parameter was removed on 2026-08-20: it never took part in the calculation and is now an error)",
+                Parameters = "base_surface(required) comparison_surface(required) cut_factor? fill_factor? export_excel? excel_out_path? draw_dwg_table? table_insertion_point?",
                 WritesDrawing = true,
                 Run = RunNodeCalculateSurfaceVolume
             },
             ["survey_dredge_regions"] = new OpDef
             {
-                Description = "疏浚区边界盘点与参数试算（只读）：边界图层上每条闭合多段线报句柄/面积/周长/形心/绕向/"
-                            + "区内文字(自动认区名)/边界处原地形高程；给了 bottom_elev 还按 create_dredge_grading 同一个锥面模型"
-                            + "网格试算挖填方——不建面不改图，先定参数再建面。放坡链路第一步",
-                Parameters = "boundary_layer(必需,边界所在图层) boundaries?([]句柄白名单,给了就只盘这几条) "
-                           + "surface?(原地形曲面名,给了才报高程与试算) bottom_elev?(给了才试算方量) "
-                           + "slope_ratio_m?(默认5,1:m 的 m) regions?(同 create_dredge_grading,逐区覆盖;两个节点共用同一套合并口径) "
-                           + "start_surface?(起坡高程取这个曲面,如已设计的通道面;采不到退回原地形) "
-                           + "start_elev?(固定起坡高程) start_elev_cap?(起坡高程上限=min(地形,cap)) "
-                           + "interface_layers?([]分界线图层,边界离这些线近的段压到 interface_start_elev) "
-                           + "interface_tolerance?(默认2,边界点到分界线的距离容差) interface_start_elev?(缺省=bottom_elev,即该段不放坡) "
-                           + "label_layer?(区名文字图层,缺省=所有非 C3DF-* 图层的文字) sample_step?(默认2,边界采样步长) "
-                           + "grid_step?(默认5,试算网格) export_excel?(默认false) outdir? excel_out_path? excel_format?(xlsx|csv|both)",
+                Description = "Dredging region boundary inventory and parameter trial (read-only): every closed polyline on the boundary layer reports handle/area/perimeter/centroid/winding/"
+                            + "text inside (auto-detected region name)/existing ground elevation along the boundary; with bottom_elev it also trial-computes cut/fill on a grid "
+                            + "using the same cone model as create_dredge_grading, without building surfaces or changing the drawing: settle parameters first, build later. First step of the grading chain",
+                Parameters = "boundary_layer(required, layer of the boundaries) boundaries?([] handle whitelist, only these if given) "
+                           + "surface?(existing ground surface name; elevations and trial only if given) bottom_elev?(volume trial only if given) "
+                           + "slope_ratio_m?(default 5, m of 1:m) regions?(same as create_dredge_grading, per-region override; both nodes share the same merge rules) "
+                           + "start_surface?(take the slope start elevation from this surface, e.g. an already designed channel surface; falls back to existing ground where unsampled) "
+                           + "start_elev?(fixed slope start elevation) start_elev_cap?(cap on the slope start elevation = min(terrain, cap)) "
+                           + "interface_layers?([] interface line layers; boundary segments near these lines are pushed down to interface_start_elev) "
+                           + "interface_tolerance?(default 2, distance tolerance from boundary point to interface line) interface_start_elev?(default = bottom_elev, i.e. no slope on that segment) "
+                           + "label_layer?(layer of region-name texts, default = texts on all non C3DF-* layers) sample_step?(default 2, boundary sampling step) "
+                           + "grid_step?(default 5, trial grid) export_excel?(default false) outdir? excel_out_path? excel_format?(xlsx|csv|both)",
                 WritesDrawing = false,
                 Run = RunNodeSurveyDredgeRegions
             },
             ["create_dredge_grading"] = new OpDef
             {
-                Description = "疏浚放坡设计面（闭合边界→底高程+1:m 放坡）：边界多段线是**放坡起点线(上口线)**，逐区把范围挖到 "
-                            + "bottom_elev、从边界按 1:m 向内下放坡建 TIN 设计面，另画坡顶线/坡脚线。"
-                            + "用到边界的距离场(z=max(底, 起坡高程−距离/m))，凹角窄条不自交；放坡带内密采、平底稀采。"
-                            + "全局参数 + regions 逐区覆盖 = 参数模型（不同区不同坡比就在这里给）",
-                Parameters = "boundary_layer(必需) surface(必需,原地形曲面名) bottom_elev(必需,设计底高程) "
-                           + "slope_ratio_m(必需,1:m 的 m) boundaries?([]句柄白名单) "
-                           + "start_surface?(起坡高程取这个曲面,如已设计的通道面;采不到退回原地形) "
-                           + "start_elev?(整圈固定起坡高程) start_elev_cap?(起坡高程上限=min(地形,cap)) "
-                           + "interface_layers?([]分界线图层：与已挖通道相接的那几段边界，起坡高程压到 interface_start_elev) "
-                           + "interface_tolerance?(默认2) interface_start_elev?(缺省=bottom_elev,即该段不放坡,坡由通道自己出) "
-                           + "regions?([{id?,handle?,label?,bottom_elev?,slope_ratio_m?,start_elev?,start_elev_cap?,interface_start_elev?,z_segments?([{s0,s1,mode(现状|上限|定值|压底),value?}] 环弧长逐段顶高程,命中即权威盖过分界线口径),channel?,note?}] 逐区覆盖) "
-                           + "label_layer?(区名文字图层,缺省=所有非 C3DF-* 图层的文字) sample_step?(默认2) slope_step?(默认2,放坡带网格) "
-                           + "flat_step?(默认20,平底网格) surface_prefix?(默认「疏浚设计-」) surface_layer?(默认C3DF-DREDGE-SURFACE) "
-                           + "crest_layer?(默认C3DF-DREDGE-TOP) toe_layer?(默认C3DF-DREDGE-TOE) draw_crest_line?(默认true) "
-                           + "draw_toe_line?(默认true) clear_existing?(默认true,删 surface_prefix 前缀的曲面与带 C3DF_DREDGE XData 的线)",
+                Description = "Dredging grading design surface (closed boundary -> bottom elevation + 1:m slope): the boundary polyline is the **slope start line (top edge)**; per region the area is cut to "
+                            + "bottom_elev, sloped inward and downward at 1:m from the boundary to build a TIN design surface, plus crest/toe lines. "
+                            + "Uses a distance field to the boundary (z = max(bottom, start elevation - distance/m)), so narrow strips at concave corners do not self-intersect; dense sampling in the slope band, sparse on the flat bottom. "
+                            + "Global parameters + per-region overrides in regions = the parameter model (different slopes per region go here)",
+                Parameters = "boundary_layer(required) surface(required, existing ground surface name) bottom_elev(required, design bottom elevation) "
+                           + "slope_ratio_m(required, m of 1:m) boundaries?([] handle whitelist) "
+                           + "start_surface?(take the slope start elevation from this surface, e.g. an already designed channel surface; falls back to existing ground where unsampled) "
+                           + "start_elev?(fixed slope start elevation for the whole ring) start_elev_cap?(cap on the slope start elevation = min(terrain, cap)) "
+                           + "interface_layers?([] interface line layers: boundary segments adjoining an already dredged channel get their start elevation pushed to interface_start_elev) "
+                           + "interface_tolerance?(default 2) interface_start_elev?(default = bottom_elev, i.e. no slope on that segment, the channel provides its own) "
+                           + "regions?([{id?,handle?,label?,bottom_elev?,slope_ratio_m?,start_elev?,start_elev_cap?,interface_start_elev?,z_segments?([{s0,s1,mode(existing|cap|fixed|bottom),value?}] top elevation per arc-length segment of the ring, authoritative over the interface rules where it hits),channel?,note?}] per-region override) "
+                           + "label_layer?(layer of region-name texts, default = texts on all non C3DF-* layers) sample_step?(default 2) slope_step?(default 2, slope band grid) "
+                           + "flat_step?(default 20, flat bottom grid) surface_prefix?(default \"DredgeDesign-\") surface_layer?(default C3DF-DREDGE-SURFACE) "
+                           + "crest_layer?(default C3DF-DREDGE-TOP) toe_layer?(default C3DF-DREDGE-TOE) draw_crest_line?(default true) "
+                           + "draw_toe_line?(default true) clear_existing?(default true, deletes surfaces with the surface_prefix and lines carrying C3DF_DREDGE XData)",
                 WritesDrawing = true,
                 Run = RunNodeCreateDredgeGrading
             },
             ["merge_post_dredge_surface"] = new OpDef
             {
-                Description = "工后曲面合成（设计∧现状取低）：疏浚只挖不填——逐点 z=min(设计面,现状地形) 建真实工后 TIN，"
-                            + "低于设计高程的现状原样保留。临时高差 TIN 在挖侧 ε 处提零差等高线当折痕断裂线，"
-                            + "同时落图 crease_layer 当挖区边界线；范围=设计面轮廓（外边界裁剪，多环时最大环当外圈其余当洞）。"
-                            + "verify 默认开：现状 vs 工后 GetVolumeProperties，min() 恒不高于现状 ⇒ 填方必须≈0，"
-                            + "残余填方 >0.5% 挖方就告警——安静地成功=没成功",
-                Parameters = "design_surface(必需,设计曲面名) existing_surface(必需,现状地形曲面名) "
-                           + "out_surface?(默认「工后-设计面名」;幂等重跑同名覆盖) surface_layer?(默认C3DF-POST-SURFACE) "
-                           + "crease_layer?(默认C3DF-POST-ZERO-LINE) draw_crease_lines?(默认true,零差线落图当挖区边界线) "
-                           + "min_crease_length?(默认1,更短的零差碎段丢弃) contour_epsilon?(默认0.001,零差线实际提在挖侧1mm处) "
-                           + "border_step?(默认2,设计面轮廓展环步长) edge_step?(默认2,沿两面 TIN 棱细分采样的步长,0=关;"
-                           + "面内是平面怎么三角化都精确、误差只出在跨棱处,顺棱采样比盲网格贴合) "
-                           + "clear_existing?(默认true,清同名工后面与本节点零差线) "
-                           + "verify?(默认true,现状vs工后+现状vs设计两组量对照自检)",
+                Description = "Post-dredge surface composition (design AND existing, take the lower): dredging only cuts, never fills; per point z = min(design surface, existing terrain) builds the real post-dredge TIN, "
+                            + "existing ground below design elevation is kept as is. A temporary difference TIN yields the zero-difference contour at epsilon on the cut side as crease breaklines, "
+                            + "also drawn on crease_layer as cut-area boundary lines; extent = design surface outline (outer boundary clip; with several rings the largest is the outer ring, the rest are holes). "
+                            + "verify is on by default: existing vs post-dredge GetVolumeProperties; min() is never above existing => fill must be ~0, "
+                            + "residual fill >0.5% of cut raises a warning; silent success = no success",
+                Parameters = "design_surface(required, design surface name) existing_surface(required, existing terrain surface name) "
+                           + "out_surface?(default \"Post-<design surface name>\"; idempotent re-run overwrites the same name) surface_layer?(default C3DF-POST-SURFACE) "
+                           + "crease_layer?(default C3DF-POST-ZERO-LINE) draw_crease_lines?(default true, zero-difference lines drawn as cut-area boundary lines) "
+                           + "min_crease_length?(default 1, shorter zero-difference fragments are dropped) contour_epsilon?(default 0.001, the zero line is actually taken 1 mm into the cut side) "
+                           + "border_step?(default 2, step for unrolling the design surface outline) edge_step?(default 2, step for subdividing along the TIN edges of both surfaces, 0 = off; "
+                           + "inside a face any triangulation is exact, error only arises across edges, so sampling along edges fits better than a blind grid) "
+                           + "clear_existing?(default true, clears the same-named post-dredge surface and this node's zero lines) "
+                           + "verify?(default true, self-check comparing existing vs post-dredge and existing vs design volumes)",
                 WritesDrawing = true,
                 Run = RunNodeMergePostDredgeSurface
             },
             ["parcel_grading_slope"] = new OpDef
             {
-                Description = "地块向内/向外自动放坡",
-                Parameters = "parcel_boundary(必需) target_surface? direction? target_type? target_value? cut_slope? fill_slope? bench_height? bench_width? draw_comb_lines? comb_spacing?",
+                Description = "Automatic inward/outward grading of a parcel",
+                Parameters = "parcel_boundary(required) target_surface? direction? target_type? target_value? cut_slope? fill_slope? bench_height? bench_width? draw_comb_lines? comb_spacing?",
                 WritesDrawing = true,
                 Run = RunNodeParcelGradingSlope
             },
             ["offset_cone_contours"] = new OpDef
             {
-                Description = "偏移圆台：闭合边界批量偏移生成等高线（与 products\\waterbox 的 C3DF-OffsetCone/YT 同一算法核心）。"
-                            + "默认内偏（岛收顶／坑收底）；outward=true 改外偏——边界当顶高程线往外摊到 target_z，岛屿外放坡就是这个",
-                Parameters = "target_z(必需,目标设计高程) slope_n(必需,坡比1:n的n) step_dz?(高程间隔,默认0.5) "
-                           + "outward?(默认false=内偏;true=外偏,边界不动往外放坡) "
-                           + "fillet_r?(圆角半径,默认2·n·dz,0=不平滑) boundaries?[句柄数组] layer?(图层名,与boundaries二选一)",
+                Description = "Offset cone: batch-offset a closed boundary to produce contours (same algorithm core as C3DF-OffsetCone/YT in products\\waterbox). "
+                            + "Inward by default (island narrows to the top / pit narrows to the bottom); outward=true offsets outward: the boundary is the top elevation line spread out to target_z, which is island outward grading",
+                Parameters = "target_z(required, target design elevation) slope_n(required, n of slope 1:n) step_dz?(elevation interval, default 0.5) "
+                           + "outward?(default false = inward; true = outward, boundary fixed, slope goes outward) "
+                           + "fillet_r?(fillet radius, default 2*n*dz, 0 = no smoothing) boundaries?[handle array] layer?(layer name, either this or boundaries)",
                 WritesDrawing = true,
                 Run = RunNodeOffsetConeContours
             },
             ["erase_entities"] = new OpDef
             {
-                Description = "按句柄删实体。删前把每个对象长什么样（类型/图层/高程/顶点/长度/面积）报出来，"
-                            + "删完清单留在结果里；dry_run:true 只报不删。只按句柄，不开按图层批量删的口子",
-                Parameters = "handles(必需,[]句柄数组) dry_run?(默认false)",
+                Description = "Delete entities by handle. Before deleting, reports what each object looks like (type/layer/elevation/vertices/length/area) "
+                            + "and keeps the list in the result; dry_run:true reports without deleting. Handles only, no batch delete by layer",
+                Parameters = "handles(required, [] handle array) dry_run?(default false)",
                 WritesDrawing = true,
                 Run = RunNodeEraseEntities
             },
             ["bounded_volumes"] = new OpDef
             {
-                Description = "逐条闭合边界报体积曲面的挖填方（只读）：走 Surface.GetBoundedVolumes，"
-                            + "就是体积面板里「加一条统计边界」拿到的那组数。"
-                            + "⚠ 别拿 calculate_surface_volume 干这活——那个走 GetVolumeProperties 拿整个曲面的量，不认边界",
-                Parameters = "volume_surface(已有体积曲面名) 或 base_surface+comparison_surface(没有就现建) "
-                           + "layer?(边界所在图层) handles?([]句柄白名单)，二者至少给一个 "
-                           + "names?({句柄:名称}) sample_step?(默认1,边界展成点环的步长,弧段按真实弧长) "
-                           + "cut_factor?/fill_factor?(默认1,土方系数如 1.06) datum_elevation?(给了走带基准高程的重载) "
-                           + "export_excel?(默认false) outdir? excel_format?(xlsx|csv|both,默认xlsx)",
+                Description = "Cut/fill of a volume surface per closed boundary (read-only): uses Surface.GetBoundedVolumes, "
+                            + "the same numbers the volumes panel gives when you 'add a bounded region'. "
+                            + "Note: do not use calculate_surface_volume for this; that one uses GetVolumeProperties for the whole surface and ignores boundaries",
+                Parameters = "volume_surface(existing volume surface name) or base_surface+comparison_surface(created if absent) "
+                           + "layer?(layer of the boundaries) handles?([] handle whitelist), give at least one "
+                           + "names?({handle:name}) sample_step?(default 1, step for unrolling the boundary into a point ring, arcs by true arc length) "
+                           + "cut_factor?/fill_factor?(default 1, earthwork factor such as 1.06) datum_elevation?(if given uses the overload with datum elevation) "
+                           + "export_excel?(default false) outdir? excel_format?(xlsx|csv|both, default xlsx)",
                 WritesDrawing = false,
                 Run = RunNodeBoundedVolumes
             },
             ["grid_earthwork_balance"] = new OpDef
             {
-                Description = "网格土方平衡：体积曲面上按格心撒格出逐格挖填 → 格间运输问题（精确最小 方量×运距）"
-                            + "→ 内部调配量/加权运距/运距分档直方图，图内画挖填色块+聚合调配箭头（C3DF-平衡-* 四图层，幂等清旧）。"
-                            + "量的真值走 GetBoundedVolumes 并做闭合差断言后配平——格距只影响运距分辨率不影响量。"
-                            + "挖填差额挂虚拟节点（不进直方图不画箭头），报成 缺口借方/富余弃方。"
-                            + "与 products\\waterbox 的 C3DF-GridBalance/PH 同一算法核心（GridBalanceCore.cs）",
-                Parameters = "volume_surface(已有体积曲面名) 或 base_surface+comparison_surface(没有就现建) "
-                           + "layer?(边界图层) handles?([]句柄白名单)，二者至少给一个 names?({句柄:名称}) "
-                           + "step?(统计格距,默认5) solver_max_nodes?(求解节点上限,默认900,超了自动聚粗) "
-                           + "bands?([]运距分档界m,默认[30,50,100,200,300,500]) volume_factor?(报表系数如1.06,默认1) "
-                           + "closure_warn_pct?(默认2) closure_fail_pct?(默认10) sample_step?(边界展环步长,默认1) "
-                           + "draw_cells?(默认true) draw_arrows?(默认true) max_arrows?(默认60) clear_previous?(默认true) "
-                           + "export_excel?(默认true) outdir? excel_format?(xlsx|csv|both,默认xlsx)",
+                Description = "Grid earthwork balance: on a volume surface, cells scattered by cell centre give per-cell cut/fill -> inter-cell transport problem (exact minimum of volume x haul distance) "
+                            + "-> internal reallocation volume/weighted haul distance/haul band histogram; draws cut/fill colour cells + aggregated haul arrows in the drawing (four C3DF-Balance-* layers, old ones cleared idempotently). "
+                            + "The true volume comes from GetBoundedVolumes with a closure assertion before balancing; cell size only affects haul-distance resolution, not volume. "
+                            + "The cut/fill imbalance hangs on a virtual node (not in the histogram, no arrow), reported as shortfall (borrow) / surplus (spoil). "
+                            + "Same algorithm core as C3DF-GridBalance/PH in products\\waterbox (GridBalanceCore.cs)",
+                Parameters = "volume_surface(existing volume surface name) or base_surface+comparison_surface(created if absent) "
+                           + "layer?(boundary layer) handles?([] handle whitelist), give at least one; names?({handle:name}) "
+                           + "step?(statistics cell size, default 5) solver_max_nodes?(solver node limit, default 900, coarsened automatically above it) "
+                           + "bands?([] haul distance band limits in m, default [30,50,100,200,300,500]) volume_factor?(report factor such as 1.06, default 1) "
+                           + "closure_warn_pct?(default 2) closure_fail_pct?(default 10) sample_step?(boundary unrolling step, default 1) "
+                           + "draw_cells?(default true) draw_arrows?(default true) max_arrows?(default 60) clear_previous?(default true) "
+                           + "export_excel?(default true) outdir? excel_format?(xlsx|csv|both, default xlsx)",
                 WritesDrawing = true,
                 Run = RunNodeGridEarthworkBalance
             },
             ["make_parcels"] = new OpDef
             {
-                Description = "成田：范围线+圆滑中心线 → 通道带布尔 → 台田闭合边界（自动尖角甄别归圆）。"
-                            + "多外圈自动分组（包含深度判外圈/岛洞，中心线按中点归组）；中心线端头贴边自动外延捅穿范围线；"
-                            + "任一条成带失败整体报错不画。与 products\\waterbox 的 C3DF-MakeParcels/CT 同一算法核心（MakeParcelsCore.cs）",
-                Parameters = "boundary_layer? boundary_handles?([]) 二者至少一（闭合/首尾重合的多段线） "
-                           + "centerline_layer? centerline_handles?([]) 二者至少一（开放多段线） "
-                           + "half_width?(通道半宽,默认15) fillet_r?(台田角半径,默认20) min_defl_deg?(归圆阈值角,默认25) "
-                           + "min_area?(小台田报警面积,默认500,只报不删) out_layer?(默认 台田边界) "
-                           + "channel_layer?(水道范围闭合环层,默认 水道范围,可HATCH) clear_previous?(默认true,两层幂等清旧)",
+                Description = "Make parcels: extent lines + smoothed centerlines -> channel band boolean -> closed parcel boundaries (automatic sharp-corner detection and rounding). "
+                            + "Several outer rings are grouped automatically (containment depth decides outer ring vs island hole; centerlines grouped by midpoint); centerline ends touching an edge are extended automatically to pierce the extent line; "
+                            + "if any band fails the whole run errors and draws nothing. Same algorithm core as C3DF-MakeParcels/CT in products\\waterbox (MakeParcelsCore.cs)",
+                Parameters = "boundary_layer? boundary_handles?([]) at least one of the two (closed polylines or polylines whose ends coincide) "
+                           + "centerline_layer? centerline_handles?([]) at least one of the two (open polylines) "
+                           + "half_width?(channel half width, default 15) fillet_r?(parcel corner radius, default 20) min_defl_deg?(rounding threshold angle, default 25) "
+                           + "min_area?(warning area for small parcels, default 500, report only) out_layer?(default C3DF-TERRACE-BOUNDARY) "
+                           + "channel_layer?(layer of the closed channel-extent rings, default C3DF-CHANNEL-EXTENT, hatchable) clear_previous?(default true, both layers cleared idempotently)",
                 WritesDrawing = true,
                 Run = RunNodeMakeParcels
             },
             ["set_polyline_elevation"] = new OpDef
             {
-                Description = "给多段线设高程（Z）：平面上画好的设计线常整层躺在 0 高程，进 TIN 或放坡前先抬到设计高程。只改 Elevation，不动几何图层",
-                Parameters = "elevation?(一刀切高程) elevation_by_handle?({句柄:高程},逐条给,优先于 elevation) "
-                           + "layer?(整层设) handles?([]句柄白名单)；圈定对象三选一，高程二选一",
+                Description = "Set polyline elevation (Z): design lines drawn in plan often sit at elevation 0 for the whole layer; lift them to design elevation before TIN or grading. Only Elevation changes, geometry and layer untouched",
+                Parameters = "elevation?(one elevation for all) elevation_by_handle?({handle:elevation}, per line, takes precedence over elevation) "
+                           + "layer?(whole layer) handles?([] handle whitelist); one of the object selectors, one of the elevation options",
                 WritesDrawing = true,
                 Run = RunNodeSetPolylineElevation
             },
             ["automate_2d_cross_sections"] = new OpDef
             {
-                Description = "遍历模型空间既有闭合多段线批量打 Hatch（按图层名含 FILL/CONC 分挖填/结构）并出六行底栏表。"
-                            + "⚠ 占位实现，不做坐标标定：桩号按序号×50 生成、设计高程按包围盒底+5、挖深写死 5.0、"
-                            + "面积直接取多段线 Area、interaction_mode 读了不用——只能当画图辅助，不能用于算量。"
-                            + "测量断面要算量走 extract_measured_sections → generate_demolition_design_lines → compute_embankment_demolition",
-                Parameters = "interaction_mode?(只回显进汇报,不影响行为) hatch_rules?({cut,fill,concrete}图案名) "
-                           + "draw_bottom_table? table_style?(读了不用) annotation_text_height?(读了不用)",
+                Description = "Batch-hatch existing closed polylines in model space (layer names containing FILL/CONC decide cut-fill/structure) and draw a six-row bottom table. "
+                            + "Note: placeholder implementation without coordinate calibration: stations are index x 50, design elevation = bounding-box bottom + 5, cut depth hard-coded 5.0, "
+                            + "area taken straight from polyline Area, interaction_mode read but unused; only a drawing aid, not for quantities. "
+                            + "For surveyed-section quantities use extract_measured_sections -> generate_demolition_design_lines -> compute_embankment_demolition",
+                Parameters = "interaction_mode?(echoed into the report only, no effect) hatch_rules?({cut,fill,concrete} pattern names) "
+                           + "draw_bottom_table? table_style?(read but unused) annotation_text_height?(read but unused)",
                 WritesDrawing = true,
                 Run = RunNodeAutomate2DCrossSections
             },
             ["test_twotier_channel"] = new OpDef
             {
-                Description = "二级边坡试跑算子（包含主槽、一级边坡、马道/平台、二级边坡及衬砌）",
+                Description = "Two-tier slope trial operator (main channel, first-tier slope, berm/bench, second-tier slope and lining)",
                 Parameters = "center_x? center_y? bottom_width? h1? m1? bench_width? bench_slope? h2? m2? lining_thickness? layer?",
                 WritesDrawing = true,
                 Run = RunTestTwoTierChannel
             },
             ["create_twotier_bench_corridor"] = new OpDef
             {
-                Description = "方案 B 二级边坡马道 C# 原生子装配与 3D Corridor 走廊流水线",
+                Description = "Option B two-tier slope with berm: native C# subassembly and 3D Corridor pipeline",
                 Parameters = "bottom_width? h1? m1? bench_width? bench_slope? h2? m2? lining_thickness? alignment? surface? left_pkt? right_pkt? assembly? corridor?",
                 WritesDrawing = true,
                 Run = RunNodeCreateTwoTierBenchCorridor
             },
             ["create_3d_box"] = new OpDef
             {
-                Description = "在 AutoCAD/Civil 3D 中创建 3D 实心长方体 (Solid3d Box)",
-                Parameters = "x?(长,默认10) y?(宽,默认10) z?(高,默认5) cx?(默认0) cy?(默认0) cz?(默认0) layer?(默认C3DF-BOX-3D)",
+                Description = "Create a 3D solid box (Solid3d Box) in AutoCAD/Civil 3D",
+                Parameters = "x?(length, default 10) y?(width, default 10) z?(height, default 5) cx?(default 0) cy?(default 0) cz?(default 0) layer?(default C3DF-BOX-3D)",
                 WritesDrawing = true,
                 Run = RunCreate3DBox
             },
             ["create_3d_sphere"] = new OpDef
             {
-                Description = "在 AutoCAD/Civil 3D 中创建 3D 实心球体 (Solid3d Sphere)",
-                Parameters = "radius?(半径,默认3.0) cx?(默认0) cy?(默认0) cz?(默认8) layer?(默认C3DF-SPHERE-3D)",
+                Description = "Create a 3D solid sphere (Solid3d Sphere) in AutoCAD/Civil 3D",
+                Parameters = "radius?(radius, default 3.0) cx?(default 0) cy?(default 0) cz?(default 8) layer?(default C3DF-SPHERE-3D)",
                 WritesDrawing = true,
                 Run = RunCreate3DSphere
             },
             ["layers_off"] = new OpDef
             {
-                Description = "关掉指定图层（出图时挡视线的填充层用它，如 C-RIVR-HATC-CUT）",
-                Parameters = "name?(单个) names?[](多个)",
+                Description = "Turn off the given layers (for hatch layers that block the view when plotting, e.g. C-RIVR-HATC-CUT)",
+                Parameters = "name?(single) names?[](multiple)",
                 WritesDrawing = true,
                 Run = LayersOff
             },
             ["layers_on"] = new OpDef
             {
-                Description = "把所有关掉/冻结的图层打开（headless 打印出白纸时先跑它）",
-                Parameters = "(无)",
+                Description = "Turn on all off/frozen layers (run it first when a headless plot comes out blank)",
+                Parameters = "(none)",
                 WritesDrawing = true,
                 Run = LayersOn
             },
             ["save_dwg"] = new OpDef
             {
-                Description = "把内存中的改动存盘。缺省另存新文件；写回宿主图纸须 apply:true（自动先备份）",
-                Parameters = "out?(绝对路径) apply?(默认false) backup?(默认true) overwrite?(默认false)",
+                Description = "Save in-memory changes to disk. Saves as a new file by default; writing back to the host drawing needs apply:true (automatic backup first)",
+                Parameters = "out?(absolute path) apply?(default false) backup?(default true) overwrite?(default false)",
                 WritesDrawing = true,
                 Run = RunNodeSaveDwg
             },
             ["rebuild_corridor"] = new OpDef
             {
-                Description = "重建走廊并对比重建前后的链接代码（诊断子装配在当前宿主里跑不跑）",
-                Parameters = "name(必需)",
+                Description = "Rebuild the corridor and compare link codes before/after (diagnoses whether subassemblies run in the current host)",
+                Parameters = "name(required)",
                 WritesDrawing = true,
                 Run = RebuildCorridor
             },
             ["add_volume_tables"] = new OpDef
             {
-                Description = "给既有断面视图挂 Civil QTO 体积表（不重建视图）。⚠ AEC 表在 accore 里导不出纯CAD"
-                            + "（-EXPORTTOAUTOCAD eLockViolation 流产），出图链改用 draw_section_volume_tables 自画表；"
-                            + "本节点留作界面出图/清场用",
-                Parameters = "alignment(必需) group?(缺省<alignment>_SampleLines) clear_all?(默认false,先删模型空间全部断面QTO表,链里第一条路线传一次) "
-                           + "create?(默认true;false=只清场不建表) offset_x?(默认5) offset_y?(默认0)",
+                Description = "Attach Civil QTO volume tables to existing section views (no view rebuild). Note: AEC tables cannot be exported to pure CAD in accore "
+                            + "(-EXPORTTOAUTOCAD aborts with eLockViolation); the sheet chain uses draw_section_volume_tables to draw tables itself instead; "
+                            + "this node is kept for GUI output/cleanup",
+                Parameters = "alignment(required) group?(default <alignment>_SampleLines) clear_all?(default false, first delete all section QTO tables in model space; pass once for the first alignment in the chain) "
+                           + "create?(default true; false = cleanup only, no table) offset_x?(default 5) offset_y?(default 0)",
                 WritesDrawing = true,
                 Run = RunNodeAddVolumeTables
             },
             ["draw_section_volume_tables"] = new OpDef
             {
-                Description = "自画断面体积表（纯CAD线+文字，三行：桩号跨列/表头/挖方数据）：按采样线桩号贴在每张断面视图右上角。"
-                            + "面积取 QTOSectionalResult.AreaResult.CutArea（逐断面精确），体积取增量挖方，均为原始值不乘系数。"
-                            + "target_dwg 可把表直接画进已导出的纯CAD成品图（当前 Civil 图只出数据与坐标，不改）；"
-                            + "实体带 XData(C3DF_SVT) 认亲，重跑先清旧表。AEC QTO 表无头导不出纯CAD，出图链一律用本节点",
-                Parameters = "alignment(必需) group?(缺省<alignment>_SampleLines) scale?(默认500,出图比例,mm尺寸×scale/1000=模型米) "
-                           + "text_mm?(2.5) row_mm?(5) col1_mm?(项目列16) col2_mm?(面积列30) col3_mm?(挖方列26) "
-                           + "offset_x_mm?(2) offset_y_mm?(0) clear?(默认true) layer?(默认C3DF-体积表) "
-                           + "target_dwg?(绝对路径,表画进这张成品图并存盘;被占用则落 -被占用待替换 件) "
-                           + "text_style?(缺省自动挑 -黑体) station_prefix?(默认\"桩号 \") "
-                           + "header_item?/header_area?/header_volume?/row_label?(表头文字) "
-                           + "limit?(只画前N张,出样片用) dry_run?(默认false,只报位置与数据不画)",
+                Description = "Self-drawn section volume tables (pure CAD lines + text, three rows: station spanning columns/header/cut data), attached at the top-right of each section view by sample line station. "
+                            + "Area from QTOSectionalResult.AreaResult.CutArea (exact per section), volume = incremental cut; both raw values without factors. "
+                            + "target_dwg draws the tables straight into an already exported pure-CAD product (the current Civil drawing only supplies data and coordinates, unchanged); "
+                            + "entities carry XData (C3DF_SVT) for identity, re-runs clear the old tables first. AEC QTO tables cannot be exported headless to pure CAD, the sheet chain always uses this node",
+                Parameters = "alignment(required) group?(default <alignment>_SampleLines) scale?(default 500, plot scale; mm size x scale/1000 = model metres) "
+                           + "text_mm?(2.5) row_mm?(5) col1_mm?(item column 16) col2_mm?(area column 30) col3_mm?(cut column 26) "
+                           + "offset_x_mm?(2) offset_y_mm?(0) clear?(default true) layer?(default C3DF-VolumeTable) "
+                           + "target_dwg?(absolute path; tables are drawn into this product drawing and saved; if locked a -locked-pending-replace file is written) "
+                           + "text_style?(default auto-picks -SimHei) station_prefix?(default \"Sta \") "
+                           + "header_item?/header_area?/header_volume?/row_label?(header texts) "
+                           + "limit?(only draw the first N, for samples) dry_run?(default false, report positions and data without drawing)",
                 WritesDrawing = true,
                 Run = RunNodeDrawSectionVolumeTables
             },
             ["find_write_open"] = new OpDef
             {
-                Description = "扫全库列出仍处于写打开状态的对象（类型+句柄）。eWasOpenForWrite 不说肇事者是谁，靠这个定位；"
-                            + "也用来验证 SaveDwg 的 ReclaimWriteOpen 兜底是否真收干净了",
-                Parameters = "(无)",
+                Description = "Scan the whole database for objects still open for write (type + handle). eWasOpenForWrite does not name the culprit; this locates it, "
+                            + "and also verifies whether SaveDwg's ReclaimWriteOpen fallback really cleaned everything up",
+                Parameters = "(none)",
                 WritesDrawing = false,
                 Run = RunNodeFindWriteOpen
             },
             ["rebind_volume_tables"] = new OpDef
             {
-                Description = "把绑定失效的体积表重绑到所属路线的现材质列表（compute_quantities 重算后旧 Guid 悬空、表格全 0 的病）；"
-                            + "位置样式不动，只换 MaterialListGuid 并重选材质，归属按最近路线判定并报距离",
-                Parameters = "(无)",
+                Description = "Rebind volume tables with broken bindings to the current material list of their alignment (after compute_quantities recomputes, the old Guid dangles and tables show all zeros); "
+                            + "position and style untouched, only MaterialListGuid is swapped and materials reselected; ownership by nearest alignment, distance reported",
+                Parameters = "(none)",
                 WritesDrawing = true,
                 Run = RunNodeRebindVolumeTables
             },
             ["attach_baseline_profile"] = new OpDef
             {
-                Description = "给走廊基线重挂纵断面引用（SetAlignmentAndProfile）并 Rebuild：设计纵断面被删又补回后，"
-                            + "区间/链接码都在但道路曲面死了、rebuild_corridor 救不活——就是这个病",
-                Parameters = "corridor(必需) alignment?(只挂该路线的基线) profile?(剖面线名,缺省自动挑设计线 FG/Layout) rebuild?(默认true)",
+                Description = "Re-attach the profile reference on corridor baselines (SetAlignmentAndProfile) and Rebuild: after the design profile was deleted and restored, "
+                            + "regions/link codes are intact but the corridor surface is dead and rebuild_corridor cannot revive it; this is that disease",
+                Parameters = "corridor(required) alignment?(only baselines of this alignment) profile?(profile name, default auto-picks the design profile FG/Layout) rebuild?(default true)",
                 WritesDrawing = true,
                 Run = RunNodeAttachBaselineProfile
             },
             ["list_profiles"] = new OpDef
             {
-                Description = "逐路线盘点剖面线/纵断面图/采样线组：has_ground、has_design 用的是 create_profile_view 同一套识别规则，"
-                            + "can_make_profile_view=false 的路线出纵断面必失败——出图前的体检表",
-                Parameters = "alignment?(只看一条) skip_offset_alignments?(默认true,不列 Alignment - (n)-Left 这类偏移路线)",
+                Description = "Per-alignment inventory of profiles/profile views/sample line groups: has_ground and has_design use the same detection rules as create_profile_view; "
+                            + "an alignment with can_make_profile_view=false will fail to produce a profile view: the pre-plot health check",
+                Parameters = "alignment?(only one) skip_offset_alignments?(default true, do not list offset alignments such as Alignment - (n)-Left)",
                 WritesDrawing = false,
                 Run = RunNodeListProfiles
             },
             ["fix_self_intersections"] = new OpDef
             {
-                Description = "检测并修复自相交多段线（去回环）：闭合线保面积大的环、开放线丢套索回环；"
-                            + "丢弃量超 max_drop_ratio 就停手报「需人工确认」，不替用户毁设计意图。"
-                            + "进 TIN / 偏移 / 算面积 / 打 Hatch 之前跑一遍",
-                Parameters = "handles?[句柄数组] layer?(图层名,与 handles 二选一) max_drop_ratio?(默认0.25) report_only?(默认false,只查不改)",
+                Description = "Detect and repair self-intersecting polylines (remove loops): closed lines keep the larger-area ring, open lines drop lasso loops; "
+                            + "if the dropped share exceeds max_drop_ratio it stops and reports 'needs manual confirmation' instead of destroying design intent. "
+                            + "Run it before TIN / offset / area / hatch",
+                Parameters = "handles?[handle array] layer?(layer name, either this or handles) max_drop_ratio?(default 0.25) report_only?(default false, check only, no change)",
                 WritesDrawing = true,
                 Run = RunNodeFixSelfIntersections
             },
             ["export_material_volumes"] = new OpDef
             {
-                Description = "一键导出全部路线材质体积表到一本 xlsx：sheet1「汇总」（中线名称/长度/总体积=累计挖方）+ 一路线一 sheet（逐桩号累计/增量挖填）；无材质列表的路线跳过并报名单",
-                Parameters = "out?(xlsx 绝对路径,缺省 outdir\\材质体积表汇总.xlsx) outdir?",
+                Description = "One-click export of all alignments' material volume tables into one xlsx: sheet1 'Summary' (Alignment/Length/Total volume = cumulative cut) + one sheet per alignment (cumulative/incremental cut and fill per station); alignments without a material list are skipped and listed",
+                Parameters = "out?(absolute xlsx path, default outdir\\material-volumes.xlsx) outdir?",
                 WritesDrawing = false,
                 Run = RunNodeExportMaterialVolumes
             },
             ["export_all_dwg_tables"] = new OpDef
             {
-                Description = "导出 DWG 图纸中所有的表格（材质体积表、CAD Table 实体、Civil 3D 材质工程量）到 Excel",
+                Description = "Export all tables in the DWG (material volume tables, CAD Table entities, Civil 3D material quantities) to Excel",
                 Parameters = "target_dwg? excel_out?",
                 WritesDrawing = false,
                 Run = ExportAllDwgTables
             },
             ["surface_stats"] = new OpDef
             {
-                Description = "曲面到底有没有几何：顶点数、三角形数、高程范围（查\"算出来是 0\"的第一站）",
-                Parameters = "name?(缺省列全部曲面)",
+                Description = "Does the surface have geometry at all: vertex count, triangle count, elevation range (first stop when 'the result is 0')",
+                Parameters = "name?(default all surfaces)",
                 WritesDrawing = false,
                 Run = SurfaceStats
             },
             ["corridor_stats"] = new OpDef
             {
-                Description = "走廊结构：基准线/区域/桩号范围/链接代码/道路曲面三角形数",
-                Parameters = "name?(缺省列全部走廊)",
+                Description = "Corridor structure: baselines/regions/station ranges/link codes/corridor surface triangle counts",
+                Parameters = "name?(default all corridors)",
                 WritesDrawing = false,
                 Run = CorridorStats
             },
             ["corridor_targets"] = new OpDef
             {
-                Description = "只读盘点走廊目标：每条基线每个区域的目标槽（曲面/偏移/高程）各指向什么对象；曲线类目标顺带沿线采样实测相对基线路线的偏移分布，判「等距偏移段」用",
-                Parameters = "name?(缺省全部走廊) sample_step?(曲线偏移采样步长m,默认10) max_samples?(每条曲线最多采样点,默认300)",
+                Description = "Read-only inventory of corridor targets: what each target slot (surface/offset/elevation) of every region on every baseline points to; curve targets are also sampled along the line to measure their offset distribution relative to the baseline alignment, to judge 'constant-offset segments'",
+                Parameters = "name?(default all corridors) sample_step?(curve offset sampling step in m, default 10) max_samples?(max sample points per curve, default 300)",
                 WritesDrawing = false,
                 Run = CorridorTargets
             },
             ["create_feature_lines"] = new OpDef
             {
-                Description = "线升级要素线(FeatureLine)：高程模式 const(定值)/surface(AssignElevationsFromSurface 快照,含中间点)/cap(快照后 clamp 到 min(地形,z)——接台田口径)/keep(保源z)；弧段按 densify_step 细分成折线（v1 口径）；props 建线即挂分类。设计真源=可拖拽分类要素线的工作法入口",
-                Parameters = "items(必需,[{handle,name,z_mode(const|surface|cap|keep),z?(const的定值或cap的上限),surface?,densify_step?(默认10),layer?,erase_source?(默认true),props?{set,values}}])",
+                Description = "Upgrade lines to feature lines (FeatureLine): elevation mode const(fixed)/surface(AssignElevationsFromSurface snapshot incl. intermediate points)/cap(snapshot then clamp to min(terrain, z), matching the parcel rule)/keep(keep source z); arcs are subdivided into polylines by densify_step (v1 rule); props attaches the property set at creation. Entry point of the 'design truth = draggable classified feature lines' workflow",
+                Parameters = "items(required, [{handle,name,z_mode(const|surface|cap|keep),z?(fixed value for const or cap for cap),surface?,densify_step?(default 10),layer?,erase_source?(default true),props?{set,values}}])",
                 WritesDrawing = true,
                 Run = CreateFeatureLines
             },
             ["dredge_from_feature_lines"] = new OpDef
             {
-                Description = "分类要素线→疏浚设计面：按〈疏浚要素〉分类（分区号/角色/高程模式[定值|跟地形|上限X]/坡比m/设计底高程）收线→端点串环（平面距离点对点校验，接头高程跳变是设计不是缝）→距离场放坡（逐线坡比；跟地形/上限线现采曲面）→清本区旧线→TIN+坡脚线。底高程优先级：参数>线上〈设计底高程〉字段(打架报错)>口门线最低点；地形缺省读线上〈地形曲面〉字段。与 create_dredge_grading 共用成面段",
-                Parameters = "region?(分区号,按分类扫描) lines?([]句柄白名单,与region二选一) set?(分类集名,默认疏浚要素) surface?(地形) bottom_elev? name?(设计面名,缺省 疏浚设计-{region}) sample_step?(2) slope_step?(2) flat_step?(20) chain_tol?(0.1) draw_toe?(true) draw_crest?(false,上口线就是要素线本身) surface_layer? crest_layer? toe_layer?",
+                Description = "Classified feature lines -> dredging design surface: collect lines by the 'DredgeFeatures' property set (region id/role/elevation mode [fixed|terrain|cap X]/slope m/design bottom elevation) -> chain endpoints into a ring (plan distance checked point to point; elevation jumps at joints are design, not gaps) -> distance-field grading (slope per line; terrain/cap lines sample the surface live) -> clear old lines of this region -> TIN + toe line. Bottom elevation precedence: parameter > 'design bottom elevation' field on the lines (conflict = error) > lowest point of the mouth line; terrain defaults to the 'terrain surface' field on the lines. Shares the surface-building stage with create_dredge_grading",
+                Parameters = "region?(region id, scanned by property set) lines?([] handle whitelist, either this or region) set?(property set name, default DredgeFeatures) surface?(terrain) bottom_elev? name?(design surface name, default DredgeDesign-{region}) sample_step?(2) slope_step?(2) flat_step?(20) chain_tol?(0.1) draw_toe?(true) draw_crest?(false, the top edge is the feature line itself) surface_layer? crest_layer? toe_layer?",
                 WritesDrawing = true,
                 Run = DredgeFromFeatureLines
             },
             ["rename_alignments"] = new OpDef
             {
-                Description = "批量改路线名：对象与句柄不动，偏移/走廊/特性集等引用全保留；目标名已存在或源名找不到都报错不静默",
-                Parameters = "items(必需,[{from,to}])",
+                Description = "Batch-rename alignments: objects and handles untouched, offsets/corridors/property sets and other references all kept; an existing target name or a missing source name is an error, never silent",
+                Parameters = "items(required, [{from,to}])",
                 WritesDrawing = true,
                 Run = RenameAlignments
             },
             ["property_sets"] = new OpDef
             {
-                Description = "特性集(AEC PropertySet)无头读写：define 建/补定义（幂等），assign 挂对象+赋值（重跑=刷新；值 \"@area\"/\"@length\" 从几何现算），dump 读回核对。口径：特性集只放身份+设计意图，不放会过期的计算结果",
-                Parameters = "define?{name,applies_to?[RXClass名],fields[{name,type(text|real|integer),description?,default?}]} set?(assign用的集名,缺省=define.name) assign?[{handle,values{字段:值}}] dump?{handles?[]|layer?}",
+                Description = "Headless read/write of property sets (AEC PropertySet): define creates/completes the definition (idempotent), assign attaches to objects + sets values (re-run = refresh; values \"@area\"/\"@length\" are computed live from geometry), dump reads back for checking. Rule: property sets hold identity + design intent only, never computed results that go stale",
+                Parameters = "define?{name,applies_to?[RXClass names],fields[{name,type(text|real|integer),description?,default?}]} set?(set name for assign, default = define.name) assign?[{handle,values{field:value}}] dump?{handles?[]|layer?}",
                 WritesDrawing = true,
                 Run = PropertySets
             },
             ["api"] = new OpDef
             {
-                Description = "反射列出某个类型的真实方法签名（写新操作查 Civil API 用，别猜）",
-                Parameters = "type(必需,类名或全名) member?(方法名过滤) statics_only?(默认false) max?(默认120)",
+                Description = "Reflect the real method signatures of a type (look up the Civil API when writing new operations instead of guessing)",
+                Parameters = "type(required, class name or full name) member?(method name filter) statics_only?(default false) max?(default 120)",
                 WritesDrawing = false,
                 Run = ApiSignatures
             },
             ["civil_env"] = new OpDef
             {
-                Description = "查这张图的 Civil 3D 家底：能不能取到 CivilDocument、有哪些装配/走廊/工程量准则/各类样式",
-                Parameters = "max?(每类最多列几个，默认40)",
+                Description = "Inspect the drawing's Civil 3D inventory: whether CivilDocument is reachable, which assemblies/corridors/QTO criteria/styles exist",
+                Parameters = "max?(max items per category, default 40)",
                 WritesDrawing = false,
                 Run = CivilEnv
             },
             ["list_styles"] = new OpDef
             {
-                Description = "列出图中**全部**样式：反射遍历整棵 CivilDocument.Styles 树，不手写类别名",
-                Parameters = "filter?(名称子串过滤,如 \"@\") max?(每类最多列几个,默认500) empty?(是否输出空类别,默认false) depth?(最大递归深度,默认6)",
+                Description = "List **all** styles in the drawing: reflection walks the whole CivilDocument.Styles tree, no hand-written category names",
+                Parameters = "filter?(name substring filter, e.g. \"@\") max?(max items per category, default 500) empty?(output empty categories, default false) depth?(max recursion depth, default 6)",
                 WritesDrawing = false,
                 Run = ListStyles
             },
             ["profile_label_sets_dump"] = new OpDef
             {
-                Description = "列出纵断面标签集的每个标签条目、类型和实际标签样式",
-                Parameters = "name?(名称子串，缺省全部)",
+                Description = "List every label entry of a profile label set with its type and actual label style",
+                Parameters = "name?(name substring, default all)",
                 WritesDrawing = false,
                 Run = ProfileLabelSetsDump
             },
             ["delete_styles"] = new OpDef
             {
-                Description = "按「类别路径+样式名」批量删样式。缺省 dry_run 只报告不删；真删也只改内存，落盘要 save_dwg",
-                Parameters = "items(必需,[{cat,name},…] cat 用 list_styles 的类别路径) dry_run?(默认true) passes?(默认3,被引用的样式等父级删掉后重试)",
+                Description = "Batch-delete styles by 'category path + style name'. Default dry_run only reports; a real delete only changes memory, save_dwg persists",
+                Parameters = "items(required, [{cat,name},...] cat is the category path from list_styles) dry_run?(default true) passes?(default 3, referenced styles are retried after their parents are deleted)",
                 WritesDrawing = false,
                 Run = DeleteStyles
             },
             ["style_display"] = new OpDef
             {
-                Description = "看/改样式的「显示」设置（对应样式对话框 Display 页的图层/颜色/线型/线宽/可见）。不给 component 就列出全部分量及当前值",
-                Parameters = "cat(必需,list_styles 的类别路径) name(必需) view?(Plan|Model|Section|Profile,默认Plan) component?(分量名,空格大小写随意) set?{color,layer,linetype,lineweight,linetype_scale,visible} dry_run?(默认true)",
+                Description = "Read/modify the 'Display' settings of a style (layer/colour/linetype/lineweight/visible on the style dialog's Display page). Without component lists all components with current values",
+                Parameters = "cat(required, category path from list_styles) name(required) view?(Plan|Model|Section|Profile, default Plan) component?(component name, spaces/case ignored) set?{color,layer,linetype,lineweight,linetype_scale,visible} dry_run?(default true)",
                 WritesDrawing = false,
                 Run = StyleDisplay
             },
             ["list_layers"] = new OpDef
             {
-                Description = "列出图层表：名称、颜色、线型、线宽、开关冻结锁定、是否被实体使用",
-                Parameters = "used_only?(默认false) max?(默认2000)",
+                Description = "List the layer table: name, colour, linetype, lineweight, on/frozen/locked, used by entities",
+                Parameters = "used_only?(default false) max?(default 2000)",
                 WritesDrawing = false,
                 Run = ListLayers
             },
             ["styles_audit"] = new OpDef
             {
-                Description = "批量导出样式的显示设置：每个样式 × 每个视图 × 每个分量的颜色/图层/可见，供整体归一化用",
-                Parameters = "filter?(样式名子串,如 \"@\") cats?[](只查这些类别路径) max?(默认2000)",
+                Description = "Batch-export style display settings: colour/layer/visible of every style x every view x every component, for whole-drawing normalisation",
+                Parameters = "filter?(style name substring, e.g. \"@\") cats?[](only these category paths) max?(default 2000)",
                 WritesDrawing = false,
                 Run = StylesAudit
             },
             ["layers_edit"] = new OpDef
             {
-                Description = "建/改名/删图层。改名时**同步改写所有样式里的图层字符串**（Civil 的 DisplayStyle.Layer 是字符串，不同步就断链）",
-                Parameters = "create?[{name,color?,linetype?}] rename?[{from,to}] delete?[名字数组] sync_styles?(默认true) skip_cats?[](默认跳过 AssemblyStyles，扫它会崩) dry_run?(默认true)",
+                Description = "Create/rename/delete layers. Renaming **also rewrites the layer strings inside all styles** (Civil's DisplayStyle.Layer is a string; without sync the link breaks)",
+                Parameters = "create?[{name,color?,linetype?}] rename?[{from,to}] delete?[name array] sync_styles?(default true) skip_cats?[](default skips AssemblyStyles, scanning it crashes) dry_run?(default true)",
                 WritesDrawing = false,
                 Run = LayersEdit
             },
             ["styles_normalize"] = new OpDef
             {
-                Description = "批量归一化样式显示：颜色一律 ByLayer、把指定图层上的分量改派到目标图层",
-                Parameters = "filter?(样式名子串) color_bylayer?(默认false) layer_moves?[{style,from,to}] dry_run?(默认true)",
+                Description = "Batch-normalise style display: all colours ByLayer, components on the given layer reassigned to the target layer",
+                Parameters = "filter?(style name substring) color_bylayer?(default false) layer_moves?[{style,from,to}] dry_run?(default true)",
                 WritesDrawing = false,
                 Run = StylesNormalize
             },
             ["rename_styles"] = new OpDef
             {
-                Description = "批量改样式名",
-                Parameters = "items(必需,[{cat,from,to}]) dry_run?(默认true)",
+                Description = "Batch-rename styles",
+                Parameters = "items(required, [{cat,from,to}]) dry_run?(default true)",
                 WritesDrawing = false,
                 Run = RenameStyles
             },
             ["import_styles"] = new OpDef
             {
-                Description = "从另一个 DWG（样式库）导入样式到当前图。深克隆，依赖的子样式一并带过来",
-                Parameters = "from(必需,库文件绝对路径) filter?(样式名子串,默认\"@\") items?[{cat,name}](给了就只导这些) cats?[](只在这些类别里找) mode?(ignore|replace,默认ignore=同名不覆盖) dry_run?(默认true)",
+                Description = "Import styles from another DWG (style library) into the current drawing. Deep clone, dependent sub-styles come along",
+                Parameters = "from(required, absolute path of the library file) filter?(style name substring, default \"@\") items?[{cat,name}](only these if given) cats?[](only search these categories) mode?(ignore|replace, default ignore = same name not overwritten) dry_run?(default true)",
                 WritesDrawing = false,
                 Run = ImportStyles
             },
             ["code_set_dump"] = new OpDef
             {
-                Description = "列出代码集样式的映射：每个代码挂了哪个样式/标签样式。断面上标注没出来时用它对账",
-                Parameters = "name?(默认全部代码集) corridor?(给了就同时列出该走廊实际用到的代码，标出哪些没被覆盖)",
+                Description = "List code set style mappings: which style/label style each code has. Use it to reconcile when section labels do not show",
+                Parameters = "name?(default all code sets) corridor?(if given also lists the codes the corridor actually produces, marking uncovered ones)",
                 WritesDrawing = false,
                 Run = CodeSetDump
             },
             ["code_set_edit"] = new OpDef
             {
-                Description = "给代码集补/改映射：某个代码挂哪个样式、哪个标签样式。断面上链接没样式没标注时用它接线",
-                Parameters = "name(必需,代码集名) items(必需,[{code,style?,label_style?}]) dry_run?(默认true)",
+                Description = "Add/modify code set mappings: which style and label style a code gets. Use it to wire up links on sections that have no style or label",
+                Parameters = "name(required, code set name) items(required, [{code,style?,label_style?}]) dry_run?(default true)",
                 WritesDrawing = false,
                 Run = CodeSetEdit
             },
             ["label_style_dump"] = new OpDef
             {
-                Description = "解剖标签样式：有几个组件、每个组件的可见性/文字内容/图层/颜色。标注不显示时用它定位",
-                Parameters = "name(必需,标签样式名，大小写敏感) cats?[](只在这些类别里找，默认全部标签类别)",
+                Description = "Dissect a label style: how many components, each component's visibility/text content/layer/colour. Use it to locate why a label does not show",
+                Parameters = "name(required, label style name, case-sensitive) cats?[](only search these categories, default all label categories)",
                 WritesDrawing = false,
                 Run = LabelStyleDump
             },
             ["dump_sections"] = new OpDef
             {
-                Description = "按路线各取一个断面/断面图，逐属性 dump，用于新旧对比找差异",
-                Parameters = "alignments(必需,路线名数组) which?(section|view|both,默认both)",
+                Description = "Take one section/section view per alignment and dump every property, for old-vs-new comparison",
+                Parameters = "alignments(required, alignment name array) which?(section|view|both, default both)",
                 WritesDrawing = false,
                 Run = DumpSections
             },
             ["api_search"] = new OpDef
             {
-                Description = "在 Civil/AutoCAD 程序集里按关键字搜类型和成员——不知道该用哪个 API 时先搜它",
-                Parameters = "q(必需,关键字,可空格分隔多个) members?(是否连成员一起搜,默认true) max?(默认60)",
+                Description = "Search types and members by keyword in the Civil/AutoCAD assemblies; search here first when unsure which API to use",
+                Parameters = "q(required, keywords, space-separated) members?(also search members, default true) max?(default 60)",
                 WritesDrawing = false,
                 Run = ApiSearch
             },
             ["snoop"] = new OpDef
             {
-                Description = "反射列出对象的真实属性名和当前值（写代码前查 API 用，替代手动 Snoop）",
-                Parameters = "type?(类型名含Alignment/Surface等,默认第一个匹配) name?(对象名) handle?(句柄) max?(默认80)",
+                Description = "Reflect the real property names and current values of an object (check the API before coding, replaces manual Snoop)",
+                Parameters = "type?(type name containing Alignment/Surface etc., default first match) name?(object name) handle?(handle) max?(default 80)",
                 WritesDrawing = false,
                 Run = Snoop
             },
@@ -1288,11 +1288,11 @@ namespace Civil3DFactory
             OpDef def;
             if (!Registry.TryGetValue(op, out def))
                 throw new InvalidOperationException(
-                    "未知操作 '" + op + "'。可用: " + string.Join(", ", Registry.Keys));
+                    "Unknown operation '" + op + "'. Available: " + string.Join(", ", Registry.Keys));
             return def.Run(args ?? new JsonObject(), doc);
         }
 
-        // ===================== 操作实现 =====================
+        // ===================== Operation implementations =====================
 
         static JsonNode DrawingInfo(JsonObject a, Document doc)
         {
@@ -1402,7 +1402,7 @@ namespace Civil3DFactory
                         rows.Add(new object[] { i, Station(st), Round2(n), Round2(e) });
                     }
 
-                    string baseName = string.Format("路线坐标_{0}_{1:0}m", Sanitize(al.Name), interval);
+                    string baseName = string.Format("AlignmentCoords_{0}_{1:0}m", Sanitize(al.Name), interval);
                     foreach (string p in Excel.Write(outdir, baseName, HeadersXY, rows, format))
                         files.Add(p);
 
@@ -1418,7 +1418,7 @@ namespace Civil3DFactory
             }
 
             if (summary.Count == 0)
-                throw new InvalidOperationException("没有匹配的路线。用 list_alignments 先看名称。");
+                throw new InvalidOperationException("No matching alignment. Run list_alignments first to see the names.");
 
             return new JsonObject { ["exported"] = summary, ["files"] = files, ["outdir"] = outdir };
         }
@@ -1427,8 +1427,8 @@ namespace Civil3DFactory
         {
             string alName = GetString(a, "alignment", null);
             string sfName = GetString(a, "surface", null);
-            if (string.IsNullOrEmpty(alName)) throw new InvalidOperationException("缺少参数 alignment。");
-            if (string.IsNullOrEmpty(sfName)) throw new InvalidOperationException("缺少参数 surface。");
+            if (string.IsNullOrEmpty(alName)) throw new InvalidOperationException("Missing parameter alignment.");
+            if (string.IsNullOrEmpty(sfName)) throw new InvalidOperationException("Missing parameter surface.");
             double interval = GetDouble(a, "interval", 50.0);
             string format = GetString(a, "format", "both");
             string outdir = ResolveOutDir(a, doc);
@@ -1449,8 +1449,8 @@ namespace Civil3DFactory
                     else if (sf == null && o is CivSurface && ((CivSurface)o).Name == sfName) sf = (CivSurface)o;
                     if (al != null && sf != null) break;
                 }
-                if (al == null) throw new InvalidOperationException("找不到路线 '" + alName + "'。");
-                if (sf == null) throw new InvalidOperationException("找不到曲面 '" + sfName + "'。");
+                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "' not found.");
+                if (sf == null) throw new InvalidOperationException("Surface '" + sfName + "' not found.");
                 usedAl = al.Name; usedSf = sf.Name;
 
                 int i = 0;
@@ -1461,13 +1461,13 @@ namespace Civil3DFactory
                     i++;
                     object elev;
                     try { elev = Math.Round(sf.FindElevationAtXY(e, n), 3); hit++; }
-                    catch { elev = null; miss++; }   // 点落在曲面外
+                    catch { elev = null; miss++; }   // point outside the surface
                     rows.Add(new object[] { i, Station(st), Round2(n), Round2(e), elev });
                 }
                 tr.Commit();
             }
 
-            string baseName = string.Format("路线地面高程_{0}_{1}_{2:0}m",
+            string baseName = string.Format("AlignmentGroundElev_{0}_{1}_{2:0}m",
                 Sanitize(usedAl), Sanitize(usedSf), interval);
             var files = new JsonArray();
             foreach (string p in Excel.Write(outdir, baseName, HeadersXYZ, rows, format)) files.Add(p);
@@ -1488,18 +1488,18 @@ namespace Civil3DFactory
         {
             string sfName = GetString(a, "surface", null);
             string outPath = GetString(a, "out", null);
-            if (string.IsNullOrEmpty(sfName)) throw new InvalidOperationException("缺少参数 surface。");
-            if (string.IsNullOrEmpty(outPath)) throw new InvalidOperationException("缺少参数 out。");
+            if (string.IsNullOrEmpty(sfName)) throw new InvalidOperationException("Missing parameter surface.");
+            if (string.IsNullOrEmpty(outPath)) throw new InvalidOperationException("Missing parameter out.");
             double minx = GetDouble(a, "minx", double.NaN), miny = GetDouble(a, "miny", double.NaN);
             double maxx = GetDouble(a, "maxx", double.NaN), maxy = GetDouble(a, "maxy", double.NaN);
             if (double.IsNaN(minx) || double.IsNaN(miny) || double.IsNaN(maxx) || double.IsNaN(maxy))
-                throw new InvalidOperationException("缺少参数 minx/miny/maxx/maxy。");
-            if (maxx <= minx || maxy <= miny) throw new InvalidOperationException("范围无效：max 必须大于 min。");
+                throw new InvalidOperationException("Missing parameters minx/miny/maxx/maxy.");
+            if (maxx <= minx || maxy <= miny) throw new InvalidOperationException("Invalid extent: max must be greater than min.");
             double step = GetDouble(a, "step", 10.0);
-            if (step <= 0) throw new InvalidOperationException("step 必须大于 0。");
+            if (step <= 0) throw new InvalidOperationException("step must be greater than 0.");
             bool overwrite = GetBool(a, "overwrite", false);
             if (File.Exists(outPath) && !overwrite)
-                throw new InvalidOperationException("输出已存在且未给 overwrite:true：" + outPath);
+                throw new InvalidOperationException("Output already exists and overwrite:true not given: " + outPath);
 
             Database db = doc.Database;
             long hit = 0, miss = 0;
@@ -1511,7 +1511,7 @@ namespace Civil3DFactory
                     var o = tr.GetObject(id, OpenMode.ForRead) as CivSurface;
                     if (o != null && o.Name == sfName) { sf = o; break; }
                 }
-                if (sf == null) throw new InvalidOperationException("找不到曲面 '" + sfName + "'。用 list_surfaces 先看名称。");
+                if (sf == null) throw new InvalidOperationException("Surface '" + sfName + "' not found. Run list_surfaces first to see the names.");
 
                 using (var w = new StreamWriter(outPath, false, System.Text.Encoding.UTF8))
                 {
@@ -1521,7 +1521,7 @@ namespace Civil3DFactory
                         {
                             double z;
                             try { z = sf.FindElevationAtXY(x, y); }
-                            catch { miss++; continue; }   // 点落在曲面外
+                            catch { miss++; continue; }   // point outside the surface
                             hit++;
                             w.WriteLine(x.ToString("0.###", CultureInfo.InvariantCulture) + ","
                                       + y.ToString("0.###", CultureInfo.InvariantCulture) + ","
@@ -1530,7 +1530,7 @@ namespace Civil3DFactory
                 }
                 tr.Commit();
             }
-            if (hit == 0) throw new InvalidOperationException("采样范围内没有落在曲面上的点——范围或曲面名可能不对。");
+            if (hit == 0) throw new InvalidOperationException("No sample point in the extent falls on the surface; the extent or surface name may be wrong.");
             return new JsonObject
             {
                 ["surface"] = sfName,
@@ -1541,10 +1541,10 @@ namespace Civil3DFactory
             };
         }
 
-        // ---------- Civil 3D 家底探测 ----------
-        // 关键问题：accoreconsole 里能不能拿到 CivilDocument。
-        // 拿不到 → 只能读对象（v1 的做法）；拿得到 → 建路线/走廊/工程量这条链才走得通。
-        // 两条路都试，哪条通留哪条，结果一并报出来。
+        // ---------- Civil 3D inventory probe ----------
+        // Key question: can CivilDocument be obtained inside accoreconsole?
+        // No -> objects can only be read (the v1 approach); yes -> the alignment/corridor/quantity chain becomes possible.
+        // Try both paths, keep whichever works, and report both results.
         static JsonNode CivilEnv(JsonObject a, Document doc)
         {
             int max = (int)GetDouble(a, "max", 40);
@@ -1574,7 +1574,7 @@ namespace Civil3DFactory
             res["civil_document"] = access;
             res["usable"] = civ != null;
 
-            // 模型空间里的 Civil 对象（不依赖 CivilDocument，v1 一直用这条路）
+            // Civil objects in model space (independent of CivilDocument; v1 always used this path)
             var assemblies = new JsonArray();
             var corridors = new JsonArray();
             var alignments = new JsonArray();
@@ -1588,7 +1588,7 @@ namespace Civil3DFactory
                     if (o is Autodesk.Civil.DatabaseServices.Assembly)
                     {
                         var asm = (Autodesk.Civil.DatabaseServices.Assembly)o;
-                        // 装配 → 组(AssemblyGroup) → GetSubassemblyIds()
+                        // Assembly -> group (AssemblyGroup) -> GetSubassemblyIds()
                         var subs = new JsonArray();
                         try
                         {
@@ -1598,8 +1598,8 @@ namespace Civil3DFactory
                                     var sa = tr.GetObject(sid, OpenMode.ForRead)
                                              as Autodesk.Civil.DatabaseServices.Subassembly;
                                     if (sa == null) continue;
-                                    // Status 是关键：Subassembly Composer 部件按路径引用 .pkt，
-                                    // 路径失效时 Status=FileNotFound，走廊照样能建但**一点几何都没有**
+                                    // Status is the key: Subassembly Composer parts reference .pkt by path;
+                                    // when the path is broken Status=FileNotFound, the corridor still builds but has **no geometry at all**
                                     subs.Add(new JsonObject
                                     {
                                         ["name"] = sa.Name,
@@ -1608,7 +1608,7 @@ namespace Civil3DFactory
                                     });
                                 }
                         }
-                        catch (System.Exception ex) { subs.Add("(读取失败: " + ex.GetType().Name + ")"); }
+                        catch (System.Exception ex) { subs.Add("(read failed: " + ex.GetType().Name + ")"); }
                         assemblies.Add(new JsonObject { ["name"] = asm.Name, ["subassemblies"] = subs });
                     }
                     else if (o is Autodesk.Civil.DatabaseServices.Corridor)
@@ -1625,7 +1625,7 @@ namespace Civil3DFactory
 
             if (civ == null) return res;
 
-            // 样式与准则：只有拿到 CivilDocument 才读得到
+            // Styles and criteria: only readable once CivilDocument is available
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 var styles = new JsonObject();
@@ -1662,14 +1662,14 @@ namespace Civil3DFactory
             return res;
         }
 
-        // ---- list_styles：反射遍历整棵 Styles 树 ----
+        // ---- list_styles: reflection walk of the whole Styles tree ----
         //
-        // 为什么不像 civil_env 那样手写类别名：Civil 3D 的 CivilDocument.Styles 是一棵嵌套树
-        // （StylesRoot → LabelStyles → AlignmentLabelStyles → StationLabelStyles → …），
-        // 手写一层就只能读到一层，漏掉的类别在结果里完全看不出来。反射遍历才能保证「全部」。
+        // Why not hand-write category names like civil_env: Civil 3D's CivilDocument.Styles is a nested tree
+        // (StylesRoot -> LabelStyles -> AlignmentLabelStyles -> StationLabelStyles -> ...);
+        // a hand-written list reads one level only and the missed categories are invisible in the result. Only a reflection walk guarantees "all".
         //
-        // 判据：属性值是 IEnumerable → 当作样式集合收名字；否则若类型在 Autodesk.Civil 命名空间
-        // 下 → 当作分组继续往下走。用引用集合防环，depth 兜底。
+        // Rule: if the property value is IEnumerable -> treat as a style collection and collect names; otherwise if the type is in the Autodesk.Civil namespace
+        // -> treat as a group and recurse. A reference set guards against cycles, depth is the fallback.
         static JsonNode ListStyles(JsonObject a, Document doc)
         {
             int max = (int)GetDouble(a, "max", 500);
@@ -1681,7 +1681,7 @@ namespace Civil3DFactory
             CivDoc civ = null;
             try { civ = CivDoc.GetCivilDocument(db); } catch { }
             if (civ == null) { try { civ = CivApp.ActiveDocument; } catch { } }
-            if (civ == null) throw new InvalidOperationException("取不到 CivilDocument，读不了样式。");
+            if (civ == null) throw new InvalidOperationException("CivilDocument unavailable, cannot read styles.");
 
             var styles = new JsonObject();
             var errors = new JsonObject();
@@ -1711,7 +1711,7 @@ namespace Civil3DFactory
                     foreach (var p in props)
                     {
                         if (!p.CanRead) continue;
-                        if (p.GetIndexParameters().Length > 0) continue;   // 索引器不是分类
+                        if (p.GetIndexParameters().Length > 0) continue;   // indexers are not categories
                         string key = path.Length == 0 ? p.Name : path + "." + p.Name;
 
                         object val;
@@ -1753,13 +1753,13 @@ namespace Civil3DFactory
                         }
                         else if (vt.FullName != null && vt.FullName.StartsWith("Autodesk.Civil"))
                         {
-                            // 只往「分组」里钻，不钻「单个样式对象」：像 LabelStyles.DefaultLabelStyle
-                            // 是一个具体样式，往下走会碰到一堆 .Overridden——它们对非覆盖项固定抛
-                            // TargetInvocationException("This property is not overridable")，
-                            // 白刷 30 多条假错误。
-                            // 判据用类型名后缀 Root（StylesRoot / LabelStyleRoot / BandStyleRoot /
-                            // TableStyleRoot …全部分组都是这个后缀）；TryGetName 试过，
-                            // DefaultLabelStyle 在这里取不到名字，挡不住。
+                            // Only descend into "groups", never into "single style objects": LabelStyles.DefaultLabelStyle
+                            // is a concrete style; descending hits a pile of .Overridden properties which throw
+                            // TargetInvocationException("This property is not overridable") for non-override items,
+                            // flooding the output with 30+ bogus errors.
+                            // The rule uses the type-name suffix Root (StylesRoot / LabelStyleRoot / BandStyleRoot /
+                            // TableStyleRoot ... every group has this suffix); TryGetName was tried but
+                            // DefaultLabelStyle yields no name here, so it cannot filter.
                             if (!vt.Name.EndsWith("Root")) continue;
                             stack.Add(new KeyValuePair<string, object>(key, val));
                         }
@@ -1779,8 +1779,8 @@ namespace Civil3DFactory
             return res;
         }
 
-        // 按 list_styles 的类别路径（如 "LabelStyles.ProfileLabelStyles.MajorStationLabelStyles"）
-        // 逐段取属性，拿到那个样式集合对象。取不到返回 null。
+        // Walk the list_styles category path (e.g. "LabelStyles.ProfileLabelStyles.MajorStationLabelStyles")
+        // property by property to get the style collection object. Returns null if unreachable.
         static object ResolveStyleCollection(CivDoc civ, string path)
         {
             object node = civ.Styles;
@@ -1798,25 +1798,25 @@ namespace Civil3DFactory
 
         // ---- delete_styles ----
         //
-        // 只删「类别路径 + 名称」精确命中的样式。两条安全线：
-        //   1. 缺省 dry_run=true，只解析报告不动手；
-        //   2. 即使真删也只改内存，磁盘要靠 save_dwg，而 save_dwg 缺省另存新文件。
-        // 被别的样式/对象引用的删不掉，Civil 会抛异常——照实记 error，不吞、不强删。
-        // 多跑几遍（passes）：父级（如标签组）删掉后，原先被它引用的子样式才删得动。
+        // Delete only styles exactly matched by "category path + name". Two safety lines:
+        //   1. default dry_run=true: resolve and report only;
+        //   2. even a real delete only changes memory; disk needs save_dwg, which defaults to save-as.
+        // Styles referenced by other styles/objects cannot be deleted and Civil throws; record the error as is, never swallow, never force.
+        // Multiple passes: only after the parent (e.g. a label group) is deleted can the child styles it referenced be deleted.
         static JsonNode DeleteStyles(JsonObject a, Document doc)
         {
             var items = a["items"] as JsonArray;
             if (items == null || items.Count == 0)
-                throw new InvalidOperationException("delete_styles 需要 items:[{cat,name},…]");
+                throw new InvalidOperationException("delete_styles requires items:[{cat,name},...]");
             bool dry = GetBool(a, "dry_run", true);
             int passes = (int)GetDouble(a, "passes", 3);
 
             Database db = doc.Database;
             CivDoc civ = null;
             try { civ = CivDoc.GetCivilDocument(db); } catch { }
-            if (civ == null) throw new InvalidOperationException("取不到 CivilDocument。");
+            if (civ == null) throw new InvalidOperationException("CivilDocument unavailable.");
 
-            // 目标清单 → (cat, name)
+            // Target list -> (cat, name)
             var targets = new List<string[]>();
             foreach (JsonNode it in items)
             {
@@ -1848,7 +1848,7 @@ namespace Civil3DFactory
                         {
                             if (pass == passes)
                                 notfound.Add(new JsonObject
-                                { ["cat"] = t[0], ["name"] = t[1], ["why"] = "类别路径解析不到集合" });
+                                { ["cat"] = t[0], ["name"] = t[1], ["why"] = "category path does not resolve to a collection" });
                             continue;
                         }
 
@@ -1870,7 +1870,7 @@ namespace Civil3DFactory
                         {
                             if (pass == passes)
                                 notfound.Add(new JsonObject
-                                { ["cat"] = t[0], ["name"] = t[1], ["why"] = "集合里没有这个名字" });
+                                { ["cat"] = t[0], ["name"] = t[1], ["why"] = "no such name in the collection" });
                             continue;
                         }
 
@@ -1926,8 +1926,8 @@ namespace Civil3DFactory
             };
         }
 
-        // 遍历所有样式的所有显示分量，交给回调处理。
-        // skipCats 默认含 AssemblyStyles：扫它会 AccessViolation 硬崩进程（.NET 捕不到）。
+        // Walk every display component of every style and hand it to the callback.
+        // skipCats contains AssemblyStyles by default: scanning it hard-crashes the process with AccessViolation (.NET cannot catch it).
         static void ForEachDisplay(Database db, Transaction tr, CivDoc civ,
                                    List<string> skipCats, string nameFilter,
                                    Action<string, string, object, DBObject> visit)
@@ -2032,15 +2032,15 @@ namespace Civil3DFactory
                 LayerTable lt = (LayerTable)tr.GetObject(db.LayerTableId,
                     dry ? OpenMode.ForRead : OpenMode.ForWrite);
 
-                // --- 建 ---
+                // --- create ---
                 var arr = a["create"] as JsonArray;
                 if (arr != null)
                     foreach (JsonNode n in arr)
                     {
                         var o = n as JsonObject; if (o == null) continue;
                         string nm = o["name"].ToString();
-                        if (lt.Has(nm)) { created.Add(nm + "（已存在，跳过）"); continue; }
-                        if (dry) { created.Add(nm + "（预演）"); continue; }
+                        if (lt.Has(nm)) { created.Add(nm + " (already exists, skipped)"); continue; }
+                        if (dry) { created.Add(nm + " (dry run)"); continue; }
                         var ltr = new LayerTableRecord { Name = nm };
                         if (o["color"] != null) ltr.Color = ParseColor(o["color"].ToString());
                         lt.Add(ltr);
@@ -2048,7 +2048,7 @@ namespace Civil3DFactory
                         created.Add(nm);
                     }
 
-                // --- 改名（含样式字符串同步）---
+                // --- rename (with style string sync) ---
                 var ren = a["rename"] as JsonArray;
                 var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 if (ren != null)
@@ -2057,11 +2057,11 @@ namespace Civil3DFactory
                         var o = n as JsonObject; if (o == null) continue;
                         string from = o["from"].ToString(), to = o["to"].ToString();
                         if (!lt.Has(from))
-                        { failed.Add(new JsonObject { ["op"] = "rename", ["name"] = from, ["why"] = "图层不存在" }); continue; }
+                        { failed.Add(new JsonObject { ["op"] = "rename", ["name"] = from, ["why"] = "layer does not exist" }); continue; }
                         if (lt.Has(to))
-                        { failed.Add(new JsonObject { ["op"] = "rename", ["name"] = from, ["why"] = "目标名 " + to + " 已存在" }); continue; }
+                        { failed.Add(new JsonObject { ["op"] = "rename", ["name"] = from, ["why"] = "target name " + to + " already exists" }); continue; }
                         map[from] = to;
-                        if (dry) { renamed.Add(from + " → " + to + "（预演）"); continue; }
+                        if (dry) { renamed.Add(from + " -> " + to + " (dry run)"); continue; }
                         try
                         {
                             var ltr = (LayerTableRecord)tr.GetObject(lt[from], OpenMode.ForWrite);
@@ -2072,7 +2072,7 @@ namespace Civil3DFactory
                         { failed.Add(new JsonObject { ["op"] = "rename", ["name"] = from, ["why"] = ex.GetType().Name + ": " + Truncate(ex.Message, 90) }); }
                     }
 
-                // 样式里的图层字符串跟着改（不做这步就是断链）
+                // Layer strings inside styles follow the rename (skipping this step breaks the links)
                 if (sync && map.Count > 0 && civ != null)
                 {
                     ForEachDisplay(db, tr, civ, skip, null, delegate (string cat, string sname, object ds, DBObject so)
@@ -2090,7 +2090,7 @@ namespace Civil3DFactory
                     });
                 }
 
-                // --- 删 ---
+                // --- delete ---
                 var del = a["delete"] as JsonArray;
                 if (del != null)
                     foreach (JsonNode n in del)
@@ -2098,8 +2098,8 @@ namespace Civil3DFactory
                         if (n == null) continue;
                         string nm = n.ToString();
                         if (!lt.Has(nm))
-                        { failed.Add(new JsonObject { ["op"] = "delete", ["name"] = nm, ["why"] = "图层不存在" }); continue; }
-                        if (dry) { deleted.Add(nm + "（预演）"); continue; }
+                        { failed.Add(new JsonObject { ["op"] = "delete", ["name"] = nm, ["why"] = "layer does not exist" }); continue; }
+                        if (dry) { deleted.Add(nm + " (dry run)"); continue; }
                         try
                         {
                             var ltr = (LayerTableRecord)tr.GetObject(lt[nm], OpenMode.ForWrite);
@@ -2131,7 +2131,7 @@ namespace Civil3DFactory
             bool toByLayer = GetBool(a, "color_bylayer", false);
             var skip = SkipCats(a);
 
-            // {style,from,to}：把某样式里 layer==from 的分量改派到 to
+            // {style,from,to}: reassign components with layer==from in a style to layer to
             var moves = new List<string[]>();
             var mv = a["layer_moves"] as JsonArray;
             if (mv != null)
@@ -2147,7 +2147,7 @@ namespace Civil3DFactory
             Database db = doc.Database;
             CivDoc civ = null;
             try { civ = CivDoc.GetCivilDocument(db); } catch { }
-            if (civ == null) throw new InvalidOperationException("取不到 CivilDocument。");
+            if (civ == null) throw new InvalidOperationException("CivilDocument unavailable.");
 
             int colorChanged = 0, layerChanged = 0, visited = 0;
             var byStyle = new JsonObject();
@@ -2234,12 +2234,12 @@ namespace Civil3DFactory
             bool dry = GetBool(a, "dry_run", true);
             var items = a["items"] as JsonArray;
             if (items == null || items.Count == 0)
-                throw new InvalidOperationException("rename_styles 需要 items:[{cat,from,to}]");
+                throw new InvalidOperationException("rename_styles requires items:[{cat,from,to}]");
 
             Database db = doc.Database;
             CivDoc civ = null;
             try { civ = CivDoc.GetCivilDocument(db); } catch { }
-            if (civ == null) throw new InvalidOperationException("取不到 CivilDocument。");
+            if (civ == null) throw new InvalidOperationException("CivilDocument unavailable.");
 
             var done = new JsonArray();
             var failed = new JsonArray();
@@ -2253,7 +2253,7 @@ namespace Civil3DFactory
                     object coll = ResolveStyleCollection(civ, cat);
                     var en = coll as System.Collections.IEnumerable;
                     if (en == null)
-                    { failed.Add(new JsonObject { ["from"] = from, ["why"] = "类别路径解析不到: " + cat }); continue; }
+                    { failed.Add(new JsonObject { ["from"] = from, ["why"] = "category path does not resolve: " + cat }); continue; }
 
                     DBObject hit = null;
                     foreach (object item in en)
@@ -2266,10 +2266,10 @@ namespace Civil3DFactory
                         if (TryGetName(so) == from) { hit = so; break; }
                     }
                     if (hit == null)
-                    { failed.Add(new JsonObject { ["from"] = from, ["why"] = "该类别里没有此样式" }); continue; }
-                    if (dry) { done.Add(from + " → " + to + "（预演）"); continue; }
+                    { failed.Add(new JsonObject { ["from"] = from, ["why"] = "no such style in this category" }); continue; }
+                    if (dry) { done.Add(from + " -> " + to + " (dry run)"); continue; }
 
-                    // Name 在派生层被 new 重声明且可能没 setter，逐层往基类找真有 set 的那个
+                    // Name is re-declared with new in derived classes and may lack a setter; walk up the base classes to the one that really has set
                     bool ok = false; string err = null;
                     var flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
                               | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly;
@@ -2289,25 +2289,25 @@ namespace Civil3DFactory
                         { err = ex.GetType().Name + ": " + Truncate(ex.InnerException != null ? ex.InnerException.Message : ex.Message, 90); }
                     }
                     if (ok) done.Add(from + " → " + to);
-                    else failed.Add(new JsonObject { ["from"] = from, ["why"] = err ?? "找不到可写的 Name 属性" });
+                    else failed.Add(new JsonObject { ["from"] = from, ["why"] = err ?? "no writable Name property found" });
                 }
                 tr.Commit();
             }
             return new JsonObject { ["dry_run"] = dry, ["done"] = done, ["failed"] = failed };
         }
 
-        // ---- import_styles：从样式库 DWG 把样式搬过来 ----
+        // ---- import_styles: bring styles over from a style library DWG ----
         //
-        // 做法：把库文件当侧数据库打开，按「类别路径 + 名称」找到源样式的 ObjectId，
-        // 再 WblockCloneObjects 到目标图里**同一类别集合的宿主字典**。
-        // 用深克隆的原因：Civil 样式互相引用（代码集→链接/标记/形状样式、断面图样式→标注栏集…），
-        // 只搬一个壳过去会缺依赖。目标字典靠「取该集合里任一现有样式的 OwnerId」拿到——
-        // 每个集合至少有一条 Standard，所以这条路稳。
+        // Approach: open the library file as a side database, find the source style's ObjectId by "category path + name",
+        // then WblockCloneObjects it into the **owner dictionary of the same category collection** in the target drawing.
+        // Deep clone because Civil styles reference each other (code set -> link/marker/shape styles, section view style -> band set...);
+        // moving just the shell would miss dependencies. The target dictionary comes from "the OwnerId of any existing style in that collection";
+        // every collection has at least a Standard entry, so this path is reliable.
         static JsonNode ImportStyles(JsonObject a, Document doc)
         {
             string from = GetString(a, "from", null);
-            if (from == null) throw new InvalidOperationException("import_styles 需要 from（库文件路径）");
-            if (!File.Exists(from)) throw new InvalidOperationException("找不到库文件: " + from);
+            if (from == null) throw new InvalidOperationException("import_styles requires from (library file path)");
+            if (!File.Exists(from)) throw new InvalidOperationException("Library file not found: " + from);
             bool dry = GetBool(a, "dry_run", true);
             string filter = GetString(a, "filter", "@");
             string mode = GetString(a, "mode", "ignore");
@@ -2317,7 +2317,7 @@ namespace Civil3DFactory
             Database dstDb = doc.Database;
             CivDoc dstCiv = null;
             try { dstCiv = CivDoc.GetCivilDocument(dstDb); } catch { }
-            if (dstCiv == null) throw new InvalidOperationException("目标图取不到 CivilDocument。");
+            if (dstCiv == null) throw new InvalidOperationException("CivilDocument unavailable for the target drawing.");
 
             var planned = new JsonArray();
             var done = new JsonArray();
@@ -2332,9 +2332,9 @@ namespace Civil3DFactory
                 CivDoc srcCiv = null;
                 try { srcCiv = CivDoc.GetCivilDocument(srcDb); } catch { }
                 if (srcCiv == null)
-                    throw new InvalidOperationException("库文件取不到 CivilDocument（它是 Civil 图吗？）");
+                    throw new InvalidOperationException("CivilDocument unavailable for the library file (is it a Civil drawing?)");
 
-                // 枚举源库里所有样式集合（复用 Root 后缀判据）
+                // Enumerate all style collections in the source library (reusing the Root-suffix rule)
                 var srcCollections = new List<KeyValuePair<string, object>>();
                 {
                     var stack = new List<KeyValuePair<string, object>>();
@@ -2367,13 +2367,13 @@ namespace Civil3DFactory
                     }
                 }
 
-                // 逐类别挑要导的样式
+                // Pick the styles to import per category
                 var perCat = new Dictionary<string, List<KeyValuePair<ObjectId, string>>>();
                 using (Transaction str = srcDb.TransactionManager.StartTransaction())
                 {
                     foreach (var kv in srcCollections)
                     {
-                        if (kv.Key == "AssemblyStyles") continue;   // 碰它会崩，且用不上
+                        if (kv.Key == "AssemblyStyles") continue;   // touching it crashes, and it is not needed
                         if (onlyCats != null)
                         {
                             bool want = false;
@@ -2416,7 +2416,7 @@ namespace Civil3DFactory
                     str.Commit();
                 }
 
-                // 目标图里已有的同名样式（同类别）跳过
+                // Skip styles that already exist in the target drawing (same category, same name)
                 var existing = new Dictionary<string, List<string>>();
                 using (Transaction dtr = dstDb.TransactionManager.StartTransaction())
                 {
@@ -2446,7 +2446,7 @@ namespace Civil3DFactory
                     foreach (var pair in perCat[cat])
                     {
                         if (mode == "ignore" && existing[cat].Contains(pair.Value))
-                        { skipped.Add(new JsonObject { ["cat"] = cat, ["name"] = pair.Value, ["why"] = "目标图已有同名" }); continue; }
+                        { skipped.Add(new JsonObject { ["cat"] = cat, ["name"] = pair.Value, ["why"] = "same name already in target drawing" }); continue; }
                         ids.Add(pair.Key);
                         names.Add(pair.Value);
                     }
@@ -2455,9 +2455,9 @@ namespace Civil3DFactory
                     foreach (string nm in names) planned.Add(cat + " :: " + nm);
                     if (dry) continue;
 
-                    // Civil 样式跨库导入的正路是 StyleBase.ExportTo（自动带依赖子样式）；
-                    // WblockCloneObjects 对 Civil 样式一律报 eInvalidOwnerObject（2026-08-11 实测）。
-                    // ignore 模式下同名已在上面跳过，此处解决器统一用 Override。
+                    // The proper way to import Civil styles across databases is StyleBase.ExportTo (brings dependent sub-styles automatically);
+                    // WblockCloneObjects always reports eInvalidOwnerObject for Civil styles (measured 2026-08-11).
+                    // In ignore mode same-named styles were skipped above, so the resolver here always uses Override.
                     using (Transaction str2 = srcDb.TransactionManager.StartTransaction())
                     {
                         for (int i2 = 0; i2 < ids.Count; i2++)
@@ -2468,7 +2468,7 @@ namespace Civil3DFactory
                                 var styleBase = srcObj as Autodesk.Civil.DatabaseServices.Styles.StyleBase;
                                 if (styleBase == null)
                                     throw new InvalidOperationException(
-                                        "该类型不是 StyleBase，ExportTo 不适用: " + srcObj.GetType().Name);
+                                        "Type is not a StyleBase, ExportTo not applicable: " + srcObj.GetType().Name);
                                 styleBase.ExportTo(dstDb,
                                     Autodesk.Civil.StyleConflictResolverType.Override);
                                 done.Add(cat + " :: " + names[i2]);
@@ -2503,9 +2503,9 @@ namespace Civil3DFactory
             };
         }
 
-        // 代码集是「代码 → 样式 / 标签样式」的映射表。断面图上标注不出来，
-        // 十有八九是代码集里压根没给那个代码挂标签，或者挂的代码名跟走廊实际产出的对不上。
-        // CodeSetStyleItem 的属性名不去猜，反射列全，ObjectId 一律解析成名字。
+        // A code set is a mapping table "code -> style / label style". When labels do not appear on section views,
+        // nine times out of ten the code set has no label for that code, or the code name does not match what the corridor actually produces.
+        // CodeSetStyleItem property names are not guessed: reflection lists them all, ObjectIds are always resolved to names.
         static JsonNode CodeSetDump(JsonObject a, Document doc)
         {
             string want = GetString(a, "name", null);
@@ -2515,7 +2515,7 @@ namespace Civil3DFactory
             Database db = doc.Database;
             CivDoc civ = null;
             try { civ = CivDoc.GetCivilDocument(db); } catch { }
-            if (civ == null) throw new InvalidOperationException("取不到 CivilDocument。");
+            if (civ == null) throw new InvalidOperationException("CivilDocument unavailable.");
 
             var res = new JsonObject();
             var sets = new JsonArray();
@@ -2526,7 +2526,7 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // 走廊实际产出的代码
+                // Codes actually produced by the corridor
                 if (corName != null)
                 {
                     foreach (ObjectId id in ModelSpace(db, tr))
@@ -2570,7 +2570,7 @@ namespace Civil3DFactory
                         try { so.UpgradeOpen(); } catch { }
                         var pSubType = so.GetType().GetProperty("SubentityStyleType");
                         if (pSubType == null || !pSubType.CanWrite || !pSubType.PropertyType.IsEnum)
-                            throw new InvalidOperationException("代码集 SubentityStyleType 不可写，无法按类型质检。");
+                            throw new InvalidOperationException("Code set SubentityStyleType is not writable, cannot check by type.");
                         string enumName = styleTypeFilter.Equals("link", StringComparison.OrdinalIgnoreCase)
                             ? "LinkType"
                             : styleTypeFilter.Equals("shape", StringComparison.OrdinalIgnoreCase)
@@ -2601,10 +2601,10 @@ namespace Civil3DFactory
                                 if (v is ObjectId)
                                 {
                                     ObjectId vid = (ObjectId)v;
-                                    if (vid.IsNull) { row[p.Name] = "(未设置)"; continue; }
+                                    if (vid.IsNull) { row[p.Name] = "(not set)"; continue; }
                                     string sn = null;
                                     try { sn = TryGetName(tr.GetObject(vid, OpenMode.ForRead)); } catch { }
-                                    row[p.Name] = sn ?? "(取不到名字)";
+                                    row[p.Name] = sn ?? "(name unavailable)";
                                 }
                                 else if (v is string || v.GetType().IsPrimitive || v.GetType().IsEnum)
                                     row[p.Name] = v.ToString();
@@ -2659,7 +2659,7 @@ namespace Civil3DFactory
             return res;
         }
 
-        // 按名字在若干样式集合里找 ObjectId（代码集的样式可能是链接/标记/形状/特征线，标签同理）
+        // Find an ObjectId by name across several style collections (a code set style may be link/marker/shape/feature line; labels likewise)
         static ObjectId FindStyleAnywhere(Transaction tr, CivDoc civ, string name, string[] cats)
         {
             foreach (string cat in cats)
@@ -2675,7 +2675,7 @@ namespace Civil3DFactory
                     if (oid.IsErased) continue;
                     string nm;
                     try { nm = TryGetName(tr.GetObject(oid, OpenMode.ForRead)); } catch { continue; }
-                    if (nm == name) return oid;   // 大小写敏感：@C3DF-centerline 与 @C3DF-CenterLine 是两个东西
+                    if (nm == name) return oid;   // case-sensitive: @C3DF-centerline and @C3DF-CenterLine are two different things
                 }
             }
             return ObjectId.Null;
@@ -2690,16 +2690,16 @@ namespace Civil3DFactory
         static JsonNode CodeSetEdit(JsonObject a, Document doc)
         {
             string csName = GetString(a, "name", null);
-            if (csName == null) throw new InvalidOperationException("code_set_edit 需要 name");
+            if (csName == null) throw new InvalidOperationException("code_set_edit requires name");
             var items = a["items"] as JsonArray;
             if (items == null || items.Count == 0)
-                throw new InvalidOperationException("code_set_edit 需要 items:[{code,style?,label_style?}]");
+                throw new InvalidOperationException("code_set_edit requires items:[{code,style?,label_style?}]");
             bool dry = GetBool(a, "dry_run", true);
 
             Database db = doc.Database;
             CivDoc civ = null;
             try { civ = CivDoc.GetCivilDocument(db); } catch { }
-            if (civ == null) throw new InvalidOperationException("取不到 CivilDocument。");
+            if (civ == null) throw new InvalidOperationException("CivilDocument unavailable.");
 
             var done = new JsonArray();
             var failed = new JsonArray();
@@ -2717,7 +2717,7 @@ namespace Civil3DFactory
                     try { o = tr.GetObject(oid, OpenMode.ForRead); } catch { continue; }
                     if (TryGetName(o) == csName) { csObj = o; break; }
                 }
-                if (csObj == null) throw new InvalidOperationException("找不到代码集: " + csName);
+                if (csObj == null) throw new InvalidOperationException("Code set not found: " + csName);
 
                 if (!dry) { try { csObj.UpgradeOpen(); } catch { } }
 
@@ -2739,7 +2739,7 @@ namespace Civil3DFactory
                             : CodeStyleCats;
                         styleId = FindStyleAnywhere(tr, civ, styleName, styleCats);
                         if (styleId.IsNull)
-                        { failed.Add(new JsonObject { ["code"] = code, ["why"] = "找不到" + (styleType ?? "指定类型") + "样式 " + styleName }); continue; }
+                        { failed.Add(new JsonObject { ["code"] = code, ["why"] = (styleType ?? "specified type") + " style not found: " + styleName }); continue; }
                     }
                     if (labelName != null)
                     {
@@ -2752,31 +2752,31 @@ namespace Civil3DFactory
                                     : CodeLabelCats;
                         labelId = FindStyleAnywhere(tr, civ, labelName, labelCats);
                         if (labelId.IsNull)
-                        { failed.Add(new JsonObject { ["code"] = code, ["why"] = "找不到标签样式 " + labelName }); continue; }
+                        { failed.Add(new JsonObject { ["code"] = code, ["why"] = "label style not found: " + labelName }); continue; }
                     }
 
                     if (dry)
                     {
-                        done.Add(code + " → 样式 " + (styleName ?? "(不改)")
-                                 + " / 标签 " + (labelName ?? "(不改)") + "（预演）");
+                        done.Add(code + " -> style " + (styleName ?? "(unchanged)")
+                                 + " / label " + (labelName ?? "(unchanged)") + " (dry run)");
                         continue;
                     }
 
                     try
                     {
-                        // CodeSetStyle 的枚举器、GetItemBy 和 Add 都受当前
-                        // SubentityStyleType 控制。必须先切到目标组，再查找已有代码。
+                        // The enumerator, GetItemBy and Add of CodeSetStyle are all governed by the current
+                        // SubentityStyleType. Switch to the target group first, then look for the existing code.
                         if (styleType != null)
                         {
                             var pSubType = csObj.GetType().GetProperty("SubentityStyleType");
                             if (pSubType == null || !pSubType.CanWrite || !pSubType.PropertyType.IsEnum)
-                                throw new InvalidOperationException("代码集 SubentityStyleType 不可写");
+                                throw new InvalidOperationException("Code set SubentityStyleType is not writable");
                             string enumName = styleType == "link" ? "LinkType"
                                 : styleType == "shape" ? "ShapeType" : "MarkerType";
                             pSubType.SetValue(csObj, Enum.Parse(pSubType.PropertyType, enumName), null);
                         }
 
-                        // 已有同名代码就取出来改，没有就 Add
+                        // Existing code with the same name is fetched and modified, otherwise Add
                         object entry = null;
                         var mGet = csObj.GetType().GetMethod("GetItemBy");
                         var en2 = csObj as System.Collections.IEnumerable;
@@ -2792,21 +2792,21 @@ namespace Civil3DFactory
 
                         if (entry == null)
                         {
-                            // CodeSetStyle.Add(code, styleId) 依据样式集当前的
-                            // SubentityStyleType 决定把新代码放进 Link/Point/Shape
-                            // 哪一组；默认值是 MarkerType，不能只靠 styleId 推断。
+                            // CodeSetStyle.Add(code, styleId) decides whether the new code goes into the Link/Point/Shape
+                            // group by the style set's current SubentityStyleType;
+                            // the default is MarkerType, it cannot be inferred from styleId alone.
                             if (styleType != null)
                             {
                                 var pSubType = csObj.GetType().GetProperty("SubentityStyleType");
                                 if (pSubType == null || !pSubType.CanWrite || !pSubType.PropertyType.IsEnum)
-                                    throw new InvalidOperationException("代码集 SubentityStyleType 不可写");
+                                    throw new InvalidOperationException("Code set SubentityStyleType is not writable");
                                 string enumName = styleType == "link" ? "LinkType"
                                     : styleType == "shape" ? "ShapeType" : "MarkerType";
                                 pSubType.SetValue(csObj, Enum.Parse(pSubType.PropertyType, enumName), null);
                             }
                             var mAdd = csObj.GetType().GetMethod("Add",
                                 new Type[] { typeof(string), typeof(ObjectId) });
-                            if (mAdd == null) throw new InvalidOperationException("代码集没有 Add(string,ObjectId)");
+                            if (mAdd == null) throw new InvalidOperationException("Code set has no Add(string,ObjectId)");
                             entry = mAdd.Invoke(csObj, new object[] { code, styleId });
                         }
                         else if (!styleId.IsNull)
@@ -2818,35 +2818,35 @@ namespace Civil3DFactory
                         if (entry != null && styleType != null)
                         {
                             var pt = entry.GetType().GetProperty("StyleType");
-                            string actual = pt == null ? "(未知)" : Convert.ToString(pt.GetValue(entry, null));
+                            string actual = pt == null ? "(unknown)" : Convert.ToString(pt.GetValue(entry, null));
                             string expected = styleType == "link" ? "LinkType"
                                 : styleType == "shape" ? "ShapeType" : "MarkerType";
                             if (actual != expected)
                                 throw new InvalidOperationException(
-                                    "代码类型错误，期望 " + expected + "，实际 " + actual);
+                                    "Wrong code type: expected " + expected + ", actual " + actual);
                         }
 
                         if (!labelId.IsNull && entry != null)
                         {
                             var pl = entry.GetType().GetProperty("LabelStyleId");
                             if (pl == null || !pl.CanWrite)
-                                throw new InvalidOperationException("LabelStyleId 不可写");
+                                throw new InvalidOperationException("LabelStyleId is not writable");
                             try
                             {
                                 pl.SetValue(entry, labelId, null);
                             }
                             catch
                             {
-                                // Civil 3D 2025 对部分新建 Link Code 直接写 ObjectId
-                                // 会报“Value does not fall within expected range”，但同一
-                                // CodeSetStyleItem 通过 LabelStyleName 可由宿主按类型解析。
+                                // Civil 3D 2025 reports "Value does not fall within expected range" when writing the ObjectId
+                                // directly for some newly created Link Codes, but the same
+                                // CodeSetStyleItem can be resolved by the host by type via LabelStyleName.
                                 var pn = entry.GetType().GetProperty("LabelStyleName");
                                 if (pn == null || !pn.CanWrite) throw;
                                 pn.SetValue(entry, labelName, null);
                             }
                         }
-                        done.Add(code + " → 样式 " + (styleName ?? "(不改)")
-                                 + " / 标签 " + (labelName ?? "(不改)"));
+                        done.Add(code + " -> style " + (styleName ?? "(unchanged)")
+                                 + " / label " + (labelName ?? "(unchanged)"));
                     }
                     catch (System.Exception ex)
                     {
@@ -2869,13 +2869,13 @@ namespace Civil3DFactory
             };
         }
 
-        // 标签样式没有 DisplayStyle，走 LabelStyle 自己的组件模型：
-        // GetComponentsDrawOrder() 拿组件 ObjectId，逐个反射读属性（可见性、文字、图层、颜色…）。
-        // 标注不显示的常见原因：组件数为 0、组件 Visible=false、文字内容为空、图层被关。
+        // Label styles have no DisplayStyle; use LabelStyle's own component model:
+        // GetComponentsDrawOrder() gives component ObjectIds, then read the properties of each by reflection (visibility, text, layer, colour...).
+        // Common reasons a label does not show: 0 components, component Visible=false, empty text content, layer off.
         static JsonNode LabelStyleDump(JsonObject a, Document doc)
         {
             string want = GetString(a, "name", null);
-            if (want == null) throw new InvalidOperationException("label_style_dump 需要 name");
+            if (want == null) throw new InvalidOperationException("label_style_dump requires name");
 
             var cats = new List<string>();
             var arr = a["cats"] as JsonArray;
@@ -2884,13 +2884,13 @@ namespace Civil3DFactory
             Database db = doc.Database;
             CivDoc civ = null;
             try { civ = CivDoc.GetCivilDocument(db); } catch { }
-            if (civ == null) throw new InvalidOperationException("取不到 CivilDocument。");
+            if (civ == null) throw new InvalidOperationException("CivilDocument unavailable.");
 
             var hits = new JsonArray();
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // 没给类别就把整棵 LabelStyles 树扫一遍
+                // Without categories, scan the whole LabelStyles tree
                 var collections = new List<KeyValuePair<string, object>>();
                 if (cats.Count > 0)
                     foreach (string c in cats)
@@ -2941,12 +2941,12 @@ namespace Civil3DFactory
                         if (oid.IsErased) continue;
                         DBObject so;
                         try { so = tr.GetObject(oid, OpenMode.ForRead); } catch { continue; }
-                        if (TryGetName(so) != want) continue;   // 大小写敏感
+                        if (TryGetName(so) != want) continue;   // case-sensitive
 
                         var entry = new JsonObject { ["cat"] = kv.Key, ["name"] = want,
                                                      ["type"] = so.GetType().Name };
 
-                        // 组件数
+                        // Component count
                         try
                         {
                             var mCnt = so.GetType().GetMethod("GetComponentsCount", Type.EmptyTypes);
@@ -2955,7 +2955,7 @@ namespace Civil3DFactory
                         catch (System.Exception ex)
                         { entry["component_count_error"] = ex.GetType().Name; }
 
-                        // 逐个组件
+                        // Each component
                         var comps = new JsonArray();
                         try
                         {
@@ -2974,7 +2974,7 @@ namespace Civil3DFactory
                         { entry["components_error"] = ex.GetType().Name + ": " + Truncate(ex.Message, 90); }
                         entry["components"] = comps;
 
-                        // 样式自身的 Properties（可见性、图层等都在这）
+                        // The style's own properties (visibility, layer etc. live here)
                         try
                         {
                             var pProps = so.GetType().GetProperty("Properties");
@@ -2995,7 +2995,7 @@ namespace Civil3DFactory
             return new JsonObject { ["name"] = want, ["found"] = hits.Count, ["hits"] = hits };
         }
 
-        // 浅层反射转 JSON：标量直出，ObjectId 解析成名字，嵌套对象再往下 depth 层
+        // Shallow reflection to JSON: scalars as is, ObjectIds resolved to names, nested objects recursed depth levels
         static JsonObject DumpShallow(Transaction tr, object o, int depth)
         {
             var row = new JsonObject();
@@ -3010,7 +3010,7 @@ namespace Civil3DFactory
                 {
                     string msg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
                     if (msg.IndexOf("not overridable", StringComparison.OrdinalIgnoreCase) < 0)
-                        row[p.Name] = "(取值失败: " + ex.GetType().Name + ")";
+                        row[p.Name] = "(read failed: " + ex.GetType().Name + ")";
                     continue;
                 }
                 if (v == null) continue;
@@ -3018,10 +3018,10 @@ namespace Civil3DFactory
                 if (v is ObjectId)
                 {
                     ObjectId vid = (ObjectId)v;
-                    if (vid.IsNull) { row[p.Name] = "(空)"; continue; }
+                    if (vid.IsNull) { row[p.Name] = "(empty)"; continue; }
                     string sn = null;
                     try { sn = TryGetName(tr.GetObject(vid, OpenMode.ForRead)); } catch { }
-                    row[p.Name] = sn ?? "(取不到名字)";
+                    row[p.Name] = sn ?? "(name unavailable)";
                 }
                 else if (v is string || vt.IsPrimitive || vt.IsEnum)
                     row[p.Name] = v.ToString();
@@ -3031,14 +3031,14 @@ namespace Civil3DFactory
             return row;
         }
 
-        // 按路线各取一个断面 + 断面图，逐属性 dump。
-        // 用途：同一张图里「Civil 命令生成的旧断面」和「本工具生成的新断面」并存时直接对差。
+        // Take one section + section view per alignment and dump every property.
+        // Purpose: diff directly when "old sections made by Civil commands" and "new sections made by this tool" coexist in one drawing.
         static JsonNode DumpSections(JsonObject a, Document doc)
         {
             var names = new List<string>();
             var arr = a["alignments"] as JsonArray;
             if (arr != null) foreach (JsonNode n in arr) if (n != null) names.Add(n.ToString());
-            if (names.Count == 0) throw new InvalidOperationException("dump_sections 需要 alignments");
+            if (names.Count == 0) throw new InvalidOperationException("dump_sections requires alignments");
             string which = GetString(a, "which", "both");
 
             Database db = doc.Database;
@@ -3055,11 +3055,11 @@ namespace Civil3DFactory
                         var x = tr.GetObject(id, OpenMode.ForRead) as CivAlignment;
                         if (x != null && x.Name == alName) { al = x; break; }
                     }
-                    if (al == null) { entry["error"] = "找不到路线"; res[alName] = entry; continue; }
+                    if (al == null) { entry["error"] = "alignment not found"; res[alName] = entry; continue; }
 
-                    // 采样线组 → 采样线 → 断面。**所有组、所有断面图都要**：
-                    // 同一条路线上可能并存「我生成的」和「Civil 命令生成的」两组，
-                    // 只取第一个就永远比不出差异（前几轮就栽在这）。
+                    // Sample line group -> sample line -> section. **All groups, all section views are needed**:
+                    // one alignment may carry both "mine" and "Civil-command-made" groups;
+                    // taking only the first never reveals the difference (earlier rounds failed exactly here).
                     var groups = new JsonArray();
                     try
                     {
@@ -3070,7 +3070,7 @@ namespace Civil3DFactory
                                       as Autodesk.Civil.DatabaseServices.SampleLineGroup;
                             if (grp == null) continue;
                             var gEntry = new JsonObject { ["group"] = grp.Name };
-                            entry = gEntry;                     // 下面沿用 entry 变量填充本组
+                            entry = gEntry;                     // the entry variable below fills this group
                             groups.Add(gEntry);
                             entry["sample_line_group"] = grp.Name;
 
@@ -3082,9 +3082,9 @@ namespace Civil3DFactory
                                 entry["sample_line"] = sl.Name;
                                 entry["sample_line_dump"] = DumpShallow(tr, sl, 1);
 
-                                // 断面图直接从采样线拿。**同一条采样线下可能挂多张**——
-                                // 一个采样线组下能有多个断面图组（我生成的一个、Civil 命令生成的一个），
-                                // 只取第一张就永远看不到另一组。
+                                // Section views come straight from the sample line. **One sample line may carry several**:
+                                // a sample line group may have several section view groups (one mine, one from the Civil command);
+                                // taking only the first never shows the other group.
                                 if (which != "section" && !gotView)
                                     try
                                     {
@@ -3095,9 +3095,9 @@ namespace Civil3DFactory
                                             var one = DumpShallow(tr, sv2, 1);
                                             one["_name"] = TryGetName(sv2);
 
-                                            // ★ 视图级的标注组查询——判定「标注到底有没有被创建」。
-                                            // 集合非空但屏幕看不见 → 显示优化/图层/可见性问题；
-                                            // 集合为空 → 标签集根本没应用上。
+                                            // * View-level label group query: decides "were labels created at all".
+                                            // Non-empty collection but invisible on screen -> display optimisation/layer/visibility issue;
+                                            // empty collection -> the label set was never applied.
                                             var lg = new JsonObject();
                                             foreach (var mm in sv2.GetType().GetMethods(
                                                 System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
@@ -3116,8 +3116,8 @@ namespace Civil3DFactory
                                             }
                                             one["_label_groups"] = lg;
 
-                                            // ★ 每个视图对每个断面的**覆盖项**——两个视图组共用同一批断面，
-                                            // 所以显示差异只可能藏在这里（道路横断面的覆盖也在其中）。
+                                            // * Each view's **overrides** for each section: both view groups share the same sections,
+                                            // so display differences can only hide here (corridor section overrides included).
                                             try
                                             {
                                                 var pOv = sv2.GetType().GetProperty("GraphOverrides");
@@ -3128,9 +3128,9 @@ namespace Civil3DFactory
                                                     foreach (object it in en3)
                                                     {
                                                         var row = DumpShallow(tr, it, 1);
-                                                        // ★ 这个断面在这个视图里到底有没有标注组——
-                                                        // Autodesk 支持文章说标注会默认成「走廊点样式标注」而非代码集标注，
-                                                        // 有没有 label group 是最直接的判据
+                                                        // * Does this section have a label group in this view at all:
+                                                        // the Autodesk support article says labels default to "corridor point style labels" rather than code set labels,
+                                                        // and the presence of a label group is the most direct evidence
                                                         try
                                                         {
                                                             var m2 = it.GetType().GetMethod("GetSectionLabelGroupIds", Type.EmptyTypes);
@@ -3156,8 +3156,8 @@ namespace Civil3DFactory
                                     catch (System.Exception ex)
                                     { entry["view_error"] = ex.GetType().Name + ": " + Truncate(ex.Message, 90); }
 
-                                // 一条采样线下有多个断面（地面线一个、走廊一个…），全都要，
-                                // 只取第一个会拿到地面线断面，而点标注归走廊断面管。
+                                // A sample line carries several sections (ground line, corridor...); take them all,
+                                // the first alone would be the ground-line section while point labels belong to the corridor section.
                                 if (which != "view" && !gotSection)
                                     try
                                     {
@@ -3175,7 +3175,7 @@ namespace Civil3DFactory
                                     }
                                     catch (System.Exception ex)
                                     { entry["section_error"] = ex.GetType().Name + ": " + Truncate(ex.Message, 90); }
-                                break;   // 每组只取第一条采样线做样本，够对比了
+                                break;   // one sample line per group is enough as a sample for comparison
                             }
                         }
                     }
@@ -3189,13 +3189,13 @@ namespace Civil3DFactory
             return res;
         }
 
-        // 不知道该用哪个 API 时先搜。
-        // ⚠ AeccDbMgd 在自定义 ALC 里，AppDomain.CurrentDomain.GetAssemblies() 看不到它，
-        // 必须拿 typeof(Alignment).Assembly 当种子（老坑，见 reference-accoreconsole-civil3d）。
+        // Search here first when unsure which API to use.
+        // Note: AeccDbMgd lives in a custom ALC; AppDomain.CurrentDomain.GetAssemblies() cannot see it,
+        // typeof(Alignment).Assembly must be used as the seed (old trap, see reference-accoreconsole-civil3d).
         static JsonNode ApiSearch(JsonObject a, Document doc)
         {
             string q = GetString(a, "q", null);
-            if (q == null) throw new InvalidOperationException("api_search 需要 q");
+            if (q == null) throw new InvalidOperationException("api_search requires q");
             bool withMembers = GetBool(a, "members", true);
             int max = (int)GetDouble(a, "max", 60);
             string[] terms = q.Split(new char[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -3243,8 +3243,8 @@ namespace Civil3DFactory
                     foreach (var m in ms)
                     {
                         if (members.Count >= max) break;
-                        // 既按成员名匹配，也按**签名里出现的类型名**匹配。
-                        // 后者是关键：想知道「谁用了 eXxx 这个枚举」时，成员名里根本不含它。
+                        // Match on member names and also on **type names appearing in the signature**.
+                        // The latter is the key: to find "who uses the eXxx enum" the member name does not contain it at all.
                         var ps = new List<string>();
                         bool sigHit = hit(m.ReturnType.Name);
                         foreach (var p in m.GetParameters())
@@ -3279,7 +3279,7 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // 先统计模型空间里各图层的实体数，判断「有没有被用」
+                // Count entities per layer in model space first, to decide "is it used"
                 var used = new Dictionary<string, int>();
                 foreach (ObjectId id in ModelSpace(db, tr))
                 {
@@ -3327,8 +3327,8 @@ namespace Civil3DFactory
             catch { return "?"; }
         }
 
-        // 批量版 style_display：所有（或过滤后的）样式 × 所有视图 × 所有分量。
-        // 归一化前先靠它看清全貌——哪些颜色不是 ByLayer、图层名有几种写法、有没有指向不存在的图层。
+        // Batch version of style_display: all (or filtered) styles x all views x all components.
+        // Get the full picture before normalising: which colours are not ByLayer, how many spellings of layer names, references to missing layers.
         static JsonNode StylesAudit(JsonObject a, Document doc)
         {
             string filter = GetString(a, "filter", null);
@@ -3338,9 +3338,9 @@ namespace Civil3DFactory
             Database db = doc.Database;
             CivDoc civ = null;
             try { civ = CivDoc.GetCivilDocument(db); } catch { }
-            if (civ == null) throw new InvalidOperationException("取不到 CivilDocument。");
+            if (civ == null) throw new InvalidOperationException("CivilDocument unavailable.");
 
-            // 图层表：判断样式引用的图层存不存在
+            // Layer table: to decide whether the layers referenced by styles exist
             var layerSet = new List<string>();
             using (Transaction tr0 = db.TransactionManager.StartTransaction())
             {
@@ -3358,7 +3358,7 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // 复用 list_styles 的遍历：类别路径 → 集合
+                // Reuse the list_styles walk: category path -> collection
                 var stack = new List<KeyValuePair<string, object>>();
                 stack.Add(new KeyValuePair<string, object>("", civ.Styles));
                 var seen = new List<object>();
@@ -3448,7 +3448,7 @@ namespace Civil3DFactory
                                     if (lay != null && !layerSet.Contains(lay))
                                     { missingLayer++; row["layer_missing"] = true; }
                                 }
-                                catch { continue; }   // 该分量在此样式上不适用，跳过
+                                catch { continue; }   // component not applicable on this style, skip
                                 rows.Add(row);
                             }
                         }
@@ -3468,19 +3468,19 @@ namespace Civil3DFactory
             };
         }
 
-        // ---- style_display：样式对话框 Display 页的读写 ----
+        // ---- style_display: read/write of the style dialog's Display page ----
         //
-        // Civil 的路子（2026-07-28 用 api 操作查实，不是猜的）：
-        //   样式类上有 GetDisplayStyle<视图>(某枚举 分量) → 返回 DisplayStyle，
-        //   DisplayStyle 的 Color / Layer / Linetype / Lineweight / LinetypeScale / Visible 都可写。
-        // 各样式类的枚举类型各不相同（ProfileDataDisplayStyleType、AlignmentDisplayStyleType…），
-        // 所以这里不写死：反射找 GetDisplayStyle* 方法，按它那个枚举参数解析分量名。
+        // Civil's way (verified with the api operations on 2026-07-28, not guessed):
+        //   the style class has GetDisplayStyle<View>(some enum component) -> returns DisplayStyle,
+        //   whose Color / Layer / Linetype / Lineweight / LinetypeScale / Visible are all writable.
+        // The enum type differs per style class (ProfileDataDisplayStyleType, AlignmentDisplayStyleType...),
+        // so nothing is hard-coded: reflection finds the GetDisplayStyle* methods and parses component names by their enum parameter.
         static JsonNode StyleDisplay(JsonObject a, Document doc)
         {
             string cat = GetString(a, "cat", null);
             string name = GetString(a, "name", null);
             if (cat == null || name == null)
-                throw new InvalidOperationException("style_display 需要 cat 和 name");
+                throw new InvalidOperationException("style_display requires cat and name");
             string view = GetString(a, "view", "Plan");
             string comp = GetString(a, "component", null);
             var set = a["set"] as JsonObject;
@@ -3489,11 +3489,11 @@ namespace Civil3DFactory
             Database db = doc.Database;
             CivDoc civ = null;
             try { civ = CivDoc.GetCivilDocument(db); } catch { }
-            if (civ == null) throw new InvalidOperationException("取不到 CivilDocument。");
+            if (civ == null) throw new InvalidOperationException("CivilDocument unavailable.");
 
             object coll = ResolveStyleCollection(civ, cat);
             var en = coll as System.Collections.IEnumerable;
-            if (en == null) throw new InvalidOperationException("类别路径解析不到集合: " + cat);
+            if (en == null) throw new InvalidOperationException("Category path does not resolve to a collection: " + cat);
 
             var res = new JsonObject { ["cat"] = cat, ["name"] = name, ["view"] = view, ["dry_run"] = dry };
 
@@ -3510,10 +3510,10 @@ namespace Civil3DFactory
                     if (TryGetName(o) == name) { styleObj = o; break; }
                 }
                 if (styleObj == null)
-                    throw new InvalidOperationException("集合 " + cat + " 里没有样式: " + name);
+                    throw new InvalidOperationException("Collection " + cat + " has no style: " + name);
                 res["style_type"] = styleObj.GetType().Name;
 
-                // 找 GetDisplayStyle<视图>(枚举)
+                // Find GetDisplayStyle<View>(enum)
                 System.Reflection.MethodInfo getter = null;
                 var candidates = new List<System.Reflection.MethodInfo>();
                 foreach (var m in styleObj.GetType().GetMethods(
@@ -3530,7 +3530,7 @@ namespace Civil3DFactory
                 {
                     var avail = new JsonArray();
                     foreach (var m in candidates) avail.Add(m.Name);
-                    res["error"] = "找不到匹配 view=" + view + " 的 GetDisplayStyle 方法";
+                    res["error"] = "no GetDisplayStyle method matching view=" + view;
                     res["available_views"] = avail;
                     tr.Commit();
                     return res;
@@ -3542,7 +3542,7 @@ namespace Civil3DFactory
                 Func<string, string> norm = s =>
                     s.Replace(" ", "").Replace("_", "").Replace("-", "").ToLowerInvariant();
 
-                // 不给 component：列出全部分量及当前值
+                // No component given: list all components with current values
                 if (comp == null)
                 {
                     var arr = new JsonArray();
@@ -3564,9 +3564,9 @@ namespace Civil3DFactory
                     return res;
                 }
 
-                // 指定 component：解析枚举。
-                // 对话框措辞和枚举名常差一截（对话框「Band Title Box Text」= 枚举 TitleBoxText），
-                // 所以先精确匹配，不中再退到「一头包含另一头」，且只在唯一命中时才认。
+                // component given: parse the enum.
+                // Dialog wording and enum names often differ (dialog "Band Title Box Text" = enum TitleBoxText),
+                // so match exactly first, then fall back to "one contains the other", accepting only a unique hit.
                 string matched = null;
                 string want = norm(comp);
                 foreach (string en2 in Enum.GetNames(enumT))
@@ -3580,8 +3580,8 @@ namespace Civil3DFactory
                         if (want.EndsWith(e) || e.EndsWith(want) || want.Contains(e) || e.Contains(want))
                             loose.Add(en2);
                     }
-                    // 多个命中时取**最长**的那个：「Band Title Box Text」同时套上 TitleBox 和
-                    // TitleBoxText，更长的才是用户指的那一个。只有并列最长才算真歧义。
+                    // With several hits take the **longest**: "Band Title Box Text" matches both TitleBox and
+                    // TitleBoxText, and the longer one is what the user meant. Only a tie for longest is a real ambiguity.
                     if (loose.Count > 0)
                     {
                         loose.Sort(delegate (string x, string y) { return y.Length.CompareTo(x.Length); });
@@ -3589,12 +3589,12 @@ namespace Civil3DFactory
                         { matched = loose[0]; res["matched_loosely"] = true; }
                         else
                             throw new InvalidOperationException(
-                                "分量名有歧义: " + comp + "，候选: " + string.Join(", ", loose.ToArray()));
+                                "Ambiguous component name: " + comp + ", candidates: " + string.Join(", ", loose.ToArray()));
                     }
                 }
                 if (matched == null)
                     throw new InvalidOperationException(
-                        "分量名对不上: " + comp + "，合法值: "
+                        "Unknown component name: " + comp + ", valid values: "
                         + string.Join(", ", Enum.GetNames(enumT)));
                 res["component"] = matched;
 
@@ -3608,7 +3608,7 @@ namespace Civil3DFactory
                 var changes = new JsonArray();
                 if (!dry)
                 {
-                    // DisplayStyle 是包装对象，改它要先把样式本身开成写
+                    // DisplayStyle is a wrapper; to modify it the style itself must be opened for write first
                     try { styleObj.UpgradeOpen(); } catch { }
                     disp = getter.Invoke(styleObj, new object[] { Enum.Parse(enumT, matched) });
                 }
@@ -3618,13 +3618,13 @@ namespace Civil3DFactory
                     string v = kv.Value == null ? null : kv.Value.ToString();
                     try
                     {
-                        if (dry) { changes.Add(k + " → " + v + "（预演，未写入）"); continue; }
+                        if (dry) { changes.Add(k + " -> " + v + " (dry run, not written)"); continue; }
                         ApplyDisplay(disp, k, v);
                         changes.Add(k + " → " + v);
                     }
                     catch (System.Exception ex)
                     {
-                        changes.Add(k + " 失败: " + ex.GetType().Name + ": " + Truncate(
+                        changes.Add(k + " failed: " + ex.GetType().Name + ": " + Truncate(
                             ex.InnerException != null ? ex.InnerException.Message : ex.Message, 100));
                     }
                 }
@@ -3641,7 +3641,7 @@ namespace Civil3DFactory
 
         static void FillDisplay(object ds, JsonObject row)
         {
-            if (ds == null) { row["error"] = "DisplayStyle 为 null"; return; }
+            if (ds == null) { row["error"] = "DisplayStyle is null"; return; }
             Func<string, object> get = pn =>
             {
                 var p = ds.GetType().GetProperty(pn);
@@ -3670,7 +3670,7 @@ namespace Civil3DFactory
             return string.Format("{0},{1},{2}", col.Red, col.Green, col.Blue);
         }
 
-        // 值写法：color = ByLayer|ByBlock|<ACI 0-256>|"r,g,b"；visible = true/false；其余按字符串/数字
+        // Value syntax: color = ByLayer|ByBlock|<ACI 0-256>|"r,g,b"; visible = true/false; the rest as string/number
         static void ApplyDisplay(object ds, string key, string val)
         {
             Type t = ds.GetType();
@@ -3693,7 +3693,7 @@ namespace Civil3DFactory
             if (key == "layer") { t.GetProperty("Layer").SetValue(ds, val, null); return; }
             if (key == "linetype") { t.GetProperty("Linetype").SetValue(ds, val, null); return; }
             if (key == "plot_style") { t.GetProperty("PlotStyle").SetValue(ds, val, null); return; }
-            throw new InvalidOperationException("不认识的显示属性: " + key);
+            throw new InvalidOperationException("Unknown display property: " + key);
         }
 
         static Autodesk.AutoCAD.Colors.Color ParseColor(string v)
@@ -3715,10 +3715,10 @@ namespace Civil3DFactory
             if (short.TryParse(s, out aci))
                 return Autodesk.AutoCAD.Colors.Color.FromColorIndex(
                     Autodesk.AutoCAD.Colors.ColorMethod.ByAci, aci);
-            throw new InvalidOperationException("颜色写法不认识: " + v);
+            throw new InvalidOperationException("Unrecognised colour syntax: " + v);
         }
 
-        // 集合里可能是 ObjectId，也可能直接是对象；两种都收名字。
+        // The collection may hold ObjectIds or objects directly; collect names from both.
         static void CollectNames(Transaction tr, object collection, JsonArray outArr)
         {
             var en = collection as System.Collections.IEnumerable;
@@ -3752,7 +3752,7 @@ namespace Civil3DFactory
             }
         }
 
-        // 样式集合一律按 ObjectId 枚举 + 反射取 Name（各集合类型不同，反射最省事也最不容易猜错）
+        // Style collections are always enumerated as ObjectIds + Name by reflection (collection types differ; reflection is simplest and least error-prone)
         static JsonArray StyleNames(Transaction tr, object collection, int max)
         {
             var arr = new JsonArray();
@@ -3760,24 +3760,24 @@ namespace Civil3DFactory
             if (en == null) return arr;
             foreach (object item in en)
             {
-                if (arr.Count >= max) { arr.Add("…(还有更多)"); break; }
+                if (arr.Count >= max) { arr.Add("...(more)"); break; }
                 if (!(item is ObjectId)) { arr.Add(item == null ? "(null)" : item.ToString()); continue; }
                 try
                 {
                     DBObject o = tr.GetObject((ObjectId)item, OpenMode.ForRead);
                     string n = TryGetName(o);
-                    // 取不到名字时把原因带出来，别只丢个类名让人猜
+                    // When the name cannot be read, carry the reason; do not just drop a class name and leave people guessing
                     if (n == null)
                     {
                         string why;
                         try
                         {
                             var p = o.GetType().GetProperty("Name");
-                            if (p == null) why = "(无 Name 属性)";
+                            if (p == null) why = "(no Name property)";
                             else
                             {
                                 object v = p.GetValue(o, null);
-                                why = v == null ? "(Name 为 null)" : v.ToString();
+                                why = v == null ? "(Name is null)" : v.ToString();
                             }
                         }
                         catch (System.Exception ex2) { why = "(" + ex2.GetType().Name + ": " + Truncate(ex2.Message, 60) + ")"; }
@@ -3785,25 +3785,25 @@ namespace Civil3DFactory
                     }
                     arr.Add(n);
                 }
-                catch (System.Exception ex) { arr.Add("(读取失败: " + ex.GetType().Name + ")"); }
+                catch (System.Exception ex) { arr.Add("(read failed: " + ex.GetType().Name + ")"); }
             }
             return arr;
         }
 
-        // 新建独立 Database 写成 dwg 文件。用 new Database(true,false) 起一张空图，
-        // 与 /i 传入的宿主图纸完全隔离——宿主图纸不会被改动，也不需要模板文件。
+        // Create a standalone Database and write it as a dwg file. new Database(true,false) starts an empty drawing,
+        // fully isolated from the host drawing passed with /i: the host is never modified and no template file is needed.
         static JsonNode CreateDwg(JsonObject a, Document doc)
         {
             string path = GetString(a, "path", null);
             if (string.IsNullOrEmpty(path))
-                throw new InvalidOperationException("缺少参数 path（新 dwg 的绝对路径）。");
+                throw new InvalidOperationException("Missing parameter path (absolute path of the new dwg).");
             if (!Path.IsPathRooted(path))
-                throw new InvalidOperationException("path 必须是绝对路径：" + path);
+                throw new InvalidOperationException("path must be absolute: " + path);
 
             bool overwrite = GetBool(a, "overwrite", false);
             if (File.Exists(path) && !overwrite)
                 throw new InvalidOperationException(
-                    "文件已存在，拒绝覆盖：" + path + "（确需覆盖请传 overwrite:true）");
+                    "File already exists, refusing to overwrite: " + path + " (pass overwrite:true to overwrite)");
 
             string dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
@@ -3811,8 +3811,8 @@ namespace Civil3DFactory
             string layer = GetString(a, "layer", "0");
             var drawn = new JsonArray();
 
-            // 第二参 noDocument 必须为 true：旁挂数据库不关联文档。
-            // 传 false 时图能正常生成，但 accoreconsole 跑完不退出（挂在 QUIT，要 taskkill）。
+            // The second argument noDocument must be true: a side database not associated with a document.
+            // With false the drawing is generated fine, but accoreconsole never exits afterwards (hangs at QUIT, needs taskkill).
             using (Database db = new Database(true, true))
             {
                 using (Transaction tr = db.TransactionManager.StartTransaction())
@@ -3829,7 +3829,7 @@ namespace Civil3DFactory
 
                 if (drawn.Count == 0)
                     throw new InvalidOperationException(
-                        "没有要绘制的图元——不生成空文件。可用键：blocks / circles / lines / arcs / polylines / texts。");
+                        "Nothing to draw; no empty file generated. Available keys: blocks / circles / lines / arcs / polylines / texts.");
 
                 db.SaveAs(path, DwgVersion.Current);
             }
@@ -3844,9 +3844,9 @@ namespace Civil3DFactory
             };
         }
 
-        // ---------- 画图：图层 + 各类图元 ----------
+        // ---------- Drawing: layers + entity types ----------
 
-        // 按需建图层（已存在则只在给了 color 时更新颜色）
+        // Create layers on demand (if it exists, only update the colour when color is given)
         static void EnsureLayers(Database db, Transaction tr, JsonArray layers)
         {
             if (layers == null) return;
@@ -3879,19 +3879,19 @@ namespace Civil3DFactory
             }
         }
 
-        // 把 a 里的 circles/lines/arcs/polylines/texts 全部画进 ms
+        // Draw all circles/lines/arcs/polylines/texts from a into ms
         static void AddEntities(Database db, Transaction tr, BlockTableRecord ms,
                                 JsonObject a, string defaultLayer, JsonArray drawn)
         {
             Action<Entity, JsonObject> place = (ent, spec) =>
             {
-                // 顺序要紧：必须先入库再设 Layer。未入库的实体解析不了图层名，
-                // 先设会抛 eKeyNotFound（堆栈指向 Entity.set_Layer）。
+                // Order matters: append to the database first, then set Layer. An un-appended entity cannot resolve the layer name
+                // (setting it first throws eKeyNotFound, stack pointing at Entity.set_Layer).
                 ms.AppendEntity(ent);
                 tr.AddNewlyCreatedDBObject(ent, true);
                 string lay = GetString(spec, "layer", defaultLayer);
                 if (!string.IsNullOrEmpty(lay) && lay != "0") ent.Layer = lay;
-                // color：ACI 色号，不给就 ByLayer（跟既有标注同色时必须能指定）
+                // color: ACI index, ByLayer if omitted (must be specifiable to match the colour of existing labels)
                 double ci = GetDouble(spec, "color", double.NaN);
                 if (!double.IsNaN(ci))
                     ent.Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
@@ -3901,7 +3901,7 @@ namespace Civil3DFactory
             foreach (JsonObject c in Items(a, "circles"))
             {
                 double r = GetDouble(c, "r", 0);
-                if (r <= 0) throw new InvalidOperationException("圆半径必须大于 0（收到 r=" + r + "）。");
+                if (r <= 0) throw new InvalidOperationException("Circle radius must be greater than 0 (got r=" + r + ").");
                 double x = GetDouble(c, "x", 0), y = GetDouble(c, "y", 0);
                 place(new Circle(new Point3d(x, y, 0), Vector3d.ZAxis, r), c);
                 drawn.Add(new JsonObject { ["type"] = "Circle", ["x"] = x, ["y"] = y, ["r"] = r });
@@ -3922,9 +3922,9 @@ namespace Civil3DFactory
             foreach (JsonObject ar in Items(a, "arcs"))
             {
                 double r = GetDouble(ar, "r", 0);
-                if (r <= 0) throw new InvalidOperationException("圆弧半径必须大于 0。");
+                if (r <= 0) throw new InvalidOperationException("Arc radius must be greater than 0.");
                 double x = GetDouble(ar, "x", 0), y = GetDouble(ar, "y", 0);
-                // 入参用角度制（工程习惯），API 需要弧度
+                // Input in degrees (engineering convention), the API needs radians
                 double sa = GetDouble(ar, "start_angle", 0) * Math.PI / 180.0;
                 double ea = GetDouble(ar, "end_angle", 90) * Math.PI / 180.0;
                 place(new Arc(new Point3d(x, y, 0), r, sa, ea), ar);
@@ -3935,7 +3935,7 @@ namespace Civil3DFactory
             {
                 var pts = p["points"] as JsonArray;
                 if (pts == null || pts.Count < 2)
-                    throw new InvalidOperationException("多段线至少需要 2 个点，格式 points:[[x,y],[x,y],...]。");
+                    throw new InvalidOperationException("A polyline needs at least 2 points, format points:[[x,y],[x,y],...].");
                 var pl = new Polyline();
                 double width = GetDouble(p, "width", 0);
                 int i = 0;
@@ -3943,7 +3943,7 @@ namespace Civil3DFactory
                 {
                     var pair = pn as JsonArray;
                     if (pair == null || pair.Count < 2)
-                        throw new InvalidOperationException("points 里每项必须是 [x, y]。");
+                        throw new InvalidOperationException("Each item in points must be [x, y].");
                     pl.AddVertexAt(i++, new Point2d(
                         pair[0].GetValue<double>(), pair[1].GetValue<double>()), 0, width, width);
                 }
@@ -3962,9 +3962,9 @@ namespace Civil3DFactory
             {
                 string content = GetString(t, "text", null);
                 if (string.IsNullOrEmpty(content))
-                    throw new InvalidOperationException("文字缺少 text 内容。");
+                    throw new InvalidOperationException("Text is missing its text content.");
                 double h = GetDouble(t, "height", 2.5);
-                if (h <= 0) throw new InvalidOperationException("文字高度必须大于 0。");
+                if (h <= 0) throw new InvalidOperationException("Text height must be greater than 0.");
                 var dbt = new DBText
                 {
                     Position = new Point3d(GetDouble(t, "x", 0), GetDouble(t, "y", 0), 0),
@@ -3972,13 +3972,13 @@ namespace Civil3DFactory
                     TextString = content,
                     Rotation = GetDouble(t, "rotation", 0) * Math.PI / 180.0
                 };
-                // 与图内既有标注对齐要这两项：文字样式（中文字体）与宽度因子
+                // Two things needed to match existing labels in the drawing: text style (CJK font) and width factor
                 string sty = GetString(t, "style", null);
                 if (!string.IsNullOrEmpty(sty))
                 {
                     var tst = (TextStyleTable)tr.GetObject(db.TextStyleTableId, OpenMode.ForRead);
                     if (!tst.Has(sty))
-                        throw new InvalidOperationException("图里没有文字样式 '" + sty + "'。");
+                        throw new InvalidOperationException("The drawing has no text style '" + sty + "'.");
                     dbt.TextStyleId = tst[sty];
                 }
                 double wf = GetDouble(t, "width_factor", 0);
@@ -3991,9 +3991,9 @@ namespace Civil3DFactory
             {
                 var pts = hz["points"] as JsonArray;
                 if (pts == null || pts.Count < 3)
-                    throw new InvalidOperationException("填充需要 points:[[x,y],...] 至少 3 个顶点。");
+                    throw new InvalidOperationException("A hatch needs points:[[x,y],...] with at least 3 vertices.");
                 var hatch = new Hatch();
-                // Hatch 的调用顺序有讲究：先入库，再定图案，再挂边界环，最后求值。
+                // Hatch call order matters: append to the database, set the pattern, attach the boundary loop, then evaluate.
                 ms.AppendEntity(hatch);
                 tr.AddNewlyCreatedDBObject(hatch, true);
                 hatch.PatternScale = Math.Max(GetDouble(hz, "scale", 1.0), 1e-6);
@@ -4006,7 +4006,7 @@ namespace Civil3DFactory
                 {
                     var pair = pn as JsonArray;
                     if (pair == null || pair.Count < 2)
-                        throw new InvalidOperationException("hatches.points 里每项必须是 [x, y]。");
+                        throw new InvalidOperationException("Each item in hatches.points must be [x, y].");
                     ringPts.Add(new Point2d(pair[0].GetValue<double>(), pair[1].GetValue<double>()));
                     ringBulges.Add(0);
                 }
@@ -4027,7 +4027,7 @@ namespace Civil3DFactory
             }
         }
 
-        // 取 a[key] 数组里的 JsonObject 项（缺失/空则返回空序列）
+        // Take the JsonObject items of the a[key] array (missing/empty returns an empty sequence)
         static IEnumerable<JsonObject> Items(JsonObject a, string key)
         {
             var arr = a[key] as JsonArray;
@@ -4039,7 +4039,7 @@ namespace Civil3DFactory
             }
         }
 
-        // ---------- 块 ----------
+        // ---------- Blocks ----------
 
         static JsonNode ListBlocks(JsonObject a, Document doc)
         {
@@ -4049,7 +4049,7 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // 先统计每个块定义被插入了多少次
+                // Count how many times each block definition is inserted first
                 var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 foreach (ObjectId id in ModelSpace(db, tr))
                 {
@@ -4089,8 +4089,8 @@ namespace Civil3DFactory
             return arr;
         }
 
-        // 图框常常插在**布局**里，只扫模型空间会得出"图里没有图框"的错误结论。
-        // 所以这里把模型空间和每个布局都当作一个"空间"统一遍历。
+        // Title blocks are often inserted in **layouts**; scanning model space only would wrongly conclude "no title block in the drawing".
+        // So model space and every layout are each treated as a "space" and walked uniformly.
         static List<KeyValuePair<string, ObjectId>> Spaces(Database db, Transaction tr, string which)
         {
             var list = new List<KeyValuePair<string, ObjectId>>();
@@ -4113,7 +4113,7 @@ namespace Civil3DFactory
             return list;
         }
 
-        // 列出块引用及其包围盒（模型空间 + 各布局）。找"每个图框在哪、左下角在哪"就靠它。
+        // List block references with bounding boxes (model space + every layout). This is how to find "where is each frame, where is its lower-left corner".
         static JsonNode BlockRefs(JsonObject a, Document doc)
         {
             string filter = GetString(a, "name", null);
@@ -4150,7 +4150,7 @@ namespace Civil3DFactory
                         ["scale_x"] = Math.Round(br.ScaleFactors.X, 6),
                         ["scale_y"] = Math.Round(br.ScaleFactors.Y, 6)
                     };
-                    // 空块/退化块取包围盒会抛 eNullExtents，记下原因继续，不拖垮整批
+                    // Empty/degenerate blocks throw eNullExtents on bounding box; record the reason and continue without failing the batch
                     try
                     {
                         Extents3d ex = br.GeometricExtents;
@@ -4171,15 +4171,15 @@ namespace Civil3DFactory
             return new JsonObject { ["count"] = total, ["returned"] = arr.Count, ["refs"] = arr };
         }
 
-        // JsonNode → 字符串。字符串节点取原值，数字/布尔取其 JSON 文本，null 归空串。
+        // JsonNode -> string. String nodes give the raw value, numbers/booleans their JSON text, null becomes empty string.
         static string NodeToStr(JsonNode n)
         {
             if (n == null) return "";
             try { return n.GetValue<string>(); } catch { return n.ToString(); }
         }
 
-        // 导出块引用的属性（图签图框的唯一真源）。只读，不改图。
-        // 出 JSON 是为了让人改完再由 set_block_attributes 原样反写——句柄是两边对齐的锚点。
+        // Export block reference attributes (the single source of truth for title blocks). Read-only, no change to the drawing.
+        // JSON is produced so that people can edit it and set_block_attributes writes it back as is; the handle is the anchor on both sides.
         static JsonNode DumpBlockAttributes(JsonObject a, Document doc)
         {
             string filter = GetString(a, "name", null);
@@ -4247,7 +4247,7 @@ namespace Civil3DFactory
             if (!string.IsNullOrEmpty(outPath))
             {
                 if (!Path.IsPathRooted(outPath))
-                    throw new InvalidOperationException("out 必须是绝对路径：" + outPath);
+                    throw new InvalidOperationException("out must be an absolute path: " + outPath);
                 string dir = Path.GetDirectoryName(outPath);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
                 var opts = new System.Text.Json.JsonSerializerOptions
@@ -4261,8 +4261,8 @@ namespace Civil3DFactory
             return result;
         }
 
-        // 按 JSON 反写块属性。句柄命中优先；没给句柄就按块名 + attributes 批量改同一批标签。
-        // 值相同的跳过（记 unchanged），图里没有的标签记进 missing——图签少一个标签不该把整批打死。
+        // Write block attributes back from JSON. Handle match takes precedence; without handles, batch-edit the same tags by block name + attributes.
+        // Equal values are skipped (recorded as unchanged); tags missing in the drawing go into missing: one missing tag should not kill the whole batch.
         static JsonNode SetBlockAttributes(JsonObject a, Document doc)
         {
             string fromPath = GetString(a, "from", null);
@@ -4295,15 +4295,15 @@ namespace Civil3DFactory
             if (!string.IsNullOrEmpty(fromPath))
             {
                 if (!File.Exists(fromPath))
-                    throw new InvalidOperationException("from 文件不存在：" + fromPath);
+                    throw new InvalidOperationException("from file does not exist: " + fromPath);
                 var parsed = JsonNode.Parse(File.ReadAllText(fromPath)) as JsonObject;
                 if (parsed != null) take(parsed["blocks"] as JsonArray);
             }
 
             var bulk = a["attributes"] as JsonObject;
 
-            // 宽度因子：按标签给，作用范围与 attributes 批量改一致（name 过滤 + 逐句柄命中）。
-            // 可以单独给（不改值只压字），所以下面的"至少给一样"判断要把它算进去。
+            // Width factors: per tag, same scope as the batch edit with attributes (name filter + per-handle hits).
+            // Can be given alone (squeeze text without changing values), so the "at least one" check below must include it.
             var widths = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
             var wfObj = a["width_factors"] as JsonObject;
             if (wfObj != null)
@@ -4312,13 +4312,13 @@ namespace Civil3DFactory
                     double f = GetDouble(wfObj, kv.Key, double.NaN);
                     if (double.IsNaN(f) || f <= 0)
                         throw new InvalidOperationException(
-                            "width_factors['" + kv.Key + "'] 必须是正数，收到：" + NodeToStr(kv.Value));
+                            "width_factors['" + kv.Key + "'] must be positive, got: " + NodeToStr(kv.Value));
                     widths[kv.Key] = f;
                 }
 
             if (byHandle.Count == 0 && bulk == null && widths.Count == 0)
                 throw new InvalidOperationException(
-                    "要么给 items/from（逐句柄回填），要么给 attributes（按 name 批量改），要么给 width_factors（只压字宽）。");
+                    "Give items/from (per-handle fill), or attributes (batch edit by name), or width_factors (text squeeze only).");
 
             Database db = doc.Database;
             int blocksTouched = 0, attrsSet = 0, unchanged = 0, widthSet = 0, widthUnchanged = 0;
@@ -4352,7 +4352,7 @@ namespace Civil3DFactory
                             foreach (var kv in bulk) want[kv.Key] = NodeToStr(kv.Value);
                         }
                     }
-                    // 只给 width_factors 时 want 为空也要往下走——那趟只压字宽不改值
+                    // With only width_factors, want is empty but we still go on: that pass only squeezes text, no value change
                     if (!inScope) continue;
                     if ((want == null || want.Count == 0) && widths.Count == 0) continue;
 
@@ -4373,7 +4373,7 @@ namespace Civil3DFactory
                             {
                                 att.UpgradeOpen();
                                 att.TextString = v;
-                                // 多行属性的 MText 内容不跟 TextString 自动同步，得显式刷一次
+                                // The MText content of a multi-line attribute does not follow TextString automatically; refresh explicitly
                                 if (att.IsMTextAttribute) { try { att.UpdateMTextAttribute(); } catch { } }
                                 att.DowngradeOpen();
                                 attrsSet++; setHere++;
@@ -4383,7 +4383,7 @@ namespace Civil3DFactory
                         double wf;
                         if (widths.TryGetValue(tag, out wf))
                         {
-                            // 多行属性走 MText 排版，WidthFactor 写了也不生效——记名单，别安静地成功
+                            // Multi-line attributes use MText layout; WidthFactor has no effect even if written. Record them, do not succeed silently
                             if (att.IsMTextAttribute)
                                 mtextSkipped.Add(new JsonObject
                                 { ["handle"] = h, ["block"] = nm, ["tag"] = tag });
@@ -4418,7 +4418,7 @@ namespace Civil3DFactory
             }
 
             if (missing.Count > 0 && !missingOk)
-                throw new InvalidOperationException("这些标签在图里不存在：" + missing.ToJsonString());
+                throw new InvalidOperationException("These tags do not exist in the drawing: " + missing.ToJsonString());
 
             return new JsonObject
             {
@@ -4435,7 +4435,7 @@ namespace Civil3DFactory
             };
         }
 
-        // 模型空间总包围盒。整体插块时块的基点取源图 INSBASE，所以一并报出来。
+        // Overall model-space bounding box. When inserting the whole drawing as a block the base point is the source INSBASE, so report it too.
         static JsonNode ModelExtents(JsonObject a, Document doc)
         {
             string layerFilter = GetString(a, "layer", null);
@@ -4469,7 +4469,7 @@ namespace Civil3DFactory
                 tr.Commit();
             }
             if (!any)
-                throw new InvalidOperationException("模型空间没有可取包围盒的实体（图层筛选过严？）");
+                throw new InvalidOperationException("Model space has no entity with a bounding box (layer filter too strict?)");
 
             return new JsonObject
             {
@@ -4660,13 +4660,13 @@ namespace Civil3DFactory
         static JsonNode SetModelView(JsonObject a, Document doc)
         {
             if (a["minx"] == null || a["miny"] == null || a["maxx"] == null || a["maxy"] == null)
-                throw new InvalidOperationException("set_model_view 需要 minx/miny/maxx/maxy。");
+                throw new InvalidOperationException("set_model_view requires minx/miny/maxx/maxy.");
             double minx = GetDouble(a, "minx", 0);
             double miny = GetDouble(a, "miny", 0);
             double maxx = GetDouble(a, "maxx", 0);
             double maxy = GetDouble(a, "maxy", 0);
             if (maxx <= minx || maxy <= miny)
-                throw new InvalidOperationException("set_model_view 的窗口范围无效。");
+                throw new InvalidOperationException("Invalid window extent for set_model_view.");
 
             try
             {
@@ -4837,10 +4837,10 @@ namespace Civil3DFactory
                 ObjectId defId = br.IsDynamicBlock ? br.DynamicBlockTableRecord : br.BlockTableRecord;
                 return ((BlockTableRecord)tr.GetObject(defId, OpenMode.ForRead)).Name;
             }
-            catch { return "(未知)"; }
+            catch { return "(unknown)"; }
         }
 
-        // 按名字找布局的块表记录（图框在布局里时，插块必须插进对应布局）
+        // Find a layout's block table record by name (when the title block lives in a layout, the block must be inserted into that layout)
         static ObjectId LayoutBtr(Database db, Transaction tr, string layoutName)
         {
             var dict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
@@ -4854,10 +4854,10 @@ namespace Civil3DFactory
                 names.Add(lo.LayoutName);
             }
             throw new InvalidOperationException(
-                "图里没有名为 '" + layoutName + "' 的布局。现有：" + string.Join(" / ", names));
+                "The drawing has no layout named '" + layoutName + "'. Existing: " + string.Join(" / ", names));
         }
 
-        // 插入块引用；from_dwg 给了就先把那个 dwg 作为块定义导入（同名则重定义）
+        // Insert a block reference; if from_dwg is given, import that dwg as the block definition first (redefined if the name exists)
         static void InsertBlocks(Database db, Transaction tr, BlockTableRecord ms,
                                  JsonObject a, string defaultLayer, JsonArray drawn)
         {
@@ -4866,10 +4866,10 @@ namespace Civil3DFactory
             {
                 string name = GetString(b, "name", null);
                 if (string.IsNullOrEmpty(name))
-                    throw new InvalidOperationException("插块缺少 name。");
+                    throw new InvalidOperationException("Block insert is missing name.");
                 string fromDwg = GetString(b, "from_dwg", null);
-                // source_block：从块库文件里按名字取某个块定义（图框库的常见形态）。
-                // 不给则退回“整个 dwg 当作一个块导入”。
+                // source_block: take one block definition by name from a block library file (the usual form of title-block libraries).
+                // If omitted, fall back to "import the whole dwg as one block".
                 string srcBlock = GetString(b, "source_block", null);
 
                 BlockTable bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
@@ -4878,7 +4878,7 @@ namespace Civil3DFactory
                 if (!string.IsNullOrEmpty(fromDwg))
                 {
                     if (!File.Exists(fromDwg))
-                        throw new InvalidOperationException("找不到块源文件：" + fromDwg);
+                        throw new InvalidOperationException("Block source file not found: " + fromDwg);
                     using (Database src = new Database(false, true))
                     {
                         src.ReadDwgFile(fromDwg, FileOpenMode.OpenForReadAndAllShare, true, null);
@@ -4886,14 +4886,14 @@ namespace Civil3DFactory
 
                         if (!string.IsNullOrEmpty(srcBlock))
                         {
-                            // 克隆指定的块定义（连同它的属性定义一起过来）
+                            // Clone the given block definition (together with its attribute definitions)
                             using (Transaction stx = src.TransactionManager.StartTransaction())
                             {
                                 BlockTable sbt = (BlockTable)stx.GetObject(src.BlockTableId, OpenMode.ForRead);
                                 if (!sbt.Has(srcBlock))
                                     throw new InvalidOperationException(
-                                        "块源文件里没有块定义 '" + srcBlock + "'：" + fromDwg +
-                                        "（先对该文件跑 list_blocks 查名称）");
+                                        "Block source file has no block definition '" + srcBlock + "': " + fromDwg +
+                                        " (run list_blocks on that file first to check the names)");
                                 var ids = new ObjectIdCollection();
                                 ids.Add(sbt[srcBlock]);
                                 var map = new IdMapping();
@@ -4901,27 +4901,27 @@ namespace Civil3DFactory
                                                       DuplicateRecordCloning.Replace, false);
                                 stx.Commit();
                             }
-                            // 克隆后块名沿用源名；name 若不同，以 name 为准去查（通常两者一致）
+                            // After cloning the block keeps the source name; if name differs, look up by name (usually identical)
                             BlockTable bt2 = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
                             string lookup = bt2.Has(name) ? name : srcBlock;
                             if (!bt2.Has(lookup))
-                                throw new InvalidOperationException("克隆块定义后仍找不到：" + lookup);
+                                throw new InvalidOperationException("Still not found after cloning the block definition: " + lookup);
                             btrId = bt2[lookup];
                         }
-                        else btrId = db.Insert(name, src, false);   // 整个 dwg 作为一个块定义导入
+                        else btrId = db.Insert(name, src, false);   // import the whole dwg as one block definition
                     }
                 }
                 else
                 {
                     if (!bt.Has(name))
                         throw new InvalidOperationException(
-                            "图中没有名为 '" + name + "' 的块定义（可用 from_dwg 从外部文件导入，或先 list_blocks 查名称）。");
+                            "The drawing has no block definition named '" + name + "' (use from_dwg to import from an external file, or run list_blocks first to check the names).");
                     btrId = bt[name];
                 }
 
                 double x = GetDouble(b, "x", 0), y = GetDouble(b, "y", 0);
                 double scale = GetDouble(b, "scale", 1.0);
-                if (scale <= 0) throw new InvalidOperationException("块比例必须大于 0。");
+                if (scale <= 0) throw new InvalidOperationException("Block scale must be greater than 0.");
                 double rot = GetDouble(b, "rotation", 0) * Math.PI / 180.0;
 
                 var br = new BlockReference(new Point3d(x, y, 0), btrId)
@@ -4930,7 +4930,7 @@ namespace Civil3DFactory
                     Rotation = rot
                 };
 
-                // space：缺省插模型空间；给布局名就插进那个布局（图框在布局里时必须这样）
+                // space: model space by default; a layout name inserts into that layout (required when the title block lives in a layout)
                 string space = GetString(b, "space", defaultSpace);
                 BlockTableRecord dest = ms;
                 if (!string.IsNullOrEmpty(space) &&
@@ -4942,7 +4942,7 @@ namespace Civil3DFactory
                 string lay = GetString(b, "layer", defaultLayer);
                 if (!string.IsNullOrEmpty(lay) && lay != "0") br.Layer = lay;
 
-                // 填块属性（图框的图号/图名就靠这个）
+                // Fill block attributes (sheet number/title of the frame rely on this)
                 var wanted = b["attributes"] as JsonObject;
                 int filled = 0;
                 var btr = (BlockTableRecord)tr.GetObject(btrId, OpenMode.ForRead);
@@ -4973,30 +4973,30 @@ namespace Civil3DFactory
                     ["y"] = y,
                     ["scale"] = scale,
                     ["attributes_filled"] = filled,
-                    ["imported_from"] = fromDwg ?? "(图内已有)"
+                    ["imported_from"] = fromDwg ?? "(already in drawing)"
                 });
             }
         }
 
-        // ---------- 改动既有图纸（默认副本预演） ----------
+        // ---------- Modify an existing drawing (preview copy by default) ----------
 
         static JsonNode ModifyDwg(JsonObject a, Document doc)
         {
             string target = GetString(a, "dwg", null);
             if (string.IsNullOrEmpty(target))
-                throw new InvalidOperationException("缺少参数 dwg（要改动的图纸路径）。");
+                throw new InvalidOperationException("Missing parameter dwg (path of the drawing to modify).");
             if (!Path.IsPathRooted(target))
-                throw new InvalidOperationException("dwg 必须是绝对路径：" + target);
+                throw new InvalidOperationException("dwg must be an absolute path: " + target);
             if (!File.Exists(target))
-                throw new InvalidOperationException("找不到图纸：" + target);
+                throw new InvalidOperationException("Drawing not found: " + target);
 
-            bool apply = GetBool(a, "apply", false);      // 默认预演，绝不擅自改原图
+            bool apply = GetBool(a, "apply", false);      // preview by default, never modify the original unasked
             bool backup = GetBool(a, "backup", true);
             string layer = GetString(a, "layer", "0");
             var drawn = new JsonArray();
             string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
-            // 预演输出路径
+            // Preview output path
             string outPath;
             if (apply) outPath = target;
             else
@@ -5006,7 +5006,7 @@ namespace Civil3DFactory
                 {
                     string dir = Path.GetDirectoryName(target);
                     string stem = Path.GetFileNameWithoutExtension(target);
-                    outPath = Path.Combine(dir, stem + "_预演_" + stamp + ".dwg");
+                    outPath = Path.Combine(dir, stem + "_preview_" + stamp + ".dwg");
                 }
             }
 
@@ -5015,8 +5015,8 @@ namespace Civil3DFactory
             {
                 string dir = Path.GetDirectoryName(target);
                 string stem = Path.GetFileNameWithoutExtension(target);
-                backupPath = Path.Combine(dir, stem + "_备份_" + stamp + ".dwg");
-                File.Copy(target, backupPath, false);      // 备份失败就让它抛，不带伤前进
+                backupPath = Path.Combine(dir, stem + "_backup_" + stamp + ".dwg");
+                File.Copy(target, backupPath, false);      // let a failed backup throw; do not proceed wounded
             }
 
             using (Database db = new Database(false, true))
@@ -5024,14 +5024,14 @@ namespace Civil3DFactory
                 db.ReadDwgFile(target, FileOpenMode.OpenForReadAndAllShare, true, null);
                 db.CloseInput(true);
 
-                // 外参先挂（AttachXref 不喜欢在已开事务里跑）；同名已存在就跳过，可重跑
+                // Attach xrefs first (AttachXref dislikes running inside an open transaction); skip existing names, re-runnable
                 foreach (JsonObject xr in Items(a, "xrefs"))
                 {
                     string xrPath = GetString(xr, "path", null);
                     if (string.IsNullOrEmpty(xrPath) || !Path.IsPathRooted(xrPath))
-                        throw new InvalidOperationException("xrefs.path 必须是绝对路径：" + (xrPath ?? "(空)"));
+                        throw new InvalidOperationException("xrefs.path must be an absolute path: " + (xrPath ?? "(empty)"));
                     if (!File.Exists(xrPath))
-                        throw new InvalidOperationException("外参文件不存在：" + xrPath);
+                        throw new InvalidOperationException("Xref file does not exist: " + xrPath);
                     string xrName = GetString(xr, "name", Path.GetFileNameWithoutExtension(xrPath));
                     bool already;
                     using (Transaction ck = db.TransactionManager.StartTransaction())
@@ -5043,7 +5043,7 @@ namespace Civil3DFactory
                     if (already)
                     {
                         drawn.Add(new JsonObject
-                        { ["type"] = "Xref", ["name"] = xrName, ["skipped"] = "同名块/外参已存在" });
+                        { ["type"] = "Xref", ["name"] = xrName, ["skipped"] = "block/xref with the same name already exists" });
                         continue;
                     }
                     ObjectId xrDefId = GetBool(xr, "overlay", false)
@@ -5081,7 +5081,7 @@ namespace Civil3DFactory
                     BlockTableRecord ms = (BlockTableRecord)tr.GetObject(
                         bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
 
-                    // 全局 space：图元（线/文字/填充…）也能进指定布局；块另有逐项 space。
+                    // Global space: entities (lines/texts/hatches...) can also go into the given layout; blocks have their own per-item space.
                     string spaceName = GetString(a, "space", null);
                     BlockTableRecord entDest = ms;
                     if (!string.IsNullOrEmpty(spaceName) &&
@@ -5097,24 +5097,24 @@ namespace Civil3DFactory
 
                 if (drawn.Count == 0)
                     throw new InvalidOperationException(
-                        "没有任何改动内容——可用键：blocks / circles / lines / arcs / polylines / texts / hatches。");
+                        "Nothing to change. Available keys: blocks / circles / lines / arcs / polylines / texts / hatches.");
 
                 db.SaveAs(outPath, DwgVersion.Current);
             }
 
             return new JsonObject
             {
-                ["mode"] = apply ? "已写回原图" : "副本预演（原图未改动）",
+                ["mode"] = apply ? "written back to original" : "preview copy (original unchanged)",
                 ["source"] = target,
                 ["output"] = outPath,
-                ["backup"] = backupPath ?? (apply ? "(未备份)" : "(预演无需备份)"),
+                ["backup"] = backupPath ?? (apply ? "(not backed up)" : "(no backup needed for preview)"),
                 ["added"] = drawn.Count,
                 ["items"] = drawn,
                 ["bytes"] = File.Exists(outPath) ? new FileInfo(outPath).Length : 0
             };
         }
 
-        // ---------- 模型空间成图材料框 ----------
+        // ---------- Model-space sheet frames ----------
         static JsonNode CreateSheetRegion(JsonObject a, Document doc)
         {
             double x = GetDouble(a, "x", double.NaN);
@@ -5125,14 +5125,14 @@ namespace Civil3DFactory
             {
                 if (string.IsNullOrWhiteSpace(alignment))
                     throw new InvalidOperationException(
-                        "材料框缺少左下角 x / y；也没有 alignment 可用于自动定位。");
+                        "Sheet frame is missing lower-left x / y and no alignment is available for automatic positioning.");
                 Database anchorDb = doc.Database;
                 CivDoc anchorCiv = Civ(anchorDb);
                 using (Transaction anchorTr = anchorDb.TransactionManager.StartTransaction())
                 {
                     CivAlignment al = FindAlignment(anchorTr, anchorCiv, alignment);
                     if (al == null)
-                        throw new InvalidOperationException("找不到路线 '" + alignment + "'。");
+                        throw new InvalidOperationException("Alignment '" + alignment + "' not found.");
                     double e = 0, n = 0;
                     al.PointLocation(al.StartingStation, 0, ref e, ref n);
                     if (double.IsNaN(x)) x = e + GetDouble(a, "offset_x", -100);
@@ -5141,7 +5141,7 @@ namespace Civil3DFactory
                 }
             }
             double scale = GetDouble(a, "scale", 500);
-            if (scale <= 0) throw new InvalidOperationException("scale 必须大于 0。");
+            if (scale <= 0) throw new InvalidOperationException("scale must be greater than 0.");
             string paper = GetString(a, "paper", "A3");
             string name = GetString(a, "name", "SHEET-01");
             string layerName = GetString(a, "layer", "C3DF-SHEET-REGION-NOPLOT");
@@ -5271,16 +5271,16 @@ namespace Civil3DFactory
             return result;
         }
 
-        // ---------- 实体化布局图纸：模型空间材料直接复制到纸空间 ----------
+        // ---------- Entity-based layout sheet: model-space content copied straight into paper space ----------
         static JsonNode ComposeLayoutSheet(JsonObject a, Document doc)
         {
-            string layoutName = GetString(a, "layout", "C3DF-A3-实体");
+            string layoutName = GetString(a, "layout", "C3DF-A3-Entities");
             string paper = GetString(a, "paper", "A3");
             bool clear = GetBool(a, "clear", true);
             var frameArg = a["frame"] as JsonObject;
             if (frameArg == null)
                 throw new InvalidOperationException(
-                    "缺少 frame{block,from_dwg,x,y,scale,attributes}。");
+                    "Missing frame{block,from_dwg,x,y,scale,attributes}.");
 
             double paperW, paperH;
             PaperSizeMm(paper, out paperW, out paperH);
@@ -5345,7 +5345,7 @@ namespace Civil3DFactory
                     double tw = target == null ? paperW - 35 : GetDouble(target, "width", paperW - 35);
                     double th = target == null ? paperH - 92 : GetDouble(target, "height", paperH - 92);
                     if (tw <= 0 || th <= 0)
-                        throw new InvalidOperationException("source target 的 width/height 必须大于 0。");
+                        throw new InvalidOperationException("source target width/height must be greater than 0.");
                     double rotation = GetDouble(srcArg, "rotation", 0) * Math.PI / 180.0;
                     string sourcePath = GetString(srcArg, "dwg", null);
                     var sourceWindow = srcArg["source_window"] as JsonObject;
@@ -5355,7 +5355,7 @@ namespace Civil3DFactory
                     double swMaxX = sourceWindow == null ? double.PositiveInfinity : GetDouble(sourceWindow, "maxx", 0);
                     double swMaxY = sourceWindow == null ? double.PositiveInfinity : GetDouble(sourceWindow, "maxy", 0);
                     if (sourceWindow != null && (swMaxX <= swMinX || swMaxY <= swMinY))
-                        throw new InvalidOperationException("source_window 范围无效。");
+                        throw new InvalidOperationException("Invalid source_window extent.");
                     var excludedLayers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     var excludedArg = srcArg["exclude_layers"] as JsonArray;
                     if (excludedArg != null)
@@ -5395,14 +5395,14 @@ namespace Civil3DFactory
                             catch { }
                         }
                         if (ids.Count == 0 || !haveBounds)
-                            throw new InvalidOperationException("当前图模型空间没有可复制实体。");
+                            throw new InvalidOperationException("The current drawing's model space has no entities to copy.");
                         db.DeepCloneObjects(ids, paperSpace.ObjectId, map, false);
                         sourcePath = SafeFile(db);
                     }
                     else
                     {
                         if (!File.Exists(sourcePath))
-                            throw new InvalidOperationException("找不到材料源 DWG：" + sourcePath);
+                            throw new InvalidOperationException("Source DWG not found: " + sourcePath);
                         using (var src = new Database(false, true))
                         {
                             src.ReadDwgFile(sourcePath, FileOpenMode.OpenForReadAndAllShare, true, null);
@@ -5436,7 +5436,7 @@ namespace Civil3DFactory
                                 }
                                 if (ids.Count == 0 || !haveBounds)
                                     throw new InvalidOperationException(
-                                        "材料源模型空间没有可复制实体：" + sourcePath);
+                                        "Source model space has no entities to copy: " + sourcePath);
                                 src.WblockCloneObjects(ids, paperSpace.ObjectId, map,
                                                        DuplicateRecordCloning.Ignore, false);
                                 stx.Commit();
@@ -5447,7 +5447,7 @@ namespace Civil3DFactory
                     double sourceW = bounds.MaxPoint.X - bounds.MinPoint.X;
                     double sourceH = bounds.MaxPoint.Y - bounds.MinPoint.Y;
                     if (sourceW <= 0 || sourceH <= 0)
-                        throw new InvalidOperationException("材料源范围无效：" + sourcePath);
+                        throw new InvalidOperationException("Invalid source extent: " + sourcePath);
                     bool fixedScale = srcArg["paper_scale"] != null;
                     double scale;
                     Point3d sourceOrigin;
@@ -5456,7 +5456,7 @@ namespace Civil3DFactory
                     {
                         scale = GetDouble(srcArg, "paper_scale", 0);
                         if (scale <= 0)
-                            throw new InvalidOperationException("paper_scale 必须大于 0。");
+                            throw new InvalidOperationException("paper_scale must be greater than 0.");
                         sourceOrigin = sourceWindow == null
                             ? bounds.MinPoint
                             : new Point3d(swMinX, swMinY, 0);
@@ -5514,7 +5514,7 @@ namespace Civil3DFactory
                     {
                         if (n > 0) noteText.Append("\\P");
                         noteText.Append((n + 1).ToString(CultureInfo.InvariantCulture));
-                        noteText.Append("、");
+                        noteText.Append(", ");
                         noteText.Append(note == null ? "" : note.ToString());
                         n++;
                     }
@@ -5526,27 +5526,27 @@ namespace Civil3DFactory
                         Width = GetDouble(a, "notes_width", 230),
                         TextHeight = GetDouble(a, "notes_height", 2.5),
                         Attachment = AttachmentPoint.TopLeft,
-                        Contents = "说明：" + "\\P" + noteText.ToString()
+                        Contents = "Notes:" + "\\P" + noteText.ToString()
                     };
                     paperSpace.AppendEntity(mt);
                     tr.AddNewlyCreatedDBObject(mt, true);
                     drawn.Add(new JsonObject { ["type"] = "MText", ["space"] = layoutName });
                 }
 
-                // 图框文件本身位于模型空间；不给 source_block 时整张 DWG 作为块定义导入。
+                // The frame file itself lives in model space; without source_block the whole DWG is imported as the block definition.
                 var frame = (JsonObject)JsonNode.Parse(frameArg.ToJsonString());
                 string frameName = Need(frame, "block");
                 string frameDwg = GetString(frame, "from_dwg", null);
                 string frameSourceBlock = GetString(frame, "source_block", null);
                 var bt2 = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
 
-                // Database.Insert 会在含大量 AEC 依赖的宿主图中长时间高 CPU。
-                // 对“整张 DWG 当图框”的场景，直接把源模型空间实体克隆进新块定义。
+                // Database.Insert runs at high CPU for a long time in hosts with many AEC dependencies.
+                // For the "whole DWG as frame" case, clone the source model-space entities straight into a new block definition.
                 if (!bt2.Has(frameName) && !string.IsNullOrEmpty(frameDwg) &&
                     string.IsNullOrEmpty(frameSourceBlock))
                 {
                     if (!File.Exists(frameDwg))
-                        throw new InvalidOperationException("找不到图框源文件：" + frameDwg);
+                        throw new InvalidOperationException("Frame source file not found: " + frameDwg);
                     bt2.UpgradeOpen();
                     var frameDef = new BlockTableRecord
                     {
@@ -5571,7 +5571,7 @@ namespace Civil3DFactory
                             foreach (ObjectId id in fms) frameIds.Add(id);
                             if (frameIds.Count == 0)
                                 throw new InvalidOperationException(
-                                    "图框源模型空间为空：" + frameDwg);
+                                    "Frame source model space is empty: " + frameDwg);
                             var frameMap = new IdMapping();
                             frameDb.WblockCloneObjects(
                                 frameIds, frameDefId, frameMap,
@@ -5581,7 +5581,7 @@ namespace Civil3DFactory
                     }
                     frame.Remove("from_dwg");
                 }
-                // compose_layout_sheet 对外使用 frame.block；复用通用插块逻辑时映射成 blocks[].name。
+                // compose_layout_sheet exposes frame.block; when reusing the generic block insert it maps to blocks[].name.
                 frame["name"] = frameName;
                 frame["space"] = layoutName;
                 if (frame["x"] == null) frame["x"] = 0;
@@ -5609,7 +5609,7 @@ namespace Civil3DFactory
                 }
                 media = media ?? firstMatch;
                 if (media == null)
-                    throw new InvalidOperationException("DWG To PDF.pc3 没有纸张：" + paper);
+                    throw new InvalidOperationException("DWG To PDF.pc3 has no paper size: " + paper);
                 psv.SetCanonicalMediaName(layout, media);
                 psv.SetPlotType(layout, AcDbPlotType.Layout);
                 psv.SetUseStandardScale(layout, true);
@@ -5628,14 +5628,14 @@ namespace Civil3DFactory
                 ["layout"] = layoutName,
                 ["created"] = created,
                 ["paper"] = paper + " " + paperW + "×" + paperH + " mm",
-                ["mode"] = "实体直接复制到布局空间（无模型视口）",
+                ["mode"] = "entities copied straight into paper space (no model viewport)",
                 ["entities_cloned"] = totalCloned,
                 ["sources"] = copied,
                 ["items_added"] = drawn
             };
         }
 
-        // ---------- 布局图纸：纸空间图框 + 模型空间视口 ----------
+        // ---------- Layout sheet: paper-space frame + model-space viewport ----------
         static JsonNode CreateLayoutSheet(JsonObject a, Document doc)
         {
             string layoutName = GetString(a, "layout", "C3DF-A3");
@@ -5658,7 +5658,7 @@ namespace Civil3DFactory
             {
                 if (string.IsNullOrEmpty(boundaryHandle) && string.IsNullOrEmpty(boundaryLayer))
                     throw new InvalidOperationException(
-                        "需提供 model_window，或用 boundary_handle / boundary_layer 指定模型空间取材框。");
+                        "Provide model_window, or use boundary_handle / boundary_layer to specify the model-space source frame.");
                 Database lookupDb = doc.Database;
                 using (Transaction lookupTr = lookupDb.TransactionManager.StartTransaction())
                 {
@@ -5682,7 +5682,7 @@ namespace Civil3DFactory
                         boundary = ent;
                     }
                     if (boundary == null)
-                        throw new InvalidOperationException("没找到指定的平面取材框。");
+                        throw new InvalidOperationException("The specified plan source frame was not found.");
                     Extents3d ext = boundary.GeometricExtents;
                     minx = ext.MinPoint.X; miny = ext.MinPoint.Y;
                     maxx = ext.MaxPoint.X; maxy = ext.MaxPoint.Y;
@@ -5693,7 +5693,7 @@ namespace Civil3DFactory
                 }
             }
             if (maxx <= minx || maxy <= miny)
-                throw new InvalidOperationException("模型空间取材范围无效。");
+                throw new InvalidOperationException("Invalid model-space source extent.");
 
             double paperW, paperH;
             PaperSizeMm(paper, out paperW, out paperH);
@@ -5705,8 +5705,8 @@ namespace Civil3DFactory
             double vpH = vpArg == null ? paperH - 30 : GetDouble(vpArg, "height", paperH - 30);
             double vpScale = vpArg == null ? 0 : GetDouble(vpArg, "scale", 0);
             bool vpLocked = vpArg == null ? true : GetBool(vpArg, "locked", true);
-            if (vpW <= 0 || vpH <= 0) throw new InvalidOperationException("viewport 尺寸必须大于 0。");
-            if (vpScale < 0) throw new InvalidOperationException("viewport.scale 必须大于 0。");
+            if (vpW <= 0 || vpH <= 0) throw new InvalidOperationException("viewport size must be greater than 0.");
+            if (vpScale < 0) throw new InvalidOperationException("viewport.scale must be greater than 0.");
 
             double frameX = GetDouble(a, "frame_x", -9.372);
             double frameY = GetDouble(a, "frame_y", -10.01);
@@ -5719,7 +5719,7 @@ namespace Civil3DFactory
             ObjectId layoutId = lm.GetLayoutId(layoutName);
             bool created = layoutId.IsNull;
             if (created) layoutId = lm.CreateLayout(layoutName);
-            // Viewport.On 只允许在当前纸空间布局中设置；否则抛 eNotInPaperspace。
+            // Viewport.On may only be set in the current paper-space layout; otherwise eNotInPaperspace.
             if (!string.Equals(lm.CurrentLayout, layoutName, StringComparison.Ordinal))
                 lm.CurrentLayout = layoutName;
 
@@ -5730,8 +5730,8 @@ namespace Civil3DFactory
                 var layout = (Layout)tr.GetObject(layoutId, OpenMode.ForWrite);
                 var paperSpace = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForWrite);
 
-                // 重跑时清空本布局中的普通实体和用户视口；保留系统的 1 号纸空间视口。
-                // clear:false 则叠加——同一布局里横排多张图框+视口（合并分幅图用）。
+                // On re-run clear the ordinary entities and user viewports in this layout; keep the system paper-space viewport 1.
+                // clear:false stacks instead: several frames + viewports side by side in one layout (for merged plan sheets).
                 if (clearLayout)
                 {
                     foreach (ObjectId id in paperSpace)
@@ -5749,8 +5749,8 @@ namespace Civil3DFactory
                 if (!bt.Has(blockName))
                 {
                     if (string.IsNullOrEmpty(fromDwg))
-                        throw new InvalidOperationException("图中没有块 '" + blockName + "'，需提供 from_dwg。");
-                    if (!File.Exists(fromDwg)) throw new InvalidOperationException("找不到块库文件：" + fromDwg);
+                        throw new InvalidOperationException("The drawing has no block '" + blockName + "'; from_dwg is required.");
+                    if (!File.Exists(fromDwg)) throw new InvalidOperationException("Block library file not found: " + fromDwg);
                     using (var src = new Database(false, true))
                     {
                         src.ReadDwgFile(fromDwg, FileOpenMode.OpenForReadAndAllShare, true, null);
@@ -5767,8 +5767,8 @@ namespace Civil3DFactory
                             }
                             else
                             {
-                                // 图框库也可能是一张“裸图框 DWG”，没有同名块定义；
-                                // 此时把整张 DWG 作为 blockName 导入。
+                                // The frame library may also be a "bare frame DWG" without a same-named block definition;
+                                // in that case import the whole DWG as blockName.
                                 db.Insert(blockName, src, false);
                             }
                             stx.Commit();
@@ -5777,7 +5777,7 @@ namespace Civil3DFactory
                     bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
                 }
 
-                // 图框留在布局空间；本项目 TK 块的定义基点比外框左下角偏约 9.372/10.01 mm。
+                // The frame stays in paper space; this project's TK block has its base point about 9.372/10.01 mm off the outer lower-left corner.
                 var frame = new BlockReference(new Point3d(frameX, frameY, 0), bt[blockName])
                 {
                     ScaleFactors = new Scale3d(frameScale),
@@ -5787,7 +5787,7 @@ namespace Civil3DFactory
                 tr.AddNewlyCreatedDBObject(frame, true);
 
                 var wanted = a["attributes"] as JsonObject;
-                var widthFactors = a["width_factors"] as JsonObject;   // {标签:因子}，长图名塞窄格用
+                var widthFactors = a["width_factors"] as JsonObject;   // {tag:factor}, for squeezing long sheet titles into narrow cells
                 var frameDef = (BlockTableRecord)tr.GetObject(bt[blockName], OpenMode.ForRead);
                 if (frameDef.HasAttributeDefinitions)
                 {
@@ -5812,7 +5812,7 @@ namespace Civil3DFactory
                     }
                 }
 
-                // 视口边界缺省放不打印图层；viewport.layer 可指定别的层（要打印边框就给个可打印层）。
+                // Viewport border goes to a non-plotting layer by default; viewport.layer may give another (a plottable one to plot the border).
                 const string vpLayerName = "C3DF-VPORT-NOPLOT";
                 var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
                 if (!lt.Has(vpLayerName))
@@ -5824,13 +5824,13 @@ namespace Civil3DFactory
                     lt.DowngradeOpen();
                 }
 
-                // 源图图层常带着「新视口中冻结」状态，新建视口会把这些层整层隐身
-                // （DXF 解析读不出来，项目B SY5 现状高程整层消失就是它）。
-                // 所以每个新视口先全层解冻、再按参数冻结——行为与来源图状态无关。
+                // Source drawing layers often carry the 'frozen in new viewports' state, which hides whole layers in new viewports
+                // (invisible to DXF parsing; the vanished existing-elevation layer on project B SY5 was exactly this).
+                // So every new viewport thaws all layers first, then freezes by parameter: behaviour independent of the source state.
                 Func<string, ObjectId> layerIdStrict = name =>
                 {
                     if (!lt.Has(name))
-                        throw new InvalidOperationException("视口图层参数：图里没有图层 '" + name + "'。");
+                        throw new InvalidOperationException("Viewport layer parameter: the drawing has no layer '" + name + "'.");
                     return lt[name];
                 };
                 Action<Autodesk.AutoCAD.DatabaseServices.Viewport, JsonArray, string> applyVpLayerState =
@@ -5848,7 +5848,7 @@ namespace Civil3DFactory
                             if (string.IsNullOrEmpty(ln)) continue;
                             if (!lt.Has(ln))
                                 throw new InvalidOperationException(
-                                    tag + ".freeze_layers：图里没有图层 '" + ln + "'。");
+                                    tag + ".freeze_layers: the drawing has no layer '" + ln + "'.");
                             freezeIds.Add(lt[ln]);
                         }
                         if (freezeIds.Count > 0) vport.FreezeLayersInViewport(freezeIds.GetEnumerator());
@@ -5877,8 +5877,8 @@ namespace Civil3DFactory
                 applyVpLayerState(vp, vpArg == null ? null : vpArg["freeze_layers"] as JsonArray, "viewport");
                 vp.Locked = vpLocked;
 
-                // 附加视口：同一图框里再开小窗（如分幅图左下角的"平面索引"钥匙图）。
-                // 每项自带纸位/尺寸/比例/模型中心；缺中心就沿用主窗中心。
+                // Extra viewports: additional small windows in the same frame (e.g. the "key map" at the lower-left of a plan sheet).
+                // Each has its own paper position/size/scale/model centre; the centre defaults to the main window centre.
                 var extraVps = a["extra_viewports"] as JsonArray;
                 if (extraVps != null)
                 {
@@ -5890,7 +5890,7 @@ namespace Civil3DFactory
                         double exScale = GetDouble(ev, "scale", 0);
                         if (exW <= 0 || exH <= 0 || exScale <= 0)
                             throw new InvalidOperationException(
-                                "extra_viewports 每项必须给 width / height / scale（均 > 0）。");
+                                "Each extra_viewports item must give width / height / scale (all > 0).");
                         double exX = GetDouble(ev, "x", 0), exY = GetDouble(ev, "y", 0);
                         double exCx = GetDouble(ev, "center_x", (minx + maxx) / 2.0);
                         double exCy = GetDouble(ev, "center_y", (miny + maxy) / 2.0);
@@ -5911,7 +5911,7 @@ namespace Civil3DFactory
                         tr.AddNewlyCreatedDBObject(evp, true);
                         evp.On = true;
                         evp.CustomScale = 1000.0 / exScale;
-                        // 先全层解冻（洗掉「新视口中冻结」带进来的隐身），再冻结点名的层——铁律 13 名字必须全中
+                        // Thaw all layers first (washing out the 'frozen in new viewports' hiding), then freeze the named ones; rule 13: every name must exist
                         applyVpLayerState(evp, ev["freeze_layers"] as JsonArray, "extra_viewports");
                         evp.Locked = GetBool(ev, "locked", true);
                         extraVpReport.Add(new JsonObject
@@ -5924,7 +5924,7 @@ namespace Civil3DFactory
                     }
                 }
 
-                // 把布局本身配置成 A3 横向 1:1；打印时可直接指定该布局。
+                // Configure the layout itself as A3 landscape 1:1; plotting can target this layout directly.
                 PlotSettingsValidator psv = PlotSettingsValidator.Current;
                 psv.SetPlotConfigurationName(layout, "DWG To PDF.pc3", null);
                 psv.RefreshLists(layout);
@@ -5937,7 +5937,7 @@ namespace Civil3DFactory
                     { media = m; break; }
                 }
                 media = media ?? firstMatch;
-                if (media == null) throw new InvalidOperationException("DWG To PDF.pc3 没有纸张：" + paper);
+                if (media == null) throw new InvalidOperationException("DWG To PDF.pc3 has no paper size: " + paper);
                 psv.SetCanonicalMediaName(layout, media);
                 psv.SetPlotType(layout, AcDbPlotType.Layout);
                 psv.SetUseStandardScale(layout, true);
@@ -5977,20 +5977,20 @@ namespace Civil3DFactory
             };
         }
 
-        // ---------- 打印 PDF ----------
-        // 从已实战验证的 CadPlotPlugin 移植（2026-07-23 出 81 张 PDF 零错误），
-        // 三个坑一并带过来：①侧库设为 WorkingDatabase ②目标布局须为当前布局
-        // ③侧库上 MediaMatchingPolicy 必须 MatchEnabled。
+        // ---------- Plot to PDF ----------
+        // Ported from the battle-tested CadPlotPlugin (81 PDFs with zero errors on 2026-07-23),
+        // bringing its three traps along: (1) side database set as WorkingDatabase (2) target layout must be current
+        // (3) MediaMatchingPolicy on the side database must be MatchEnabled.
         static JsonNode PlotPdf(JsonObject a, Document doc)
         {
             string outPdf = GetString(a, "out", null);
             if (string.IsNullOrEmpty(outPdf))
-                throw new InvalidOperationException("缺少参数 out（PDF 输出路径）。");
+                throw new InvalidOperationException("Missing parameter out (PDF output path).");
             if (!Path.IsPathRooted(outPdf))
-                throw new InvalidOperationException("out 必须是绝对路径：" + outPdf);
+                throw new InvalidOperationException("out must be an absolute path: " + outPdf);
             if (File.Exists(outPdf) && !GetBool(a, "overwrite", false))
                 throw new InvalidOperationException(
-                    "PDF 已存在，拒绝覆盖：" + outPdf + "（确需覆盖请传 overwrite:true）");
+                    "PDF already exists, refusing to overwrite: " + outPdf + " (pass overwrite:true to overwrite)");
 
             string outDir = Path.GetDirectoryName(outPdf);
             if (!string.IsNullOrEmpty(outDir) && !Directory.Exists(outDir)) Directory.CreateDirectory(outDir);
@@ -6012,19 +6012,19 @@ namespace Civil3DFactory
                 if (!string.IsNullOrEmpty(extDwg))
                 {
                     if (!File.Exists(extDwg))
-                        throw new InvalidOperationException("找不到要打印的 dwg：" + extDwg);
+                        throw new InvalidOperationException("dwg to plot not found: " + extDwg);
                     side = new Database(false, true);
                     side.ReadDwgFile(extDwg, FileOpenMode.OpenForReadAndAllShare, true, null);
                     side.CloseInput(true);
-                    // 坑①：侧数据库必须设为当前工作库，PlotEngine 才能出它的布局
+                    // Trap (1): the side database must be the current working database for PlotEngine to plot its layouts
                     HostApplicationServices.WorkingDatabase = side;
                     db = side;
                 }
                 else db = doc.Database;
 
-                // 模型空间的打印窗口是按**当前 UCS** 解释的，不是世界坐标系。
-                // 图里 UCS 有偏移时，传世界坐标的窗口就会打到别处去（现象：内容不对或白纸，不报错）。
-                // 打印前把 UCS 归零，窗口参数才等于世界坐标。
+                // The model-space plot window is interpreted in the **current UCS**, not the world coordinate system.
+                // With a shifted UCS in the drawing, a world-coordinate window plots somewhere else (symptom: wrong content or blank page, no error).
+                // Reset the UCS before plotting so the window parameters equal world coordinates.
                 try { doc.Editor.CurrentUserCoordinateSystem = Matrix3d.Identity; } catch { }
 
                 ObjectId layoutId;
@@ -6035,8 +6035,8 @@ namespace Civil3DFactory
                     var lm = LayoutManager.Current;
                     layoutId = lm.GetLayoutId(layoutName);
                     if (layoutId.IsNull)
-                        throw new InvalidOperationException("找不到布局 '" + layoutName + "'。");
-                    // 坑②：PlotInfoValidator 要求目标布局必须是当前布局，否则 eLayoutNotCurrent
+                        throw new InvalidOperationException("Layout '" + layoutName + "' not found.");
+                    // Trap (2): PlotInfoValidator requires the target layout to be current, otherwise eLayoutNotCurrent
                     try
                     {
                         if (!string.Equals(lm.CurrentLayout, layoutName, StringComparison.Ordinal))
@@ -6054,10 +6054,10 @@ namespace Civil3DFactory
                     }
                     else
                     {
-                        // 缺省用图纸范围；空图或范围未初始化时 Extmin>Extmax，直接报错更清楚
+                        // Default to the drawing extents; for an empty drawing or uninitialised extents Extmin>Extmax, so fail clearly
                         db.UpdateExt(true);
                         if (db.Extmin.X > db.Extmax.X)
-                            throw new InvalidOperationException("图纸范围为空，无法自动确定打印窗口——请传 window 参数。");
+                            throw new InvalidOperationException("Drawing extents are empty, cannot determine the plot window automatically; pass the window parameter.");
                         window = new Extents3d(db.Extmin, db.Extmax);
                     }
                     tr.Commit();
@@ -6067,8 +6067,8 @@ namespace Civil3DFactory
                 if (side == null && string.Equals(layoutName, "Model",
                     StringComparison.OrdinalIgnoreCase))
                 {
-                    // SetPlotWindowArea 接受的是当前视图 DCS，不是图形 WCS。
-                    // 远离原点的模型空间图框若直接传 WCS，会正常生成 PDF 但内容是白纸。
+                    // SetPlotWindowArea takes the current view DCS, not the drawing WCS.
+                    // A model-space frame far from the origin passed as WCS produces a PDF fine, but blank.
                     using (ViewTableRecord view = doc.Editor.GetCurrentView())
                     {
                         Matrix3d wcsToDcs = Matrix3d.PlaneToWorld(view.ViewDirection);
@@ -6094,7 +6094,7 @@ namespace Civil3DFactory
                     ["source"] = string.IsNullOrEmpty(extDwg) ? SafeFile(doc.Database) : extDwg,
                     ["layout"] = layoutName,
                     ["paper"] = paper,
-                    ["ctb"] = string.IsNullOrEmpty(ctb) ? "(彩色)" : ctb,
+                    ["ctb"] = string.IsNullOrEmpty(ctb) ? "(colour)" : ctb,
                     ["window"] = new JsonObject
                     {
                         ["minx"] = Math.Round(window.MinPoint.X, 4),
@@ -6134,7 +6134,7 @@ namespace Civil3DFactory
             return result;
         }
 
-        // 窗口出图核心（移植自 CadPlotPlugin.PlotWindow）
+        // Window plot core (ported from CadPlotPlugin.PlotWindow)
         static void PlotWindow(Database db, ObjectId layoutId, Extents3d window,
                                string outPdf, string paper, string ctb, bool printLineweights,
                                bool fitLayout = false, bool userWindow = false, string device = "DWG To PDF.pc3")
@@ -6153,7 +6153,7 @@ namespace Civil3DFactory
                            || device.IndexOf("JPG", StringComparison.OrdinalIgnoreCase) >= 0;
                 PlotPaperUnit units = raster ? PlotPaperUnit.Pixels : PlotPaperUnit.Millimeters;
 
-                // 优先选 full_bleed 纸张（无边距，图框才不会被裁）
+                // Prefer the full_bleed paper (no margins, so the frame is not clipped)
                 string media = null, firstMatch = null;
                 foreach (string m in psv.GetCanonicalMediaNameList(ps))
                 {
@@ -6168,8 +6168,8 @@ namespace Civil3DFactory
 
                 if (layout.ModelType)
                 {
-                    // AutoCAD 2025 模型空间实测：必须先写窗口，再切 Window。
-                    // 先 SetPlotType 会在部分模型布局状态下直接抛 eInvalidInput。
+                    // Measured in AutoCAD 2025 model space: the window must be written first, then switch to Window.
+                    // Calling SetPlotType first throws eInvalidInput in some model layout states.
                     psv.SetPlotWindowArea(ps, new Extents2d(
                         window.MinPoint.X, window.MinPoint.Y, window.MaxPoint.X, window.MaxPoint.Y));
                     psv.SetPlotType(ps, AcDbPlotType.Window);
@@ -6178,18 +6178,18 @@ namespace Civil3DFactory
                     psv.SetPlotCentered(ps, true);
                     psv.SetPlotPaperUnits(ps, units);
 
-                    // 横图转 90 度贴合竖纸
+                    // Rotate a landscape drawing 90 degrees to fit portrait paper
                     double w = window.MaxPoint.X - window.MinPoint.X;
                     double h = window.MaxPoint.Y - window.MinPoint.Y;
                     psv.SetPlotRotation(ps, (w >= h && !raster) ? PlotRotation.Degrees090 : PlotRotation.Degrees000);
                 }
                 else if (userWindow && !fitLayout)
                 {
-                    // 纸空间 + 显式窗口：窗口坐标就是布局图纸坐标（mm）。
-                    // 顺序关键：先 SetPlotWindowArea 再 SetPlotType(Window)——反过来在部分
-                    // 布局状态下抛 eInvalidInput（CadPlotPlugin.PlotWindow 同款打法，已验证；
-                    // 旧注释"对布局调用 Window 必报 eInvalidInput"是先切类型后设窗口的结果）。
-                    // 用途：从横排多图框的合并布局（如 分平面图-全）逐框抠出单张 A3。
+                    // Paper space + explicit window: window coordinates are the layout paper coordinates (mm).
+                    // Order is critical: SetPlotWindowArea first, then SetPlotType(Window); the reverse throws eInvalidInput
+                    // in some layout states (same approach as CadPlotPlugin.PlotWindow, verified;
+                    // the old comment "Window on a layout always throws eInvalidInput" came from switching the type before setting the window).
+                    // Use: cut single A3 sheets out of a merged layout with several frames in a row (e.g. PlanSheets-All).
                     psv.SetPlotWindowArea(ps, new Extents2d(
                         window.MinPoint.X, window.MinPoint.Y,
                         window.MaxPoint.X, window.MaxPoint.Y));
@@ -6204,8 +6204,8 @@ namespace Civil3DFactory
                 }
                 else
                 {
-                    // 纸空间布局缺省按 Layout 打印（窗口未显式给出时，window 只是图纸范围兜底值，
-                    // 不能当打印窗口用）。
+                    // Paper-space layouts plot as Layout by default (without an explicit window, window is only the extents fallback
+                    // and cannot be used as the plot window).
                     psv.SetPlotType(ps, fitLayout ? AcDbPlotType.Extents : AcDbPlotType.Layout);
                     psv.SetUseStandardScale(ps, true);
                     psv.SetStdScaleType(ps, fitLayout ? StdScaleType.ScaleToFit
@@ -6213,7 +6213,7 @@ namespace Civil3DFactory
                     psv.SetPlotPaperUnits(ps, units);
                     if (fitLayout)
                     {
-                        // 长条布局（多图框横排）转正贴纸：横宽竖高按纸张长边摆。
+                        // Long layouts (several frames in a row) rotated upright onto the paper: width/height laid along the paper's long side.
                         psv.SetPlotCentered(ps, true);
                         psv.SetPlotRotation(ps, PlotRotation.Degrees000);
                     }
@@ -6227,11 +6227,11 @@ namespace Civil3DFactory
                 }
                 else ps.PlotPlotStyles = false;
 
-                ps.PrintLineweights = printLineweights;   // 治 hairline 细字淡显
+                ps.PrintLineweights = printLineweights;   // cures faint hairline text
                 ps.ScaleLineweights = false;
 
                 var pi = new PlotInfo { Layout = layoutId, OverrideSettings = ps };
-                // 坑③：侧库上仍需开启介质匹配，关闭会抛 eNoMatchingMedia
+                // Trap (3): media matching must still be enabled on the side database, otherwise eNoMatchingMedia
                 var piv = new PlotInfoValidator { MediaMatchingPolicy = MatchingPolicy.MatchEnabled };
                 piv.Validate(pi);
 
@@ -6253,7 +6253,7 @@ namespace Civil3DFactory
             }
         }
 
-        // 反射 dump：在 acc 进程内查对象真实 API（AeccDbMgd 是混合模式程序集，进程外无法反射）
+        // Reflection dump: inspect an object's real API inside the acc process (AeccDbMgd is a mixed-mode assembly, cannot be reflected out of process)
         static JsonNode Snoop(JsonObject a, Document doc)
         {
             string typeFilter = GetString(a, "type", null);
@@ -6285,7 +6285,7 @@ namespace Civil3DFactory
                     target = o; break;
                 }
                 if (target == null)
-                    throw new InvalidOperationException("没找到匹配对象（type/name/handle 条件过严？）");
+                    throw new InvalidOperationException("No matching object found (type/name/handle too strict?)");
 
                 Type t = target.GetType();
                 var props = new JsonArray();
@@ -6309,10 +6309,10 @@ namespace Civil3DFactory
                         }
                         catch (System.Exception ex)
                         {
-                            item["value"] = "(取值失败: " + ex.GetType().Name + ")";
+                            item["value"] = "(read failed: " + ex.GetType().Name + ")";
                         }
                     }
-                    else item["value"] = "(不可读)";
+                    else item["value"] = "(not readable)";
                     props.Add(item);
                 }
                 tr.Commit();
@@ -6328,15 +6328,15 @@ namespace Civil3DFactory
             }
         }
 
-        // 反射取 Name。注意：Civil 样式类在派生层用 new 重新声明了 Name，
-        // GetProperty("Name") 会抛 AmbiguousMatchException（表现为"取不到名字、退化成类名"），
-        // 所以改成遍历 GetProperties() 取第一个可读的 Name。
+        // Read Name by reflection. Note: Civil style classes re-declare Name with new in derived classes,
+        // so GetProperty("Name") throws AmbiguousMatchException (seen as "name unavailable, degraded to class name");
+        // hence walk GetProperties() and take the first readable Name.
         static string TryGetName(object o)
         {
             if (o == null) return null;
-            // Civil 样式类在派生层用 new 重新声明了 Name，且派生层那个**没有 get**：
-            // GetProperty("Name") 会命中派生层的、CanRead 说 true、GetValue 却报
-            // "Property Get method was not found."。所以逐层往基类走，找到第一个真有 getter 的。
+            // Civil style classes re-declare Name with new in derived classes, and the derived one **has no get**:
+            // GetProperty("Name") hits the derived one, CanRead says true, but GetValue reports
+            // "Property Get method was not found." So walk up the base classes to the first one with a real getter.
             var flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
                       | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly;
             for (Type t = o.GetType(); t != null; t = t.BaseType)
@@ -6361,12 +6361,12 @@ namespace Civil3DFactory
             return s.Length <= len ? s : s.Substring(0, len) + "…";
         }
 
-        // ===================== 公共辅助 =====================
+        // ===================== Shared helpers =====================
 
         static readonly string[] HeadersXY =
-            { "序号", "桩号", "X坐标(北Northing)", "Y坐标(东Easting)" };
+            { "No.", "Station", "X (Northing)", "Y (Easting)" };
         static readonly string[] HeadersXYZ =
-            { "序号", "桩号", "X坐标(北Northing)", "Y坐标(东Easting)", "地面高程" };
+            { "No.", "Station", "X (Northing)", "Y (Easting)", "Ground elevation" };
 
         static IEnumerable<ObjectId> ModelSpace(Database db, Transaction tr)
         {
@@ -6376,7 +6376,7 @@ namespace Civil3DFactory
             foreach (ObjectId id in ms) yield return id;
         }
 
-        // 起点、每 interval、终点必取
+        // Start, every interval, and end are always taken
         static IEnumerable<double> Stations(double start, double end, double interval)
         {
             if (interval <= 0) interval = 50.0;
@@ -6393,7 +6393,7 @@ namespace Civil3DFactory
             var arr = a["names"] as JsonArray;
             if (arr != null)
                 foreach (var n in arr) if (n != null) set.Add(n.GetValue<string>());
-            return set.Count == 0 ? null : set;   // null = 全部
+            return set.Count == 0 ? null : set;   // null = all
         }
 
         static string ResolveOutDir(JsonObject a, Document doc)
@@ -6546,7 +6546,7 @@ namespace Civil3DFactory
                     txt.Layer = layerName + "-TEXT";
                     txt.Location = new Point3d(cx, cy + 0.5, 0);
                     txt.TextHeight = 0.5;
-                    txt.Contents = string.Format("【二级边坡渠道】\\P主槽底宽: {0}m | 一级坡比: 1:{1} (H={2}m) \\P马道宽: {3}m | 二级坡比: 1:{4} (H={5}m) \\P衬砌厚度: {6}m",
+                    txt.Contents = string.Format("[Two-tier channel]\\PMain channel bottom width: {0}m | Tier-1 slope: 1:{1} (H={2}m) \\PBerm width: {3}m | Tier-2 slope: 1:{4} (H={5}m) \\PLining thickness: {6}m",
                         bottomWidth, m1, h1, benchWidth, m2, h2, thickness);
 
                     btr.AppendEntity(txt);
@@ -6561,7 +6561,7 @@ namespace Civil3DFactory
 
             var res = new JsonObject();
             res["status"] = "success";
-            res["channel_type"] = "二级边坡渠道(带主槽和马道平台)";
+            res["channel_type"] = "Two-tier slope channel (with main channel and berm)";
             res["total_top_width"] = Round(totalTopWidth, 3);
             res["total_depth"] = Round(totalDepth, 3);
             res["bottom_width"] = bottomWidth;

@@ -12,15 +12,15 @@ namespace Civil3DFactory
     public static partial class Ops
     {
         /// <summary>
-        /// 只读侦察：列出图里各类 Civil 样式集合的名字（纵断面视图样式、带状图集、
-        /// 标签集、断面图样式…）。换样式前先用它对照两张图有没有同名样式。
+        /// Read-only reconnaissance: list the names in each Civil style collection of the drawing (profile view styles, band sets,
+        /// label sets, section view styles, ...). Use it before swapping styles to check whether two drawings share style names.
         ///
-        /// ⚠ 只走 civ.Styles 的**两级**属性，不递归深爬——深爬会摸到
-        /// Database/Document 把 accoreconsole 原生崩掉（2026-08-26 三连崩的教训）。
+        /// Only walks TWO levels of civ.Styles properties, never recursing deeper -- a deep crawl reaches
+        /// Database/Document and crashes accoreconsole natively (lesson of three crashes in a row on 2026-08-26).
         /// </summary>
         static JsonNode RunNodeListStyles(JsonObject a, Document doc)
         {
-            string filter = GetString(a, "contains", null);   // 只报名字含该串的集合
+            string filter = GetString(a, "contains", null);   // only report collections whose name contains this string
             Database db = doc.Database;
             CivDoc civ = Civ(db);
             var result = new JsonObject();
@@ -37,7 +37,7 @@ namespace Civil3DFactory
                     try { v = p.GetValue(root); } catch { continue; }
                     if (v == null) continue;
 
-                    // 一级就是样式集合
+                    // first level is already a style collection
                     var names = ReadNames(tr, v);
                     if (names != null && names.Count > 0)
                     {
@@ -49,7 +49,7 @@ namespace Civil3DFactory
                         continue;
                     }
 
-                    // 一级是 Root（如 BandStyles / LabelSetStyles），再下一级
+                    // first level is a Root (such as BandStyles / LabelSetStyles); go one level down
                     foreach (PropertyInfo q in v.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
                     {
                         if (q.GetIndexParameters().Length > 0) continue;
@@ -82,7 +82,7 @@ namespace Civil3DFactory
                 || tn == "TransactionManager" || tn == "String" || tn == "Boolean";
         }
 
-        /// <summary>把样式集合读成名字表；不是集合就返回 null。</summary>
+        /// <summary>Read a style collection as a name table; returns null if it is not a collection.</summary>
         static List<string> ReadNames(Transaction tr, object coll)
         {
             var en = coll as IEnumerable;
@@ -96,7 +96,7 @@ namespace Civil3DFactory
                 object cur;
                 try { if (!it.MoveNext()) break; cur = it.Current; }
                 catch { break; }
-                if (!(cur is ObjectId)) return null;      // 不是 ObjectId 集合，不是样式集
+                if (!(cur is ObjectId)) return null;      // not an ObjectId collection, so not a style set
                 ObjectId id = (ObjectId)cur;
                 if (id.IsNull) continue;
                 try

@@ -10,9 +10,9 @@ using Autodesk.AutoCAD.Geometry;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 扫描模型空间闭合 LWPOLYLINE，写入面积标注并导出明细表。
-    /// 节点产物用 C3DF_POLYAREA XData 标记，重跑时只清理自身文字，不碰用户对象。
-    /// area_overrides 支持按源多段线句柄覆盖面积，适合录入人工复核值。
+    /// Scan closed LWPOLYLINEs in model space, write area labels and export a detail table.
+    /// Node output is tagged with C3DF_POLYAREA XData; a rerun only cleans its own text and never touches user objects.
+    /// area_overrides lets you override the area per source polyline handle, e.g. to enter manually checked values.
     /// </summary>
     public static partial class Ops
     {
@@ -37,20 +37,20 @@ namespace Civil3DFactory
         {
             double textHeight = GetDouble(a, "text_height", 2.5);
             if (textHeight <= 1e-9)
-                throw new InvalidOperationException("text_height 必须大于 0。");
+                throw new InvalidOperationException("text_height must be greater than 0.");
 
             int decimals = (int)GetDouble(a, "decimals", 2);
             if (decimals < 0 || decimals > 8) decimals = 2;
 
             string sourceLayer = GetString(a, "source_layer", null);
-            string annotationLayer = GetString(a, "annotation_layer", "C3DF-面积标注");
+            string annotationLayer = GetString(a, "annotation_layer", "C3DF-AREA-LABEL");
             string prefix = GetString(a, "prefix", "");
             string suffix = GetString(a, "suffix", " m²");
             short colorIndex = (short)Math.Max(1, Math.Min(255, (int)GetDouble(a, "color_index", 1)));
             bool includeZero = GetBool(a, "include_zero", true);
             bool clearExisting = GetBool(a, "clear_existing", true);
             bool exportExcel = GetBool(a, "export_excel", true);
-            string excelFormat = GetString(a, "excel_format", "xlsx");   // 归一化/校验在 Excel.Write
+            string excelFormat = GetString(a, "excel_format", "xlsx");   // normalised/validated in Excel.Write
 
             JsonObject overrides = a["area_overrides"] as JsonObject;
             JsonObject offsets = a["label_offsets"] as JsonObject;
@@ -154,8 +154,8 @@ namespace Civil3DFactory
                 if (items.Count == 0)
                     throw new InvalidOperationException(
                         string.IsNullOrWhiteSpace(sourceLayer)
-                            ? "模型空间没有可用的闭合轻量多段线（LWPOLYLINE）。"
-                            : "图层 '" + sourceLayer + "' 上没有可用的闭合轻量多段线（LWPOLYLINE）。");
+                            ? "No usable closed lightweight polyline (LWPOLYLINE) in model space."
+                            : "No usable closed lightweight polyline (LWPOLYLINE) on layer '" + sourceLayer + "'.");
 
                 var excelFiles = new List<string>();
                 if (exportExcel)
@@ -163,7 +163,7 @@ namespace Civil3DFactory
                     string outdir = ResolveOutDir(a, doc);
                     string excelOutPath = GetString(a, "excel_out_path", null);
                     string baseName = string.IsNullOrWhiteSpace(excelOutPath)
-                        ? Sanitize(Path.GetFileNameWithoutExtension(SafeFile(db))) + "_闭合多段线面积统计"
+                        ? Sanitize(Path.GetFileNameWithoutExtension(SafeFile(db))) + "_ClosedPolylineAreas"
                         : Path.GetFileNameWithoutExtension(excelOutPath);
                     string targetDir = string.IsNullOrWhiteSpace(excelOutPath)
                         ? outdir
@@ -172,8 +172,8 @@ namespace Civil3DFactory
 
                     string[] headers =
                     {
-                        "序号", "多段线句柄", "图层", "对象类型",
-                        "原始读取面积(m²)", "最终采用面积(m²)", "备注"
+                        "No.", "Polyline handle", "Layer", "Object type",
+                        "Read area (m2)", "Adopted area (m2)", "Remarks"
                     };
                     var rows = new List<object[]>();
                     for (int i = 0; i < items.Count; i++)
@@ -184,15 +184,15 @@ namespace Civil3DFactory
                             i + 1, item.Handle, item.Layer, "LWPOLYLINE",
                             Math.Round(item.RawArea, decimals),
                             Math.Round(item.FinalArea, decimals),
-                            item.Corrected ? "按 area_overrides 修正" : ""
+                            item.Corrected ? "Corrected by area_overrides" : ""
                         });
                     }
                     rows.Add(new object[]
                     {
-                        "合计", "", "", "",
+                        "Total", "", "", "",
                         Math.Round(rawTotal, decimals),
                         Math.Round(finalTotal, decimals),
-                        correctedCount > 0 ? "含人工修正" : ""
+                        correctedCount > 0 ? "Includes manual corrections" : ""
                     });
                     excelFiles = Excel.Write(targetDir, baseName, headers, rows, excelFormat);
                 }

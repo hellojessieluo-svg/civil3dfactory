@@ -2,7 +2,7 @@
   "node": "plot_attribute_titleblocks",
   "version": 1,
   "executor": "powershell_external",
-  "fixture": "tests/dwg/titleblocks-model-and-layout.dwg",
+  "fixture": "examples/title-block-demo.dwg",
   "task": {
     "output_directory": "${temp}/titleblock-pdfs"
   },

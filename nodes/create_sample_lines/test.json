@@ -1,7 +1,7 @@
 {
   "node": "create_sample_lines",
   "version": 1,
-  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "fixture": "examples/channel-demo.dwg",
   "prerequisite": "create_corridor_surface",
   "assertions": [
     "data.sample_lines > 0",

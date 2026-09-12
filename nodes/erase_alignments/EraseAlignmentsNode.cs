@@ -11,13 +11,13 @@ namespace Civil3DFactory
         static JsonNode RunNodeEraseAlignments(JsonObject args, Document doc)
             => EraseAlignmentsOp(args, doc);
 
-        // 批量删路线：按名或按句柄（句柄免疫名字编码妖）。找不到的只报不炸。
+        // Batch-erase alignments by name or by handle (handles are immune to name-encoding issues). Missing ones are reported, not thrown.
         static JsonNode EraseAlignmentsOp(JsonObject a, Document doc)
         {
             var names = a["names"] as JsonArray;
             var handles = a["handles"] as JsonArray;
             if ((names == null || names.Count == 0) && (handles == null || handles.Count == 0))
-                throw new InvalidOperationException("需要 names:[] 或 handles:[]");
+                throw new InvalidOperationException("names:[] or handles:[] is required");
 
             Database db = doc.Database;
             var civ = Civ(db);

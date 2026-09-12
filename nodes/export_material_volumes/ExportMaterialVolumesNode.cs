@@ -13,10 +13,10 @@ using CivDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 节点 export_material_volumes：一键导出全部路线的材质体积表到一本 xlsx——
-    /// 首个 sheet「汇总」（序号 / 道路中线名称 / 长度(m) / 总体积(m³)，总体积=累计挖方），
-    /// 之后一条路线一个 sheet（逐桩号累计/增量挖填方，与 export_quantities 同列）。
-    /// 没有材质列表的路线跳过并入 skipped，一条都没有则抛错（不安静成功）。
+    /// Node export_material_volumes: export the material volume tables of all alignments into one xlsx --
+    /// first sheet "Summary" (No. / Alignment / Length(m) / Total volume(m³), total volume = cumulative cut),
+    /// then one sheet per alignment (cumulative / incremental cut and fill per station, same columns as export_quantities).
+    /// Alignments without a material list are skipped into skipped; if none has one, throw (no silent success).
     /// </summary>
     public static partial class Ops
     {
@@ -24,13 +24,13 @@ namespace Civil3DFactory
             => ExportMaterialVolumes(a, doc);
 
         static readonly string[] HeadersVolSummary =
-            { "序号", "道路中线名称", "长度(m)", "总体积(m³)" };
+            { "No.", "Alignment", "Length(m)", "Total volume(m³)" };
 
         public static JsonNode ExportMaterialVolumes(JsonObject a, Document doc)
         {
             string outPath = GetString(a, "out", null);
             if (string.IsNullOrEmpty(outPath))
-                outPath = Path.Combine(ResolveOutDir(a, doc), "材质体积表汇总.xlsx");
+                outPath = Path.Combine(ResolveOutDir(a, doc), "material-volumes.xlsx");
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
@@ -43,7 +43,7 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // 路线按堤埝编号顺序（X-2 在 X-10 前）
+                // Alignments in embankment-number order (X-2 before X-10)
                 var als = new List<CivAlignment>();
                 foreach (ObjectId alId in civ.GetAlignmentIds())
                 {
@@ -54,7 +54,7 @@ namespace Civil3DFactory
 
                 foreach (CivAlignment al in als)
                 {
-                    // 找第一个带材质列表的采样线组
+                    // Find the first sample line group that carries a material list
                     CivSampleLineGroup slg = null;
                     Guid mlGuid = Guid.Empty;
                     foreach (ObjectId gid in al.GetSampleLineGroupIds())
@@ -90,7 +90,7 @@ namespace Civil3DFactory
                         cut = v.CumulativeCutVolume;
                         fill = v.CumulativeFillVolume;
                     }
-                    rows.Add(new object[] { "合计", "", Math.Round(cut, 3), Math.Round(fill, 3), "", "" });
+                    rows.Add(new object[] { "Total", "", Math.Round(cut, 3), Math.Round(fill, 3), "", "" });
 
                     double len = al.Length;
                     sheets.Add((al.Name, HeadersQto, rows));
@@ -114,10 +114,10 @@ namespace Civil3DFactory
 
             if (sheets.Count == 0)
                 throw new InvalidOperationException(
-                    "没有任何路线带材质列表（共 " + skipped.Count + " 条路线都没有），先跑 compute_quantities。");
+                    "No alignment carries a material list (all " + skipped.Count + " alignments lack one); run compute_quantities first.");
 
-            summary.Add(new object[] { "合计", "", Math.Round(sumLen, 3), Math.Round(sumVol, 3) });
-            sheets.Insert(0, ("汇总", HeadersVolSummary, summary));
+            summary.Add(new object[] { "Total", "", Math.Round(sumLen, 3), Math.Round(sumVol, 3) });
+            sheets.Insert(0, ("Summary", HeadersVolSummary, summary));
 
             string dir = Path.GetDirectoryName(outPath);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);

@@ -1,0 +1,43 @@
+{
+  "_comment": "Run on tmp/corridor.dwg (output of 02-build.json): section views for every sample line, a profile view, the per-station cumulative / incremental cut-fill workbook, and a PNG of the result. Saves tmp/corridor-views.dwg.",
+  "ops": [
+    {
+      "op": "create_section_views",
+      "alignment": "C1",
+      "style": "@C3DF-Section",
+      "code_set": "@C3DF-CodeSet",
+      "section_style": "@C3DF-GroundLine",
+      "x": 0,
+      "y": -1500,
+      "rows": 4,
+      "cols": 6,
+      "col_spacing": 130,
+      "row_spacing": 60,
+      "offset_left": 40,
+      "offset_right": 40,
+      "material_style": "@C3DF-Cut"
+    },
+    {
+      "op": "create_profile_view",
+      "alignment": "C1",
+      "x": 0,
+      "y": -600,
+      "style": "@C3DF-ProfileView",
+      "band_set": "@C3DF-ProfileBands"
+    },
+    {
+      "op": "export_material_volumes",
+      "out": "{{C3DF_ROOT}}/tmp/C1-quantities.xlsx"
+    },
+    {
+      "op": "view",
+      "mode": "screenshot",
+      "out": "{{C3DF_ROOT}}/tmp/corridor-views.png"
+    },
+    {
+      "op": "save_dwg",
+      "out": "{{C3DF_ROOT}}/tmp/corridor-views.dwg",
+      "overwrite": true
+    }
+  ]
+}

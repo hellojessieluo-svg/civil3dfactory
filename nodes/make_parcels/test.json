@@ -2,53 +2,53 @@
   "node": "make_parcels",
   "version": 1,
   "executor": "engine",
-  "prerequisite": "封闭范围线内布固定宽度水道网、其余地块出圆角台田；中心线先经 GY 圆滑（G1 相切）",
+  "prerequisite": "Lay a fixed-width channel network inside closed boundary outlines and turn the remaining land into filleted parcels; centrelines are first smoothed with the GY command (G1 tangent)",
   "fixture_requirements": [
-    "闭合外圈 ≥2 个（验多外圈自动分组）＋ 至少一个岛洞（深度1）＋ 一个深度2 残留（验忽略名单）",
-    "中心线含：纯直线、带弧（R≫半宽）、贴边端头（验自动外延）、深居域内死端（验不外延）、毫米级碎段",
-    "首尾重合但 Closed=false 的外圈（验 IsSnapClosed 收编）"
+    ">= 2 closed outer rings (verifies automatic grouping of several outer rings) + at least one island hole (depth 1) + one depth-2 leftover (verifies the ignore list)",
+    "Centrelines including: pure straight lines, arcs (R much larger than half width), ends touching the edge (verifies automatic extension), dead ends deep inside the region (verifies no extension), millimetre-scale fragments",
+    "An outer ring whose ends coincide but Closed=false (verifies IsSnapClosed adoption)"
   ],
   "task": {
-    "boundary_handles": ["<外圈/岛洞句柄>"],
-    "centerline_layer": "中线-直线段",
+    "boundary_handles": ["<outer ring / island hole handles>"],
+    "centerline_layer": "CL-STRAIGHT",
     "half_width": 15,
     "fillet_r": 20,
     "min_defl_deg": 25,
     "min_area": 500,
-    "out_layer": "台田边界",
+    "out_layer": "PARCEL-BND",
     "clear_previous": true
   },
   "assertions": [
-    "内存改动不落盘：要留成果必须显式 save_dwg（无头 apply 必抛，走 out 兄弟件+换位）",
-    "boundary 与 centerline 的 layer/handles 各至少给一个，否则抛错",
-    "任一条中心线成带失败 → 整体抛错不画（宁可不出不出错图）",
-    "一块台田都没出 → 抛错（不安静成功）",
-    "clear_previous 幂等：重跑先清 out_layer 上旧多段线并报 cleared_previous",
-    "深度≥2 的边界进 ignored_boundaries，不参与布尔",
-    "中点不落任何外圈的中心线进 unassigned_centerlines，不静默丢",
-    "小于 min_area 的台田照画，句柄+面积进 small_parcels",
-    "角放不下 fillet_r 的台田在 warnings 点名（折半6次仍不行保留尖角）",
-    "源范围线与中心线一根不动"
+    "In-memory change only: results must be kept with an explicit save_dwg (headless apply must throw; use the out sibling file and swap)",
+    "At least one of layer/handles must be given for both boundary and centerline, otherwise throw",
+    "If any centreline fails to form a band, throw and draw nothing (better no output than a wrong drawing)",
+    "If no parcel at all is produced, throw (no quiet success)",
+    "clear_previous is idempotent: a rerun first clears old polylines on out_layer and reports cleared_previous",
+    "Boundaries at depth >= 2 go to ignored_boundaries and take no part in the boolean operations",
+    "Centrelines whose midpoint falls in no outer ring go to unassigned_centerlines, never dropped silently",
+    "Parcels smaller than min_area are still drawn; handle + area go to small_parcels",
+    "Parcels whose corners cannot take fillet_r are named in warnings (after halving 6 times the sharp corner is kept)",
+    "Source boundaries and centrelines are not touched"
   ],
   "regression": {
     "date": "2026-08-22",
     "dwg": "examples/channel-demo.dwg",
     "task_used": {
       "boundary_handles": ["72AA", "72AB", "75CB"],
-      "centerline_layer": "中线-直线段（13 条：7 纯直线 + 6 带弧 R100~180）",
+      "centerline_layer": "CL-STRAIGHT (13 lines: 7 straight + 6 with arcs R100~180)",
       "half_width": 15, "fillet_r": 20
     },
     "observed": [
-      "24 块台田（外圈 72AA→8、72AB(含岛洞 75CB)→16），12 条端头自动外延，无 <500㎡ 碎田",
-      "5 条 warnings：个别角放不下 R20 保留尖角",
-      "验收：DXFOUT + ezdxf path.flattening + shapely——24 环全闭合，1 环首尾接缝数值级自交（buffer(0) 面积差 0.0000，判无害）；台田总面积 162.1 万 / 区域净面积 183.0 万，水道占比合理；渲图人眼过",
-      "踩坑修复链：accore GetOffsetCurves 开放带弧返回空集→解析自算偏移；7mm 碎段方向噪声→碎段阈值 max(0.01,d/1000)；直-直小折角倒棱自交→斜接"
+      "24 parcels (outer ring 72AA -> 8, 72AB with island hole 75CB -> 16), 12 ends auto-extended, no fragments < 500 m2",
+      "5 warnings: a few corners could not take R20 and kept the sharp corner",
+      "Acceptance: DXFOUT + ezdxf path.flattening + shapely -- all 24 rings closed, 1 ring with a numerical-level self-touch at the seam (buffer(0) area difference 0.0000, judged harmless); parcel area 1.621 million / net region area 1.830 million, channel share reasonable; rendered image passed visual review",
+      "Fix chain: accore GetOffsetCurves returns an empty set for open curves with arcs -> analytic offset computed in-house; 7 mm fragments produce direction noise -> fragment threshold max(0.01, d/1000); straight-straight small deflection chamfers self-intersect -> mitre join"
     ],
     "not_yet_covered": [
-      "深度2 边界忽略分支（7925 未传入本轮）",
-      "unassigned_centerlines 分支",
-      "clear_previous 清旧计数分支（本轮 out_layer 原本为空）",
-      "弧半径 ≤ 半宽的报错分支"
+      "the depth-2 boundary ignore branch (7925 was not passed in this run)",
+      "the unassigned_centerlines branch",
+      "the clear_previous count branch (out_layer was empty in this run)",
+      "the error branch for arc radius <= half width"
     ]
   },
   "status": "real_drawing_regression_partial"

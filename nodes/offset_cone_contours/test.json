@@ -2,35 +2,35 @@
   "node": "offset_cone_contours",
   "version": 1,
   "executor": "engine",
-  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
-  "prerequisite": "边界必须闭合（或首末点捕捉重合）且已赋高程（Elevation=起始高程 z0）；target_z 高于 z0 = 岛收顶，低于 z0 = 坑收底",
+  "fixture": "examples/channel-demo.dwg",
+  "prerequisite": "Boundaries must be closed (or snap-closed with coincident end points) and carry an elevation (Elevation = starting elevation z0); target_z above z0 = island closing upward, below z0 = pit closing downward",
   "fixture_requirements": [
-    "≥2 条闭合 LWPOLYLINE，Elevation 非零（一岛一坑，验向上/向下两个方向）",
-    "至少一条含弧段、含凹角（验凹边界偏移分裂成多环的分支）",
-    "至少一条'捕捉画闭'的假开放线：Closed=false 但首末点重合（验 IsSnapClosed 规范化）",
-    "一条故意画小的边界，target_z 拉远（验塌缩提前终止，collapsed=true）"
+    ">= 2 closed LWPOLYLINEs with non-zero Elevation (one island and one pit, verifying both directions)",
+    "At least one with arc segments and concave corners (verifies the branch where a concave boundary offset splits into several rings)",
+    "At least one snap-closed pseudo-open line: Closed=false but end points coincide (verifies IsSnapClosed normalisation)",
+    "One deliberately small boundary with a far target_z (verifies early termination on collapse, collapsed=true)"
   ],
   "task": {
-    "layer": "01-边界",
+    "layer": "01-BOUNDARY",
     "target_z": 3.0,
     "slope_n": 10.0,
     "step_dz": 0.5
   },
   "assertions": [
-    "内存改动不落盘：要留成果必须显式 save_dwg",
-    "零圈即抛错：rings_total == 0 时必须报错并给出边界数/未闭合数/同高程数，严禁 ok:true 空跑",
-    "boundaries 句柄数组优先于 layer；句柄不是多段线或不存在时抛错点名句柄",
-    "layer 上没有多段线时抛错点名图层；未闭合的线跳过并计入 skipped_open",
-    "每圈等高线 Elevation ∈ {z0±k·dz} ∪ {target_z}，最后一圈必为 target_z（未塌缩时）",
-    "偏移方向恒向内：每圈面积严格小于上一圈（岛坑同理，方向由两侧试偏面积判定）",
-    "凹边界偏移分裂出的多环全部保留且赋同一高程（ring_handles 数 ≥ rings 数）",
-    "生成的圈在源边界图层上（Layer == src.Layer），源边界一根线不动",
-    "fillet_r > 0 时输出圈含弧段（CountArcs > 0）；fillet_r = 0 时不平滑不归圆",
-    "fillet_r 缺省 = round(2·n·dz, 3)（两圈水平步距）",
-    "塌缩边界：reached 停在最后成功圈，collapsed=true，per_boundary 里可见，不抛错不拖垮别的边界",
-    "target_z == 边界高程时该边界跳过并计入 skipped_same_elevation",
-    "target_z / slope_n 缺失抛错；slope_n <= 0、step_dz <= 0、fillet_r < 0 抛错",
-    "与 products\\waterbox 的 C3DF-OffsetCone(YT) 同参数跑同一张图，逐圈几何一致（同一份 OffsetConeCore）"
+    "In-memory change only: results must be kept with an explicit save_dwg",
+    "Zero rings means throw: when rings_total == 0 report the boundary count / open count / same-elevation count; an ok:true empty run is forbidden",
+    "The boundaries handle array takes precedence over layer; a handle that is not a polyline or does not exist throws and names the handle",
+    "A layer with no polylines throws and names the layer; open lines are skipped and counted in skipped_open",
+    "Every ring's Elevation is in {z0 +/- k*dz} union {target_z}; the last ring is always target_z (unless collapsed)",
+    "Offsets always go inward: every ring's area is strictly smaller than the previous one (island and pit alike; direction is decided by trial offsets on both sides)",
+    "All rings produced by a concave-boundary split are kept and share the same elevation (ring_handles count >= rings count)",
+    "Generated rings sit on the source boundary layer (Layer == src.Layer); source boundaries are untouched",
+    "With fillet_r > 0 the output rings contain arcs (CountArcs > 0); with fillet_r = 0 no smoothing or rounding",
+    "fillet_r defaults to round(2*n*dz, 3) (the horizontal step of two rings)",
+    "Collapsing boundaries: reached stops at the last successful ring, collapsed=true is visible in per_boundary, no throw, other boundaries unaffected",
+    "target_z equal to the boundary elevation skips that boundary and counts it in skipped_same_elevation",
+    "Missing target_z / slope_n throws; slope_n <= 0, step_dz <= 0, fillet_r < 0 throws",
+    "Ring geometry matches the products\\waterbox command C3DF-OffsetCone(YT) on the same drawing and parameters (same OffsetConeCore)"
   ],
   "status": "draft_assertions_pending_real_drawing_regression"
 }

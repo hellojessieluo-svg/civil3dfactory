@@ -10,10 +10,10 @@ using CivDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 节点 refresh_sample_lines：采样线组不动、组内采样线沿新几何重生
-    /// （换中线后配套；与 create_sample_lines 的区别是不删组、不改采样源设置）。
-    /// 算法核心在同目录 SampleLineRefreshCore.cs（与 products\waterbox 的
-    /// C3DF-RefreshSampleLines/CYX 同核）。
+    /// Node refresh_sample_lines: keep the sample line group, regenerate its sample lines along the new geometry
+    /// (companion to replacing the centerline; unlike create_sample_lines it neither deletes the group nor changes the section source settings).
+    /// The algorithm core lives in SampleLineRefreshCore.cs in this folder (shared with
+    /// C3DF-RefreshSampleLines/CYX in products\waterbox).
     /// </summary>
     public static partial class Ops
     {
@@ -30,7 +30,7 @@ namespace Civil3DFactory
             {
                 CivAlignment al = FindAlignment(tr, civ, alName);
                 if (al == null)
-                    throw new InvalidOperationException("找不到路线 '" + alName + "'。");
+                    throw new InvalidOperationException("Alignment '" + alName + "' not found.");
 
                 double estInterval, estSwath;
                 SampleLineRefreshCore.Estimate(al, tr, out estInterval, out estSwath);
@@ -53,7 +53,7 @@ namespace Civil3DFactory
                     });
                 }
                 if (created == 0)
-                    throw new InvalidOperationException("没有生成任何采样线（间距大于路线全长？）。");
+                    throw new InvalidOperationException("No sample line was generated (interval longer than the alignment?).");
 
                 tr.Commit();
                 return new JsonObject

@@ -1,19 +1,19 @@
 {
   "node": "export_alignments_to_dwg",
   "version": 1,
-  "fixture": "",
+  "fixture": "examples/channel-demo.dwg",
   "prerequisite": null,
   "fixture_requirements": [
-    "图中至少一条中心路线及其左右偏移路线（命名可解析出 channel 与侧别）",
-    "路线含直线、圆曲线，最好含缓和曲线段以覆盖 spiral_step 折线化"
+    "At least one centreline alignment with its left/right offset alignments (names parseable into channel and side)",
+    "Alignments containing lines and circular curves, ideally spiral segments too, to cover spiral_step tessellation"
   ],
   "assertions": [
-    "data.exported >= 1 且 data.skipped 说明了被跳过的原因",
-    "data.bytes > 0 且 out 路径生成了可打开的 DWG",
-    "每条 items[*].length_delta 绝对值在容差内（折线化不失真）",
-    "中心线落在 center_layer 模板展开的图层、边线落在 edge_layer 模板展开的图层",
-    "overwrite=false 时目标已存在应拒绝覆盖",
-    "centers_only=true 时不导出边线"
+    "data.exported >= 1 and data.skipped explains why entries were skipped",
+    "data.bytes > 0 and the out path is an openable DWG",
+    "every items[*].length_delta is within tolerance in absolute value (tessellation does not distort)",
+    "centrelines land on the layer expanded from the center_layer template, edges on the layer expanded from the edge_layer template",
+    "with overwrite=false an existing target must be refused",
+    "with centers_only=true no edge lines are exported"
   ],
   "status": "draft_assertions_pending_owner_review"
 }

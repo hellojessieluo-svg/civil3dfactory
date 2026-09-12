@@ -30,12 +30,12 @@ namespace Civil3DFactory
         {
             string block = Need(a, "block");
             string layer = GetString(a, "frame_layer", "C3DF-PLAN-FRAME-NOPLOT");
-            string layoutPrefix = GetString(a, "layout_prefix", "分平面图-");
+            string layoutPrefix = GetString(a, "layout_prefix", "PlanSheet-");
             int maxLayouts = Math.Max(0, (int)GetDouble(a, "max_layouts", 0));
             var frames = ReadStoredPlanFrames(doc.Database, layer);
             if (frames.Count == 0)
                 throw new InvalidOperationException(
-                    "图中没有可用的水平分幅框；请先运行 create_plan_frames_from_alignment。");
+                    "No usable horizontal sheet frame in the drawing; run create_plan_frames_from_alignment first.");
             if (maxLayouts > 0) frames = frames.Take(maxLayouts).ToList();
 
             int total = frames.Count;

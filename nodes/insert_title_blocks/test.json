@@ -1,7 +1,7 @@
 {
   "node": "insert_title_blocks",
   "version": 1,
-  "fixture": "tests/dwg/pure-cad-for-titleblocks.dwg",
+  "fixture": "examples/title-block-demo.dwg",
   "prerequisite": "fixture or from_dwg contains an attribute title-block definition",
   "task": {
     "block": "${title_block_name}",
@@ -15,7 +15,7 @@
     "gap_x": 10.0,
     "gap_y": 10.0,
     "attributes": {
-      "03图号": "TEST-{n}"
+      "SHEET_NO": "TEST-{n}"
     }
   },
   "assertions": [

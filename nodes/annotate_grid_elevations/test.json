@@ -1,11 +1,11 @@
 {
   "node": "annotate_grid_elevations",
   "version": 1,
-  "fixture": "tests/dwg/grid-elevation-boundaries.dwg",
+  "fixture": "examples/channel-demo.dwg",
   "prerequisite": null,
   "fixture_requirements": [
-    "边界图层上至少两条闭合多段线（其中一条含弧段）",
-    "一个设计曲面和一个原地形曲面，覆盖大部分但不是全部边界范围"
+    "At least two closed polylines on the boundary layer (one containing an arc segment)",
+    "One design surface and one existing-ground surface covering most, but not all, of the boundary extent"
   ],
   "assertions": [
     "data.boundaries >= 2",
@@ -13,12 +13,12 @@
     "data.texts == data.nodes * 3",
     "data.grid_segments > 0",
     "data.per_boundary length == data.boundaries",
-    "data.first_node_sample.diff == design − exist",
+    "data.first_node_sample.diff == design - existing",
     "data.duplicate_nodes_skipped >= 0",
-    "每个节点的三段文字都带 XData C3DF_GRIDELEV 且节点坐标一致",
-    "曲面范围外的节点文字为 —",
-    "重跑一次后 data.cleared_old > 0 且 data.nodes 与首次相同",
-    "边界图层原有多段线数量未变，边界以外没有新增文字"
+    "all three text pieces of every node carry XData C3DF_GRIDELEV with identical node coordinates",
+    "nodes outside the surface extent are written as a dash",
+    "on a second run data.cleared_old > 0 and data.nodes equals the first run",
+    "the number of polylines on the boundary layer is unchanged and no text is added outside the boundaries"
   ],
   "status": "awaiting_real_dwg_regression"
 }

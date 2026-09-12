@@ -1,5 +1,5 @@
 {
   "ops": [
-    { "op": "set_offset_width", "alignment": "次水道01", "width": 18 }
+    { "op": "set_offset_width", "alignment": "SC01", "width": 18 }
   ]
 }

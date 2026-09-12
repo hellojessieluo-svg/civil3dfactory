@@ -192,8 +192,8 @@ $Task = (Resolve-Path -LiteralPath $Task).Path
 #   {{C3DF_ROOT}} = this repository, {{DWG_DIR}} = the drawing's folder (forward slashes, no trailing slash)
 $taskText = Get-Content -LiteralPath $Task -Raw -Encoding UTF8
 if ($taskText -match '\{\{(C3DF_ROOT|DWG_DIR)\}\}') {
-  $rootFs = $PSScriptRoot -replace '\', '/'
-  $dwgDirFs = (Split-Path -Parent $Dwg) -replace '\', '/'
+  $rootFs = $PSScriptRoot.Replace('\', '/')
+  $dwgDirFs = (Split-Path -Parent $Dwg).Replace('\', '/')
   $taskText = $taskText -replace '\{\{C3DF_ROOT\}\}', $rootFs -replace '\{\{DWG_DIR\}\}', $dwgDirFs
   $expanded = Join-Path $env:TEMP ("c3df_task_{0}.json" -f ([guid]::NewGuid().ToString("N")))
   Set-Content -Path $expanded -Encoding utf8 -Value $taskText -NoNewline

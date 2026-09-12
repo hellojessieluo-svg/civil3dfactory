@@ -16,18 +16,18 @@ using CivDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 工后曲面合成节点（设计∧现状取低）。
+    /// Post-dredge surface merge node (design AND existing, take the lower).
     ///
-    /// 疏浚只挖不填：设计面低于现状的地方挖到设计面，现状本来就低于设计面的地方保持现状——
-    ///     z(P) = min(z设计(P), z现状(P))
+    /// Dredging only cuts, never fills: where the design surface is below existing, cut to design; where existing is already below design, keep existing --
+    ///     z(P) = min(z_design(P), z_existing(P))
     ///
-    /// 做法（零差线裁剪法）：
-    ///   1. 设计面轮廓 ExtractBorder 当工后面的范围（外边界裁剪，洞按 Hide 处理）；
-    ///   2. 建临时高差 TIN（z = 设计 − 现状，顶点取两面顶点并集），在挖侧 ε 处提零差等高线——
-    ///      这就是挖/不挖的分界线（折痕），落图 crease_layer 当挖区边界线，同时进工后面当断裂线；
-    ///   3. 工后面顶点 = 设计面顶点∧现状 + 范围内现状顶点∧设计 + 零差线点，建 TIN；
-    ///   4. verify：现状 vs 工后 GetVolumeProperties——min() 恒不高于现状，填方必须≈0，
-    ///      不为零说明合成有问题，安静地成功=没成功。
+    /// Method (zero-difference-line clipping):
+    ///   1. ExtractBorder of the design surface becomes the extent of the post surface (outer boundary clip, holes as Hide);
+    ///   2. build a temporary difference TIN (z = design - existing, vertices = union of both surfaces' vertices) and extract the zero contour at epsilon on the cut side --
+    ///      this is the cut / no-cut divide (crease); it goes onto crease_layer as the cut-area boundary line and into the post surface as a breakline;
+    ///   3. post surface vertices = design vertices AND existing + existing vertices inside the extent AND design + zero-line points; build the TIN;
+    ///   4. verify: existing vs post GetVolumeProperties -- min() is never above existing, so fill must be ~0;
+    ///      non-zero fill means the merge is wrong; silent success = failure.
     /// </summary>
     public static partial class Ops
     {
@@ -38,13 +38,13 @@ namespace Civil3DFactory
             string designName = Need(a, "design_surface");
             string existName = Need(a, "existing_surface");
             if (string.Equals(designName, existName, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("design_surface 与 existing_surface 不能是同一个曲面。");
+                throw new InvalidOperationException("design_surface and existing_surface must not be the same surface.");
 
             string outName = GetString(a, "out_surface", null);
-            if (string.IsNullOrEmpty(outName)) outName = "工后-" + designName;
+            if (string.IsNullOrEmpty(outName)) outName = "Post-" + designName;
             if (string.Equals(outName, designName, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(outName, existName, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("out_surface 不能与输入曲面同名（会把输入覆盖掉）。");
+                throw new InvalidOperationException("out_surface must not share a name with an input surface (it would overwrite the input).");
 
             string surfLayer = GetString(a, "surface_layer", "C3DF-POST-SURFACE");
             string creaseLayer = GetString(a, "crease_layer", "C3DF-POST-ZERO-LINE");
@@ -53,7 +53,7 @@ namespace Civil3DFactory
             double eps = Math.Abs(GetDouble(a, "contour_epsilon", 0.001));
             if (eps <= 0) eps = 0.001;
             double borderStep = GetDouble(a, "border_step", 2.0);
-            if (borderStep <= 0) throw new InvalidOperationException("border_step 必须大于 0。");
+            if (borderStep <= 0) throw new InvalidOperationException("border_step must be greater than 0.");
             double gridStep = GetDouble(a, "edge_step", 2.0);
             bool clearExisting = GetBool(a, "clear_existing", true);
             bool verify = GetBool(a, "verify", true);
@@ -69,18 +69,18 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 ObjectId designId = FindSurfaceId(tr, civ, designName);
-                if (designId.IsNull) throw new InvalidOperationException("找不到设计曲面 '" + designName + "'。");
+                if (designId.IsNull) throw new InvalidOperationException("Design surface '" + designName + "' not found.");
                 ObjectId existId = FindSurfaceId(tr, civ, existName);
-                if (existId.IsNull) throw new InvalidOperationException("找不到现状地形曲面 '" + existName + "'。");
+                if (existId.IsNull) throw new InvalidOperationException("Existing ground surface '" + existName + "' not found.");
 
                 var designTin = tr.GetObject(designId, OpenMode.ForRead) as CivTinSurface;
                 if (designTin == null)
-                    throw new InvalidOperationException("设计曲面 '" + designName + "' 不是 TIN 曲面（本节点要读顶点）。");
+                    throw new InvalidOperationException("Design surface '" + designName + "' is not a TIN surface (this node reads vertices).");
                 var existTin = tr.GetObject(existId, OpenMode.ForRead) as CivTinSurface;
                 if (existTin == null)
-                    throw new InvalidOperationException("现状曲面 '" + existName + "' 不是 TIN 曲面（本节点要读顶点）。");
+                    throw new InvalidOperationException("Existing surface '" + existName + "' is not a TIN surface (this node reads vertices).");
 
-                // ---- 幂等清场：同名工后面、本节点画的零差线、上次没收干净的临时面 ----
+                // ---- Idempotent clean-up: same-named post surface, zero lines drawn by this node, temporary surfaces left from last run ----
                 if (clearExisting)
                     clearedOld = PostClearOld(tr, db, civ, outName, tmpDiffName);
 
@@ -89,13 +89,13 @@ namespace Civil3DFactory
                 ObjectId lyCrease = GridEnsureLayer(tr, db, creaseLayer, 6);
                 var btr = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
 
-                // ---- 1. 设计面轮廓 → 点环（外环 + 洞环） ----
+                // ---- 1. Design surface outline -> point rings (outer ring + hole rings) ----
                 var rings = new List<List<Point2d>>();
                 var borderEnts = new ObjectIdCollection();
                 try { borderEnts = designTin.ExtractBorder(ExtractType.Plan); }
                 catch (System.Exception ex)
                 {
-                    warnings.Add((JsonNode)("设计面轮廓提取失败，工后面不做外边界裁剪：" + ex.Message));
+                    warnings.Add((JsonNode)("Design surface outline extraction failed; post surface will not be clipped by an outer boundary: " + ex.Message));
                 }
                 foreach (ObjectId bid in borderEnts)
                 {
@@ -106,7 +106,7 @@ namespace Civil3DFactory
                         if (ring.Count >= 3) rings.Add(ring);
                     }
                     var ent = tr.GetObject(bid, OpenMode.ForWrite);
-                    ent.Erase();   // 提取物只借形状，不留图上
+                    ent.Erase();   // the extracted entity only lends its shape; not kept in the drawing
                 }
                 int outerIdx = -1;
                 double outerArea = 0.0;
@@ -116,9 +116,9 @@ namespace Civil3DFactory
                     if (s > outerArea) { outerArea = s; outerIdx = i; }
                 }
                 if (rings.Count > 1)
-                    warnings.Add((JsonNode)("设计面轮廓有 " + rings.Count + " 个环，最大环当外边界，其余按 Hide 洞处理。"));
+                    warnings.Add((JsonNode)("Design surface outline has " + rings.Count + " rings; the largest is the outer boundary, the rest are treated as Hide holes."));
 
-                // ---- 2. 收点：设计顶点∧现状 + 范围内现状顶点∧设计 + 边界环点 ----
+                // ---- 2. Collect points: design vertices AND existing + existing vertices inside the extent AND design + boundary ring points ----
                 var postPts = new Point3dCollection();
                 var diffPts = new Point3dCollection();
                 var offExistingPts = new List<Point3d>();
@@ -138,7 +138,7 @@ namespace Civil3DFactory
                     {
                         offExisting++;
                         offExistingPts.Add(p);
-                        postPts.Add(p);   // 现状采不到：设计面原样进（无从取低）
+                        postPts.Add(p);   // existing cannot be sampled: design point goes in as-is (nothing to take the min against)
                     }
                 }
 
@@ -157,13 +157,13 @@ namespace Civil3DFactory
                         diffPts.Add(new Point3d(p.X, p.Y, zD - p.Z));
                         existVertsUsed++;
                     }
-                    else offDesign++;   // 设计面的洞里：工后面也不该覆盖，不进点
+                    else offDesign++;   // inside a hole of the design surface: the post surface should not cover it either; point not added
                 }
 
-                // 棱上加密：TIN 三角形面内是平面，任何重三角化在面内都精确，误差只出在
-                // 工后面三角形跨过原 TIN 棱的地方（弦浮在凸坎肩上）。所以顺着两张 TIN
-                // 自己的棱按步长细分采点（z 仍取 min），比盲网格贴合——盲网格斜跨陡坎
-                // 反而放大噪声（SY1 实测：无网格 0.56%、5m 盲网格 1.10%、2m 盲网格 0.47%）。
+                // Densify along edges: inside a TIN triangle the surface is planar, so any re-triangulation is exact there; the error only appears where
+                // a post-surface triangle crosses an edge of the original TIN (chord floating over a convex shoulder). So sample along the two TINs'
+                // own edges at the given step (z still = min), which fits better than a blind grid -- a blind grid crossing steep banks diagonally
+                // actually amplifies noise (SY1 measured: no grid 0.56%, 5 m blind grid 1.10%, 2 m blind grid 0.47%).
                 int edgePts = 0;
                 if (gridStep > 0)
                 {
@@ -187,11 +187,11 @@ namespace Civil3DFactory
                 }
 
                 if (postPts.Count < 3)
-                    throw new InvalidOperationException("凑不出 3 个工后面顶点——两个曲面在平面上是不是根本不重叠？");
+                    throw new InvalidOperationException("Fewer than 3 post-surface vertices -- do the two surfaces overlap in plan at all?");
                 if (existVertsUsed == 0)
-                    warnings.Add((JsonNode)"设计面范围内一个现状顶点都没捞到（现状曲面在这一片没有加密点？），工后面细节全靠设计顶点与零差线。");
+                    warnings.Add((JsonNode)"Not a single existing vertex found inside the design extent (no densified points in the existing surface here?); post-surface detail relies entirely on design vertices and the zero line.");
 
-                // ---- 3. 临时高差 TIN → 零差等高线（挖侧 ε 处） ----
+                // ---- 3. Temporary difference TIN -> zero contour (at epsilon on the cut side) ----
                 var creaseIds = new ObjectIdCollection();
                 int creasePts = 0, creaseDropped = 0;
                 ObjectId diffId = ObjectId.Null;
@@ -252,20 +252,20 @@ namespace Civil3DFactory
                 }
                 catch (System.Exception ex)
                 {
-                    warnings.Add((JsonNode)("零差线提取失败，工后面退化为纯顶点取低（折痕处无断裂线，体积断言把关）：" + ex.Message));
+                    warnings.Add((JsonNode)("Zero-line extraction failed; post surface degrades to vertex-only min (no breakline at the crease; the volume assertion guards it): " + ex.Message));
                 }
                 finally
                 {
                     if (!diffId.IsNull)
                     {
                         try { tr.GetObject(diffId, OpenMode.ForWrite).Erase(); }
-                        catch (System.Exception) { warnings.Add((JsonNode)("临时高差曲面 '" + tmpDiffName + "' 没删掉，请手动清理。")); }
+                        catch (System.Exception) { warnings.Add((JsonNode)("Temporary difference surface '" + tmpDiffName + "' was not deleted; please remove it manually.")); }
                     }
                 }
                 if (creaseIds.Count == 0 && creasePts == 0)
-                    warnings.Add((JsonNode)"一条零差线都没提出来：设计面要么整片都在现状之下（全挖），要么整片之上（全保持现状）——对照 verify 的量判断是哪种。");
+                    warnings.Add((JsonNode)"No zero line extracted at all: the design surface is either entirely below existing (all cut) or entirely above (all existing kept) -- check the verify volumes to tell which.");
 
-                // ---- 4. 建工后 TIN ----
+                // ---- 4. Build the post TIN ----
                 ObjectId oldOut = FindSurfaceId(tr, civ, outName);
                 if (!oldOut.IsNull) tr.GetObject(oldOut, OpenMode.ForWrite).Erase();
 
@@ -279,7 +279,7 @@ namespace Civil3DFactory
                     try { postTin.BreaklinesDefinition.AddStandardBreaklines(creaseIds, 1.0, 0.0, 0.0, 0.0); }
                     catch (System.Exception ex)
                     {
-                        warnings.Add((JsonNode)("零差线没能当断裂线加入（顶点已含零差线点，折痕精度略降）：" + ex.Message));
+                        warnings.Add((JsonNode)("Zero line could not be added as a breakline (its points are already vertices; crease accuracy slightly reduced): " + ex.Message));
                     }
                 }
 
@@ -294,13 +294,13 @@ namespace Civil3DFactory
                     }
                     catch (System.Exception ex)
                     {
-                        warnings.Add((JsonNode)((i == outerIdx ? "外边界" : "洞边界") + "裁剪失败：" + ex.Message));
+                        warnings.Add((JsonNode)((i == outerIdx ? "Outer boundary" : "Hole boundary") + " clip failed: " + ex.Message));
                     }
                 }
 
                 try { postTin.Rebuild(); } catch (System.Exception) { }
 
-                // ---- 5. verify：现状 vs 工后（填方必须≈0），另报 现状 vs 设计 对照 ----
+                // ---- 5. verify: existing vs post (fill must be ~0), plus existing vs design for reference ----
                 double postCut = 0, postFill = 0, designCut = 0, designFill = 0;
                 double fillRatio = 0;
                 bool verified = false;
@@ -308,11 +308,11 @@ namespace Civil3DFactory
                 if (verify)
                 {
                     verified = PostTryVolume(tr, civ, "_C3DF_POST_VERIFY-" + Sanitize(outName), existId, postId,
-                        out postCut, out postFill, warnings, "现状 vs 工后");
+                        out postCut, out postFill, warnings, "existing vs post");
                     PostTryVolume(tr, civ, "_C3DF_POST_COMPARE-" + Sanitize(outName), existId, designId,
-                        out designCut, out designFill, warnings, "现状 vs 设计");
+                        out designCut, out designFill, warnings, "existing vs design");
 
-                    // 残余填方定位：错开半格采样（格点本身在两面上恒无填方），正差按 50m 格聚合
+                    // Locate residual fill: sample at half-cell offsets (grid nodes themselves never show fill on either surface), aggregate positive differences per 50 m cell
                     if (verified && postFill > 1.0 && gridStep > 0)
                     {
                         const double cell = 50.0;
@@ -375,18 +375,18 @@ namespace Civil3DFactory
                     {
                         fillRatio = postFill / Math.Max(postCut, 1e-9);
                         if (postCut <= 0)
-                            warnings.Add((JsonNode)"⚠ 现状 vs 工后挖方为 0——工后面怕是没合成对（安静地成功=没成功）。");
+                            warnings.Add((JsonNode)"WARNING: existing vs post cut is 0 -- the post surface was probably not merged correctly (silent success = failure).");
                         if (fillRatio > 0.005)
-                            warnings.Add((JsonNode)("⚠ 工后面高出现状的残余填方 " + postFill.ToString("F1", CultureInfo.InvariantCulture)
-                                + " m³（占挖方 " + (fillRatio * 100).ToString("F2", CultureInfo.InvariantCulture)
-                                + "%），超过 0.5% 阈值——取低合成有问题，别急着用。"));
+                            warnings.Add((JsonNode)("WARNING: residual fill where the post surface is above existing: " + postFill.ToString("F1", CultureInfo.InvariantCulture)
+                                + " m³ (" + (fillRatio * 100).ToString("F2", CultureInfo.InvariantCulture)
+                                + "% of cut), above the 0.5% threshold -- the min merge is wrong, do not use it yet."));
                         if (designCut > 1.0)
                         {
                             double cutDev = Math.Abs(postCut - designCut) / designCut;
                             if (cutDev > 0.01)
-                                warnings.Add((JsonNode)("⚠ 工后面挖方与真值偏差 " + (cutDev * 100).ToString("F2", CultureInfo.InvariantCulture)
-                                    + "%（>1%）。对外工程量一律以 design_cut_volume（现状 vs 设计的挖侧，TIN 叠加精确值）为准，"
-                                    + "工后面只当地形用；要收敛可把 edge_step 调小。"));
+                                warnings.Add((JsonNode)("WARNING: post-surface cut deviates from the truth by " + (cutDev * 100).ToString("F2", CultureInfo.InvariantCulture)
+                                    + "% (>1%). For reported quantities always use design_cut_volume (cut side of existing vs design, exact TIN overlay);"
+                                    + " the post surface is for terrain use only; reduce edge_step to converge."));
                         }
                     }
                 }
@@ -419,7 +419,7 @@ namespace Civil3DFactory
             }
         }
 
-        /// <summary>建临时体积曲面读挖填方，读完即删。失败进 warnings 不抛。</summary>
+        /// <summary>Build a temporary volume surface to read cut/fill, deleted right after reading. Failures go to warnings, not thrown.</summary>
         static bool PostTryVolume(Transaction tr, CivDoc civ, string tmpName,
             ObjectId baseId, ObjectId compId, out double cut, out double fill,
             JsonArray warnings, string what)
@@ -439,7 +439,7 @@ namespace Civil3DFactory
             }
             catch (System.Exception ex)
             {
-                warnings.Add((JsonNode)("verify（" + what + "）体积计算失败：" + ex.Message));
+                warnings.Add((JsonNode)("verify (" + what + ") volume computation failed: " + ex.Message));
                 return false;
             }
             finally
@@ -453,9 +453,9 @@ namespace Civil3DFactory
         }
 
         /// <summary>
-        /// 沿一张 TIN 的全部棱按步长细分采样（去重后每条棱只走一遍），
-        /// 每个细分点 z = min(设计, 现状)，同时给高差 TIN 喂 zD−zE。
-        /// 只采范围盒相交且（有环时）至少一端在环内的棱；两面有一面采不到的点跳过。
+        /// Sample along all edges of one TIN at the given step (each edge walked once after de-duplication);
+        /// each sample z = min(design, existing), and zD-zE is fed to the difference TIN at the same time.
+        /// Only edges that intersect the bounding box and (when rings exist) have at least one end inside a ring; points not sampled on either surface are skipped.
         /// </summary>
         static int PostSampleTinEdges(CivTinSurface src, CivTinSurface designTin, CivTinSurface existTin,
             double step, Extents3d dext, List<List<Point2d>> rings,
@@ -488,7 +488,7 @@ namespace Civil3DFactory
 
             double len = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
             int n = (int)Math.Floor(len / Math.Max(step, 0.1));
-            if (n < 1) return 0;   // 棱比步长短：两端本来就是顶点，不用加
+            if (n < 1) return 0;   // edge shorter than the step: both ends are vertices already, nothing to add
 
             if (rings.Count > 0 &&
                 !PostInsideRings(new Point2d(a.X, a.Y), rings) &&
@@ -508,7 +508,7 @@ namespace Civil3DFactory
             return added;
         }
 
-        /// <summary>任意曲线按步长展成 2D 点环（多段线直接取顶点，其余等距采样）。</summary>
+        /// <summary>Flatten any curve into a 2D point ring by step (polylines use their vertices directly, others are sampled evenly).</summary>
         static List<Point2d> PostRingFromCurve(Curve cv, double step)
         {
             var pts = new List<Point2d>();
@@ -529,7 +529,7 @@ namespace Civil3DFactory
             return pts;
         }
 
-        /// <summary>取曲线的折点序列：多段线用真顶点（零差线本来就是折线），其余按 maxSeg 采样。</summary>
+        /// <summary>Get the vertex sequence of a curve: real vertices for polylines (the zero line is a polyline anyway), others sampled by maxSeg.</summary>
         static List<Point2d> PostCurvePoints(Curve cv, double maxSeg)
         {
             var pts = new List<Point2d>();
@@ -561,7 +561,7 @@ namespace Civil3DFactory
             return pts;
         }
 
-        /// <summary>多环奇偶判内外（外环+洞环一把算：命中奇数个环=在面内）。</summary>
+        /// <summary>Even-odd inside test over multiple rings (outer ring + hole rings together: hit an odd number of rings = inside).</summary>
         static bool PostInsideRings(Point2d p, List<List<Point2d>> rings)
         {
             int hits = 0;
@@ -577,7 +577,7 @@ namespace Civil3DFactory
                 new TypedValue((int)DxfCode.ExtendedDataAsciiString, kind));
         }
 
-        /// <summary>清上次产物：同名工后面、挂本节点 XData 且属于该工后面的零差线、残留临时面。</summary>
+        /// <summary>Clear last run's output: same-named post surface, zero lines carrying this node's XData for that post surface, leftover temporary surfaces.</summary>
         static int PostClearOld(Transaction tr, Database db, CivDoc civ, string outName, string tmpDiffName)
         {
             int n = 0;

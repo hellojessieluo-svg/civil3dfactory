@@ -1,8 +1,11 @@
 {
   "node": "create_corridor",
   "version": 1,
-  "fixture": "tests/dwg/route-to-quantity-base.dwg",
-  "prerequisites": ["offset_alignment", "create_profiles"],
+  "fixture": "examples/channel-demo.dwg",
+  "prerequisites": [
+    "offset_alignment",
+    "create_profiles"
+  ],
   "assertions": [
     "data.corridor exists",
     "data.target_slots is not empty",

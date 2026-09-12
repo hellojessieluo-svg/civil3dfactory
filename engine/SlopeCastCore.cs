@@ -1,4 +1,4 @@
-#nullable disable   // 本文件被 WaterBox（可空开）链接编译，将来 Civil3DFactory 节点化时共用，按关处理
+#nullable disable   // This file is link-compiled into WaterBox (nullable on); shared when Civil3DFactory nodes adopt it, so keep nullable off here
 
 using System;
 using System.Collections.Generic;
@@ -7,57 +7,57 @@ using Autodesk.AutoCAD.Geometry;
 namespace Civil3DFactory.Geometry
 {
     /// <summary>
-    /// 放坡核心（纯几何，不依赖 DB 与交互）：沿一串带高程的采样点，向指定一侧
-    /// 按坡比 1:n 放坡到目标高程 z1，产出坡脚线顶点序列 + 长短相间示坡线。
-    /// 偏移量逐点变（= n·|z-z1|），顶点走角平分线并带斜接系数；坡脚线做自交环
-    /// 消除与共线抽稀。唯一真源：products\waterbox 的 C3DF-SlopeToElev 命令链接
-    /// 编译本文件；将来 Civil3DFactory 节点同样链接，改算法只改这里。
+    /// Slope-casting core (pure geometry, no DB or interaction): along a chain of elevated sample points,
+    /// casts a 1:n slope to the target elevation z1 on the given side, producing toe-line vertices + alternating long/short slope hatch lines.
+    /// The offset varies per point (= n*|z-z1|); vertices follow the angle bisector with a miter factor; the toe line gets
+    /// self-intersection loop removal and collinear weeding. Single source of truth: the C3DF-SlopeToElev command in products\waterbox
+    /// link-compiles this file; future Civil3DFactory nodes link it too, so algorithm changes go here only.
     /// </summary>
     public static class SlopeCastCore
     {
-        const double ZeroDz = 1e-4;        // 高差小于此视为零宽点（线正好在目标高程上）
-        const double MinCombWidth = 0.05;  // 坡宽小于此不画示坡线
-        const double WeedTol = 0.01;       // 坡脚线共线抽稀容差
-        const int MaxLoops = 200;          // 自交环消除次数上限（防病态输入死循环）
-        const int MaxCombs = 20000;        // 示坡线根数上限（防间距误输过小）
+        const double ZeroDz = 1e-4;        // height differences below this count as zero-width points (line exactly at target elevation)
+        const double MinCombWidth = 0.05;  // no slope hatch line when the slope width is below this
+        const double WeedTol = 0.01;       // collinear weeding tolerance for the toe line
+        const int MaxLoops = 200;          // max self-intersection loop removals (guards against infinite loops on pathological input)
+        const int MaxCombs = 20000;        // max number of slope hatch lines (guards against a mistakenly tiny spacing)
 
-        /// <summary>一根示坡线：Top 恒在坡的高侧，End 指向低侧（长划从高处画向低处）。</summary>
+        /// <summary>One slope hatch line: Top is always on the high side, End points to the low side (the long stroke is drawn from high to low).</summary>
         public sealed class Comb
         {
             public Point3d Top;
             public Point3d End;
-            public bool Full;   // true=长线（到坡脚），false=短线（半宽）
+            public bool Full;   // true = long line (to the toe), false = short line (half width)
         }
 
         public sealed class CastResult
         {
-            public List<Point3d> Toe = new List<Point3d>();   // 坡脚线顶点，Z 全为目标高程
+            public List<Point3d> Toe = new List<Point3d>();   // toe-line vertices, Z all at the target elevation
             public List<Comb> Combs = new List<Comb>();
-            public int LoopsRemoved;                          // 消除的自交环数
-            public int CombsSkipped;                          // 落在自交清理区被跳过的示坡线
-            public double MinWidth = double.MaxValue;         // 坡带水平宽度范围
+            public int LoopsRemoved;                          // number of self-intersection loops removed
+            public int CombsSkipped;                          // hatch lines skipped because they fell in a cleaned self-intersection zone
+            public double MinWidth = double.MaxValue;         // horizontal width range of the slope band
             public double MaxWidth;
-            public int ZeroPoints;                            // 零宽采样点数（线穿过目标高程处）
-            public double CutLength;                          // 线高于目标高程的沿线长度（挖）
-            public double FillLength;                         // 线低于目标高程的沿线长度（填）
-            public bool AllZero;                              // 整条线都在目标高程，无坡可放
-            public bool TooShort;                             // 有效采样不足 2 点
-            public int Direction;                             // +1 = 向下放坡（源线高于目标）；-1 = 向上放坡
-            public bool Mixed;                                // 本段内同时存在高于/低于目标的采样
+            public int ZeroPoints;                            // zero-width sample points (where the line crosses the target elevation)
+            public double CutLength;                          // length along the line above the target elevation (cut)
+            public double FillLength;                         // length along the line below the target elevation (fill)
+            public bool AllZero;                              // whole line at the target elevation, no slope to cast
+            public bool TooShort;                             // fewer than 2 valid samples
+            public int Direction;                             // +1 = slope down (source line above target); -1 = slope up
+            public bool Mixed;                                // this segment has samples both above and below the target
         }
 
         /// <summary>
-        /// samples：沿线有序采样点（含高程，需已按足够密度采样，顶点必采）。
-        /// closed：是否闭合环（首尾点可重合也可不重合）。
-        /// side：+1 = 前进方向左侧放坡，-1 = 右侧。
-        /// slopeN：坡比 1:n 的 n。z1：目标高程。combSpacing：示坡线沿线间距。
+        /// samples: ordered sample points along the line (with elevation; must already be dense enough, vertices included).
+        /// closed: whether it is a closed ring (first and last point may or may not coincide).
+        /// side: +1 = cast to the left of the direction of travel, -1 = right.
+        /// slopeN: the n of slope 1:n. z1: target elevation. combSpacing: spacing of hatch lines along the line.
         /// </summary>
         public static CastResult Cast(IList<Point3d> samples, bool closed, int side,
             double slopeN, double z1, double combSpacing)
         {
             var res = new CastResult();
 
-            // ---- 0. 水平投影去重 ----
+            // ---- 0. De-duplicate in plan projection ----
             var pts = new List<Point3d>(samples.Count);
             foreach (var p in samples)
                 if (pts.Count == 0 || Dist2d(pts[pts.Count - 1], p) > 1e-6) pts.Add(p);
@@ -67,8 +67,8 @@ namespace Civil3DFactory.Geometry
             if (n < 2) { res.TooShort = true; return res; }
             int segCount = closed ? n : n - 1;
 
-            // ---- 1. 分段方向 / 长度 / 桩号 ----
-            var segDir = new Point2d[segCount];   // 单位方向向量（借 Point2d 存）
+            // ---- 1. Segment direction / length / chainage ----
+            var segDir = new Point2d[segCount];   // unit direction vectors (stored in Point2d)
             var segLen = new double[segCount];
             var cumV = new double[segCount + 1];
             for (int k = 0; k < segCount; k++)
@@ -81,7 +81,7 @@ namespace Civil3DFactory.Geometry
             }
             double L = cumV[segCount];
 
-            // ---- 2. 顶点偏移方向（角平分）与斜接系数 ----
+            // ---- 2. Vertex offset direction (angle bisector) and miter factor ----
             var offX = new double[n]; var offY = new double[n]; var miter = new double[n];
             for (int i = 0; i < n; i++)
             {
@@ -97,12 +97,12 @@ namespace Civil3DFactory.Geometry
                 {
                     double sx = pnx + nnx, sy = pny + nny;
                     double sl = Math.Sqrt(sx * sx + sy * sy);
-                    if (sl < 1e-6) { nx = nnx; ny = nny; }   // 180° 折返，退化取后段法向
+                    if (sl < 1e-6) { nx = nnx; ny = nny; }   // 180-degree reversal: degrade to the next segment's normal
                     else
                     {
                         nx = sx / sl; ny = sy / sl;
                         double cosHalf = nx * nnx + ny * nny;
-                        sc = Math.Min(1.0 / Math.Max(cosHalf, 0.5), 2.0);   // 斜接，封顶 2 倍
+                        sc = Math.Min(1.0 / Math.Max(cosHalf, 0.5), 2.0);   // miter, capped at 2x
                     }
                 }
                 else if (hasNext) { nx = nnx; ny = nny; }
@@ -110,9 +110,9 @@ namespace Civil3DFactory.Geometry
                 offX[i] = nx; offY[i] = ny; miter[i] = sc;
             }
 
-            // ---- 3. 逐点宽度与生坯坡脚点 ----
+            // ---- 3. Per-point width and raw toe points ----
             var rawToe = new List<Point2d>(n);
-            var orig = new List<int>(n);   // 生坯点对应采样序号；-1 = 自交清理插入点
+            var orig = new List<int>(n);   // sample index of each raw point; -1 = point inserted by self-intersection cleanup
             for (int i = 0; i < n; i++)
             {
                 double dz = pts[i].Z - z1;
@@ -135,7 +135,7 @@ namespace Civil3DFactory.Geometry
             res.Direction = res.FillLength > res.CutLength ? -1 : 1;
             res.Mixed = res.CutLength > 0 && res.FillLength > 0;
 
-            // ---- 4. 示坡线（基于生坯坡脚，长短相间；记桥接序号供清理后筛选） ----
+            // ---- 4. Hatch lines (from the raw toe, alternating long/short; bridge indices recorded for filtering after cleanup) ----
             double spacing = Math.Max(combSpacing, L / MaxCombs);
             var combsRaw = new List<Comb>();
             var brackets = new List<int[]>();
@@ -153,10 +153,10 @@ namespace Civil3DFactory.Geometry
                 var toeEnd = new Point3d(t2.X, t2.Y, z1);
                 double w = Math.Sqrt((toeEnd.X - top.X) * (toeEnd.X - top.X)
                                    + (toeEnd.Y - top.Y) * (toeEnd.Y - top.Y));
-                if (w < MinCombWidth) continue;   // 零宽区不画，不计跳过
+                if (w < MinCombWidth) continue;   // not drawn in zero-width zones, not counted as skipped
                 bool full = idx % 2 == 0;
                 var mid = new Point3d((top.X + toeEnd.X) / 2, (top.Y + toeEnd.Y) / 2, (top.Z + z1) / 2);
-                // 长划恒从高处指向低处：源线高于目标时高侧在源线，反之高侧在生成线（坡顶线）
+                // the long stroke always points from high to low: high side is the source line when it is above target, otherwise the generated (crest) line
                 bool srcHigh = top.Z - z1 > 0;
                 var hi = srcHigh ? top : toeEnd;
                 var lo = srcHigh ? toeEnd : top;
@@ -164,7 +164,7 @@ namespace Civil3DFactory.Geometry
                 brackets.Add(new[] { iA, iB });
             }
 
-            // ---- 5. 坡脚线自交环消除（凹侧变距偏移的打结段裁掉） ----
+            // ---- 5. Toe-line self-intersection loop removal (cut out knots from variable offset on the concave side) ----
             var dead = new HashSet<int>();
             bool again = true;
             while (again && res.LoopsRemoved < MaxLoops)
@@ -186,7 +186,7 @@ namespace Civil3DFactory.Geometry
                     }
             }
 
-            // ---- 6. 示坡线定稿：桥接采样点仍在世的保留 ----
+            // ---- 6. Finalise hatch lines: keep those whose bridging sample point survived ----
             for (int i = 0; i < combsRaw.Count; i++)
             {
                 if (dead.Contains(brackets[i][0]) || dead.Contains(brackets[i][1]))
@@ -194,7 +194,7 @@ namespace Civil3DFactory.Geometry
                 res.Combs.Add(combsRaw[i]);
             }
 
-            // ---- 7. 共线抽稀后输出坡脚线 ----
+            // ---- 7. Output the toe line after collinear weeding ----
             foreach (int i in Weed(rawToe, WeedTol))
                 res.Toe.Add(new Point3d(rawToe[i].X, rawToe[i].Y, z1));
             if (res.MinWidth == double.MaxValue) res.MinWidth = 0;
@@ -202,18 +202,18 @@ namespace Civil3DFactory.Geometry
         }
 
         /// <summary>
-        /// 按"源线高于/低于目标高程"把线切成同向段，逐段放坡。返回沿线顺序的成果，
-        /// 每段 Direction：+1 = 向下放坡（源线在上，产物是坡脚线），
-        /// -1 = 向上放坡（源线在下，产物是坡顶线）。
-        /// 线穿过目标高程处插入零宽交点，两侧段各自在此收敛到源线上。
-        /// 全线同向时只返回一条并保留闭合性；全线持平返回单条 AllZero。
+        /// Splits the line into same-direction segments by "source above/below target elevation" and casts each. Returns results in line order;
+        /// each segment's Direction: +1 = slope down (source on top, product is a toe line),
+        /// -1 = slope up (source below, product is a crest line).
+        /// Where the line crosses the target elevation a zero-width crossing point is inserted, and both adjacent segments converge onto the source line there.
+        /// A line entirely on one side returns a single result and keeps closure; a line entirely level returns a single AllZero.
         /// </summary>
         public static List<CastResult> CastSplit(IList<Point3d> samples, bool closed, int side,
             double slopeN, double z1, double combSpacing)
         {
             var outList = new List<CastResult>();
 
-            // 与 Cast 同款水平去重，保证符号数组与几何一一对应
+            // same plan de-duplication as Cast, so the sign array matches the geometry one to one
             var pts = new List<Point3d>(samples.Count);
             foreach (var p in samples)
                 if (pts.Count == 0 || Dist2d(pts[pts.Count - 1], p) > 1e-6) pts.Add(p);
@@ -233,7 +233,7 @@ namespace Civil3DFactory.Geometry
             }
             if (!hasUp && !hasDown) { outList.Add(new CastResult { AllZero = true }); return outList; }
 
-            // 全线同向：一次放坡，闭合性保留
+            // entire line on one side: cast once, closure preserved
             if (!(hasUp && hasDown))
             {
                 var one = Cast(pts, closed, side, slopeN, z1, combSpacing);
@@ -242,7 +242,7 @@ namespace Civil3DFactory.Geometry
                 return outList;
             }
 
-            // 混向：闭合线先旋转到一个变号边界，之后一律按开线切段
+            // mixed: rotate a closed line to a sign-change boundary first, then always split as an open line
             var order = new List<int>(n + 1);
             if (closed)
             {
@@ -253,7 +253,7 @@ namespace Civil3DFactory.Geometry
                     if (sgn[i] != 0 && sgn[prev] != 0 && sgn[i] != sgn[prev]) { b = i; break; }
                 }
                 for (int i = 0; i < n; i++) order.Add((b + i) % n);
-                order.Add(b);   // 绕回起点，闭合线末段不丢
+                order.Add(b);   // wrap back to the start so the closed line's last segment is not lost
             }
             else for (int i = 0; i < n; i++) order.Add(i);
 
@@ -271,7 +271,7 @@ namespace Civil3DFactory.Geometry
                     prevIdx = i;
                     continue;
                 }
-                // 变号：插高程 == z1 的交点，作两段共用的零宽端
+                // sign change: insert the point with elevation == z1 as the shared zero-width end of both segments
                 var cross = CrossAtZ(pts[prevIdx], pts[i], z1);
                 run.Add(cross);
                 FlushRun(outList, run, runSign, side, slopeN, z1, combSpacing);
@@ -293,7 +293,7 @@ namespace Civil3DFactory.Geometry
             outList.Add(r);
         }
 
-        /// <summary>两点间按高程线性插值出 z==z1 的点；高差退化时取前一点的平面位置。</summary>
+        /// <summary>Linearly interpolates the point with z==z1 between two points; on degenerate height difference uses the plan position of the first point.</summary>
         static Point3d CrossAtZ(Point3d a, Point3d b, double z1)
         {
             double dz = b.Z - a.Z;
@@ -304,7 +304,7 @@ namespace Civil3DFactory.Geometry
             return new Point3d(a.X + (b.X - a.X) * f, a.Y + (b.Y - a.Y) * f, z1);
         }
 
-        // ---- 几何小件 ----
+        // ---- Geometry helpers ----
 
         static double Dist2d(Point3d a, Point3d b)
         {
@@ -318,7 +318,7 @@ namespace Civil3DFactory.Geometry
         static Point2d Lerp2(Point2d a, Point2d b, double f)
             => new Point2d(a.X + (b.X - a.X) * f, a.Y + (b.Y - a.Y) * f);
 
-        /// <summary>线段真交（端点相触不算），交点从参数解出。</summary>
+        /// <summary>Proper segment intersection (touching endpoints do not count); the intersection is solved from the parameters.</summary>
         static bool SegInt(Point2d a, Point2d b, Point2d c, Point2d d, out Point2d x)
         {
             x = default;
@@ -335,7 +335,7 @@ namespace Civil3DFactory.Geometry
             return true;
         }
 
-        /// <summary>顺序抽稀：锚点到候选弦内所有中间点偏差不超容差则删。返回保留序号。</summary>
+        /// <summary>Sequential weeding: intermediate points are dropped when all of them deviate from the anchor-candidate chord by no more than the tolerance. Returns the indices kept.</summary>
         static List<int> Weed(List<Point2d> p, double tol)
         {
             var keep = new List<int> { 0 };

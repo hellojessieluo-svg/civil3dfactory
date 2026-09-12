@@ -1,7 +1,7 @@
 [
   {
     "id": "check_sac_paths",
-    "name": "检查SAC路径与装配状态",
+    "name": "Check SAC paths and assembly state",
     "version": "0.1",
     "kind": "inspection",
     "inputs": {
@@ -17,7 +17,7 @@
   },
   {
     "id": "create_alignment",
-    "name": "制造中心路线",
+    "name": "Create centerline alignment",
     "version": "0.1",
     "kind": "production",
     "inputs": {},
@@ -39,7 +39,7 @@
   },
   {
     "id": "alignment_to_polyline",
-    "name": "路线转多段线",
+    "name": "Alignment to polyline",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -72,7 +72,7 @@
   },
   {
     "id": "export_alignments_to_dwg",
-    "name": "导出路线为纯多段线DWG",
+    "name": "Export alignments as polyline DWG",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -102,7 +102,7 @@
   },
   {
     "id": "export_corridor_feature_lines",
-    "name": "导出走廊要素线为三维多段线DWG",
+    "name": "Export corridor feature lines as 3D polyline DWG",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -130,7 +130,7 @@
   },
   {
     "id": "dump_corridor_params",
-    "name": "摊平走廊设计参数",
+    "name": "Dump corridor parameters",
     "version": "0.1",
     "kind": "inspection",
     "executor": "engine",
@@ -150,7 +150,7 @@
   },
   {
     "id": "replace_alignment_geometry",
-    "name": "原位替换路线几何",
+    "name": "Replace alignment geometry in place",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -182,7 +182,7 @@
   },
   {
     "id": "offset_alignment",
-    "name": "制造左右偏移路线",
+    "name": "Create left/right offset alignments",
     "version": "0.1",
     "kind": "production",
     "inputs": {
@@ -200,7 +200,7 @@
   },
   {
     "id": "create_profiles",
-    "name": "制造地面线与设计线",
+    "name": "Create ground and design profiles",
     "version": "0.1",
     "kind": "production",
     "inputs": {
@@ -221,7 +221,7 @@
   },
   {
     "id": "create_corridor",
-    "name": "装配走廊",
+    "name": "Build corridor",
     "version": "0.1",
     "kind": "production",
     "inputs": {
@@ -243,7 +243,7 @@
   },
   {
     "id": "create_corridor_surface",
-    "name": "制造道路曲面",
+    "name": "Create corridor surface",
     "version": "0.1",
     "kind": "production",
     "inputs": {
@@ -261,7 +261,7 @@
   },
   {
     "id": "create_sample_lines",
-    "name": "制造采样线组",
+    "name": "Create sample line group",
     "version": "0.1",
     "kind": "production",
     "inputs": {
@@ -283,7 +283,7 @@
   },
   {
     "id": "compute_quantities",
-    "name": "计算工程量",
+    "name": "Compute quantities",
     "version": "0.1",
     "kind": "production",
     "inputs": {
@@ -303,7 +303,7 @@
   },
   {
     "id": "export_quantities",
-    "name": "包装工程量表",
+    "name": "Export quantity tables",
     "version": "0.1",
     "kind": "production",
     "inputs": {
@@ -320,7 +320,7 @@
   },
   {
     "id": "save_dwg",
-    "name": "包装成果DWG",
+    "name": "Save result DWG",
     "version": "0.1",
     "kind": "production",
     "inputs": {},
@@ -336,7 +336,7 @@
   },
   {
     "id": "create_sheet_region",
-    "name": "建立固定成图材料框",
+    "name": "Create sheet region frame",
     "version": "0.1",
     "kind": "production",
     "inputs": {
@@ -360,7 +360,7 @@
   },
   {
     "id": "create_profile_view",
-    "name": "制造纵断面图",
+    "name": "Create profile view",
     "version": "0.1",
     "kind": "production",
     "inputs": {
@@ -391,13 +391,13 @@
   },
   {
     "id": "create_section_views",
-    "name": "制造横断面图组",
+    "name": "Create section views",
     "version": "0.1",
     "kind": "production",
     "inputs": {
       "alignment": "civil.alignment",
       "sample_line_group": "flow:civil.sample_line_group",
-      "corridor": "list:civil.corridor?=<路线名>_Corridor"
+      "corridor": "list:civil.corridor?=<AlignmentName>_Corridor"
     },
     "parameters": {
       "group": "string?",
@@ -427,7 +427,7 @@
   },
   {
     "id": "restyle_section_views",
-    "name": "横断面图就地换样式定高程",
+    "name": "Restyle section views in place",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -451,7 +451,7 @@
   },
   {
     "id": "restore_corridor_section_labels",
-    "name": "恢复横断面图走廊标注",
+    "name": "Restore corridor section labels",
     "version": "0.1",
     "kind": "production",
     "executor": "powershell_external",
@@ -478,7 +478,7 @@
   },
   {
     "id": "export_to_autocad",
-    "name": "导出纯CAD图纸",
+    "name": "Export to plain AutoCAD",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -499,7 +499,7 @@
   },
   {
     "id": "insert_title_blocks",
-    "name": "批量插入属性图框",
+    "name": "Insert attribute title blocks",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -538,7 +538,7 @@
   },
   {
     "id": "normalize_textstyles",
-    "name": "文字样式归化(-黑体/txt1)",
+    "name": "Normalize text styles (Chinese font convention)",
     "version": "0.1",
     "kind": "production",
     "executor": "powershell_external",
@@ -564,7 +564,7 @@
   },
   {
     "id": "plot_attribute_titleblocks",
-    "name": "打印模型与布局属性图框",
+    "name": "Plot model and layout title blocks",
     "version": "0.1",
     "kind": "production",
     "executor": "powershell_external",
@@ -588,7 +588,7 @@
   },
   {
     "id": "create_plan_frames_from_alignment",
-    "name": "按路线创建水平分平面图框",
+    "name": "Create horizontal plan frames along alignment",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -621,7 +621,7 @@
   },
   {
     "id": "create_plan_layouts_from_frames",
-    "name": "由水平分幅框创建普通布局",
+    "name": "Create plain layouts from plan frames",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -655,7 +655,7 @@
   },
   {
     "id": "annotate_grid_elevations",
-    "name": "网格角点高程标注",
+    "name": "Annotate grid corner elevations",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -695,7 +695,7 @@
   },
   {
     "id": "calculate_surface_volume",
-    "name": "曲面体积计算与疏浚统计",
+    "name": "Surface volume and dredging statistics",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -722,7 +722,7 @@
   },
   {
     "id": "parcel_grading_slope",
-    "name": "地块向内/向外自动放坡",
+    "name": "Parcel inward/outward grading",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -750,7 +750,7 @@
   },
   {
     "id": "automate_2d_cross_sections",
-    "name": "闭合域批量Hatch与底栏表（占位实现,不做标定）",
+    "name": "Batch hatch closed regions with footer table (placeholder, no calibration)",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -770,7 +770,7 @@
   },
   {
     "id": "create_twotier_bench_corridor",
-    "name": "方案B C#原生二级边坡马道子装配与3D走廊流水线",
+    "name": "Two-tier bench subassembly and 3D corridor pipeline (native C#)",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -791,8 +791,8 @@
       "right_pkt": "path?",
       "assembly": "string?",
       "corridor": "string?",
-      "baseline": "string?=基准线",
-      "region": "string?=区域1",
+      "baseline": "string?=Baseline",
+      "region": "string?=Region1",
       "target_surface": "string?"
     },
     "outputs": {
@@ -803,7 +803,7 @@
   },
   {
     "id": "annotate_closed_polyline_areas",
-    "name": "闭合多段线面积标注与Excel汇总",
+    "name": "Annotate closed polyline areas with Excel summary",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -842,7 +842,7 @@
   },
   {
     "id": "arrange_section_sheets",
-    "name": "横断面图按图框分页重排",
+    "name": "Arrange section views into sheets",
     "version": "0.1",
     "kind": "production",
     "inputs": {},
@@ -879,7 +879,7 @@
   },
   {
     "id": "import_surface",
-    "name": "从外图导入曲面",
+    "name": "Import surface from external DWG",
     "version": "0.1",
     "kind": "production",
     "inputs": {},
@@ -894,7 +894,7 @@
   },
   {
     "id": "create_dike_sample_lines",
-    "name": "堤埝中线批量路线与采样线（采样线创建委托 create_sample_lines）",
+    "name": "Dike centerlines to alignments and sample lines (delegates to create_sample_lines)",
     "version": "0.1",
     "kind": "production",
     "inputs": {
@@ -922,7 +922,7 @@
   },
   {
     "id": "extract_measured_sections",
-    "name": "测量断面标定与地面线提取",
+    "name": "Calibrate measured sections and extract ground lines",
     "version": "0.1",
     "kind": "inspection",
     "executor": "engine",
@@ -930,7 +930,7 @@
     "parameters": {
       "ground_layer": "list:dwg.layer?=dmx*",
       "column_layer": "list:dwg.layer?=zdmt*",
-      "title_layer": "list:dwg.layer?=1-图名*",
+      "title_layer": "list:dwg.layer?=1-Title*",
       "title_regex": "string?",
       "offset_tolerance": "number?=0.06",
       "elev_tolerance": "number?=0.02",
@@ -950,7 +950,7 @@
   },
   {
     "id": "generate_demolition_design_lines",
-    "name": "拆堤断面设计线（清表/开挖/放坡/填充/标注）",
+    "name": "Embankment demolition design lines (strip/cut/slope/hatch/label)",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -958,7 +958,7 @@
     "parameters": {
       "ground_layer": "list:dwg.layer?=dmx*",
       "column_layer": "list:dwg.layer?=zdmt*",
-      "title_layer": "list:dwg.layer?=1-图名*",
+      "title_layer": "list:dwg.layer?=1-Title*",
       "title_regex": "string?",
       "offset_tolerance": "number?=0.06",
       "elev_tolerance": "number?=0.02",
@@ -999,7 +999,7 @@
   },
   {
     "id": "compute_embankment_demolition",
-    "name": "拆堤工程量（平均断面法）",
+    "name": "Embankment demolition quantities (average end area)",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1007,7 +1007,7 @@
     "parameters": {
       "ground_layer": "list:dwg.layer?=dmx*",
       "column_layer": "list:dwg.layer?=zdmt*",
-      "title_layer": "list:dwg.layer?=1-图名*",
+      "title_layer": "list:dwg.layer?=1-Title*",
       "title_regex": "string?",
       "offset_tolerance": "number?=0.06",
       "elev_tolerance": "number?=0.02",
@@ -1046,7 +1046,7 @@
   },
   {
     "id": "sample_polyline_elevations",
-    "name": "按多段线取曲面高程",
+    "name": "Sample surface elevations along polylines",
     "version": "0.1",
     "kind": "inspection",
     "executor": "engine",
@@ -1082,7 +1082,7 @@
   },
   {
     "id": "survey_dredge_regions",
-    "name": "疏浚区边界盘点与参数试算",
+    "name": "Survey dredge regions and trial parameters",
     "version": "0.1",
     "kind": "inspection",
     "executor": "engine",
@@ -1122,7 +1122,7 @@
   },
   {
     "id": "create_dredge_grading",
-    "name": "疏浚放坡设计面（闭合边界→底高程+坡比）",
+    "name": "Dredge grading surface (closed boundary to bottom elevation + slope)",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1145,7 +1145,7 @@
       "sample_step": "number?=2",
       "slope_step": "number?=2",
       "flat_step": "number?=20",
-      "surface_prefix": "string?=疏浚设计-",
+      "surface_prefix": "string?=DredgeDesign-",
       "surface_layer": "list:dwg.layer?=C3DF-DREDGE-SURFACE",
       "crest_layer": "list:dwg.layer?=C3DF-DREDGE-TOP",
       "toe_layer": "list:dwg.layer?=C3DF-DREDGE-TOE",
@@ -1166,7 +1166,7 @@
   },
   {
     "id": "merge_post_dredge_surface",
-    "name": "工后曲面合成（设计∧现状取低）",
+    "name": "Merge post-dredge surface (min of design and existing)",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1211,7 +1211,7 @@
   },
   {
     "id": "rebind_volume_tables",
-    "name": "体积表重绑材质列表",
+    "name": "Rebind volume tables to material lists",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1226,7 +1226,7 @@
   },
   {
     "id": "attach_baseline_profile",
-    "name": "走廊基线重挂纵断面",
+    "name": "Reattach baseline profile",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1248,7 +1248,7 @@
   },
   {
     "id": "list_profiles",
-    "name": "剖面线与纵断面图体检",
+    "name": "List profiles and profile views",
     "version": "0.1",
     "kind": "inspection",
     "executor": "engine",
@@ -1268,7 +1268,7 @@
   },
   {
     "id": "dump_material_styles",
-    "name": "材质样式指向体检",
+    "name": "Dump material styles",
     "version": "0.1",
     "kind": "inspection",
     "executor": "engine",
@@ -1283,7 +1283,7 @@
   },
   {
     "id": "fix_self_intersections",
-    "name": "修复自相交多段线（去回环）",
+    "name": "Fix self-intersecting polylines (remove loops)",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1308,7 +1308,7 @@
   },
   {
     "id": "export_material_volumes",
-    "name": "一键导出材质体积表工作簿",
+    "name": "Export material volume workbook",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1329,7 +1329,7 @@
   },
   {
     "id": "sync_corridor_range",
-    "name": "走廊区间对齐路线起终点",
+    "name": "Sync corridor regions to alignment range",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1347,7 +1347,7 @@
   },
   {
     "id": "refresh_sample_lines",
-    "name": "采样线刷新（组不变线重生）",
+    "name": "Refresh sample lines (keep group, regenerate lines)",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1369,7 +1369,7 @@
   },
   {
     "id": "restore_sample_line_labels",
-    "name": "采样线标签重建（桩号名字）",
+    "name": "Restore sample line labels (station names)",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1394,7 +1394,7 @@
   },
   {
     "id": "set_polyline_elevation",
-    "name": "给多段线设高程",
+    "name": "Set polyline elevation",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1415,7 +1415,7 @@
   },
   {
     "id": "bounded_volumes",
-    "name": "逐边界挖填方",
+    "name": "Bounded cut/fill volumes",
     "version": "0.1",
     "kind": "inspection",
     "executor": "engine",
@@ -1455,7 +1455,7 @@
   },
   {
     "id": "grid_earthwork_balance",
-    "name": "网格土方平衡",
+    "name": "Grid earthwork balance",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1505,7 +1505,7 @@
   },
   {
     "id": "erase_entities",
-    "name": "按句柄删实体",
+    "name": "Erase entities by handle",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1524,7 +1524,7 @@
   },
   {
     "id": "offset_cone_contours",
-    "name": "偏移圆台等高线（闭合边界批量内偏）",
+    "name": "Offset cone contours (batch inward offset of closed boundaries)",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1558,15 +1558,15 @@
   },
   {
     "id": "import_design_lines",
-    "name": "导入设计线（中心线→路线，边界留作宽度源）",
+    "name": "Import design lines (centerlines to alignments, boundaries as width source)",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
     "inputs": {},
     "parameters": {
       "dwg": "path",
-      "center_prefix": "string?=中心线-",
-      "boundary_prefix": "string?=边界-",
+      "center_prefix": "string?=CL-",
+      "boundary_prefix": "string?=BOUNDARY-",
       "style": "list:civil.style.alignment?",
       "label_set": "list:civil.labelset.alignment?",
       "alignment_layer": "list:dwg.layer?",
@@ -1585,7 +1585,7 @@
   },
   {
     "id": "offsets_from_boundary",
-    "name": "闭合边界→左右偏移路线（走廊宽度目标）",
+    "name": "Offsets from boundary (left/right offset alignments as corridor width targets)",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1593,7 +1593,7 @@
       "alignment": "civil.alignment"
     },
     "parameters": {
-      "boundary_prefix": "string?=边界-",
+      "boundary_prefix": "string?=BOUNDARY-",
       "interval": "number?=25",
       "channel": "string?",
       "style": "list:civil.style.alignment?",
@@ -1611,7 +1611,7 @@
   },
   {
     "id": "create_design_profiles",
-    "name": "批量建地面线+设计线（端部按指定放坡接地形）",
+    "name": "Create ground and design profiles in batch (end ramps to terrain)",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1626,8 +1626,8 @@
       "ramps": "object?",
       "ramp_tolerance": "number?=0.05",
       "channels": "string[]?",
-      "ground_name": "string?={channel}-地面",
-      "design_name": "string?={channel}-设计",
+      "ground_name": "string?={channel}-EG",
+      "design_name": "string?={channel}-FG",
       "ground_style": "list:civil.style.profile?",
       "design_style": "list:civil.style.profile?",
       "label_set": "list:civil.labelset.profile?",
@@ -1641,7 +1641,7 @@
   },
   {
     "id": "create_corridor_regions",
-    "name": "建多区域走廊（逐段装配工况）",
+    "name": "Create multi-region corridor (assembly per region)",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1654,8 +1654,8 @@
       "alignment": "string",
       "surface": "string",
       "regions": "object[]",
-      "name": "string?={路线}_Corridor",
-      "baseline": "string?={路线}_基线",
+      "name": "string?={Alignment}_Corridor",
+      "baseline": "string?={Alignment}_Baseline",
       "allow_no_surface_targets": "boolean?=false"
     },
     "outputs": {
@@ -1673,7 +1673,7 @@
   },
   {
     "id": "export_design_lines",
-    "name": "导出建模输入线为纯多段线DWG（中心线/边线/边界）",
+    "name": "Export design lines as polyline DWG (centerlines/edges/boundaries)",
     "version": "0.1",
     "kind": "production",
     "executor": "engine",
@@ -1709,7 +1709,7 @@
   },
   {
     "id": "measure_channel_width",
-    "name": "量通道沿程实际疏浚宽度",
+    "name": "Measure channel width along alignment",
     "version": "0.1",
     "kind": "inspection",
     "executor": "engine",
@@ -1728,7 +1728,7 @@
   },
   {
     "id": "find_write_open",
-    "name": "找出仍处于写打开状态的对象",
+    "name": "Find objects still open for write",
     "version": "0.1",
     "kind": "inspection",
     "executor": "engine",

@@ -37,7 +37,7 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // 找边界多段线
+                // Find the boundary polyline
                 Polyline poly = null;
                 ObjectId polyId = ResolveHandle(db, bndStr);
                 if (!polyId.IsNull)
@@ -46,7 +46,7 @@ namespace Civil3DFactory
                 }
                 if (poly == null)
                 {
-                    // 按图层查找第一个匹配的多段线
+                    // Find the first matching polyline by layer
                     foreach (ObjectId id in ModelSpace(db, tr))
                     {
                         var pl = tr.GetObject(id, OpenMode.ForRead) as Polyline;
@@ -58,9 +58,9 @@ namespace Civil3DFactory
                     }
                 }
                 if (poly == null)
-                    throw new InvalidOperationException("找不到地块边界多段线 '" + bndStr + "'。");
+                    throw new InvalidOperationException("Parcel boundary polyline '" + bndStr + "' not found.");
 
-                // 找目标曲面（若 target_type == "surface"）
+                // Find the target surface (if target_type == "surface")
                 CivSurface targetSurf = null;
                 if (targetType.Equals("surface", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(targetSurfName))
                 {
@@ -69,16 +69,16 @@ namespace Civil3DFactory
                         targetSurf = tr.GetObject(targetSurfId, OpenMode.ForRead) as CivSurface;
                 }
 
-                // 准备模型空间容器与图层
+                // Prepare the model space container and layers
                 var btr = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
                 ObjectId lyComb = GridEnsureLayer(tr, db, "C3DF-SLOPE-MARK", 2);
                 ObjectId lyDaylight = GridEnsureLayer(tr, db, "C3DF-TOP-TOE", 1);
 
-                // 计算多段线面积与顺逆时针（用于导向法线）
+                // Polyline area and winding (used to orient the normal)
                 double area = poly.Area;
-                bool isCcw = area >= 0; // CAD 默认 CW/CCW
+                bool isCcw = area >= 0; // CAD default CW/CCW
 
-                // 沿边界线采样顶点并计算坡顶/坡脚 daylight 点
+                // Sample along the boundary and compute top/toe daylight points
                 List<Point3d> bndPts = new List<Point3d>();
                 List<Point3d> daylightPts = new List<Point3d>();
                 List<Line> combLinesList = new List<Line>();
@@ -95,7 +95,7 @@ namespace Civil3DFactory
                     Vector3d deriv = poly.GetFirstDerivative(poly.GetParameterAtDistance(dist));
                     Vector2d dir2d = new Vector2d(deriv.X, deriv.Y).GetNormal();
 
-                    // 法向量: 左法线 (-y, x), 右法线 (y, -x)
+                    // Normal vector: left normal (-y, x), right normal (y, -x)
                     Vector2d normal2d = isCcw ? new Vector2d(-dir2d.Y, dir2d.X) : new Vector2d(dir2d.Y, -dir2d.X);
                     if (direction.Equals("inward", StringComparison.OrdinalIgnoreCase))
                         normal2d = normal2d.Negate();
@@ -113,7 +113,7 @@ namespace Civil3DFactory
                         zTarget = zBase + targetValue;
                     else if (targetSurf != null)
                     {
-                        // 预估延伸点并采样曲面高程
+                        // Estimate the extended point and sample the surface elevation
                         Point3d estPt = ptOnPoly + new Vector3d(normal2d.X * 5.0, normal2d.Y * 5.0, 0);
                         double zSample;
                         if (GridTrySample(targetSurf, estPt, out zSample))
@@ -147,7 +147,7 @@ namespace Civil3DFactory
                     surfPts.Add(ptOnPoly);
                     surfPts.Add(ptDaylight);
 
-                    // 绘制示坡线（梳齿线：长短线交替）
+                    // Draw slope marks (comb lines: alternating long/short)
                     if (drawCombLines && i % 1 == 0 && i < samples)
                     {
                         bool isLong = (i % 2 == 0);
@@ -165,7 +165,7 @@ namespace Civil3DFactory
                     }
                 }
 
-                // 生成 Daylight Polyline 实体
+                // Create the daylight polyline entity
                 Polyline daylightPoly = new Polyline();
                 daylightPoly.LayerId = lyDaylight;
                 for (int k = 0; k < daylightPts.Count; k++)
@@ -175,7 +175,7 @@ namespace Civil3DFactory
                 btr.AppendEntity(daylightPoly);
                 tr.AddNewlyCreatedDBObject(daylightPoly, true);
 
-                // 创建放坡 TIN 曲面
+                // Create the grading TIN surface
                 string gradingSurfName = "GradingSurface_" + poly.Handle.ToString();
                 ObjectId oldSurf = FindSurfaceId(tr, civ, gradingSurfName);
                 if (!oldSurf.IsNull)

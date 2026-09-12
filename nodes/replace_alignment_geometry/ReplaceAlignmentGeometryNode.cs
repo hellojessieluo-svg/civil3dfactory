@@ -11,12 +11,12 @@ using CivilDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// replace_alignment_geometry：原位重写路线几何——JSON 薄壳。
-    /// 算法核心在同目录 AlignmentRebuildCore.cs（与 products\waterbox 的
-    /// C3DF-ReplaceCenterline/HZX 同核），几何映射与劈弧规则见核心文件注释。
+    /// replace_alignment_geometry: rewrite alignment geometry in place -- thin JSON shell.
+    /// The algorithm core lives in AlignmentRebuildCore.cs in this folder (shared with
+    /// C3DF-ReplaceCenterline/HZX in products\waterbox); see the core file for the geometry mapping and arc-splitting rules.
     ///
-    /// list_polylines：按图层列出模型空间多段线（句柄/长度/端点/圆弧段数），
-    /// 给上面这个节点找源线句柄用。
+    /// list_polylines: list model space polylines by layer (handle/length/endpoints/arc segment count),
+    /// used to find the source polyline handle for the node above.
     /// </summary>
     public static partial class Ops
     {
@@ -59,7 +59,7 @@ namespace Civil3DFactory
                         if (Math.Abs(pl.GetBulgeAt(i)) > 1e-9) arcs++;
                     Point2d sp = pl.GetPoint2dAt(0);
                     Point2d ep = pl.GetPoint2dAt(nv - 1);
-                    // 包围盒：闭合图框拿它就能直接喂 plot_pdf 的 window 参数逐张打印
+                    // Bounding box: for closed sheet frames this feeds plot_pdf's window parameter directly, sheet by sheet
                     double bx0 = double.MaxValue, by0 = double.MaxValue;
                     double bx1 = double.MinValue, by1 = double.MinValue;
                     for (int i = 0; i < nv; i++)
@@ -106,20 +106,20 @@ namespace Civil3DFactory
                 {
                     al = tr.GetObject(ResolveHandle(db, alHandle), OpenMode.ForRead) as CivAlign;
                     if (al == null)
-                        throw new InvalidOperationException("句柄 " + alHandle + " 不是路线对象。");
+                        throw new InvalidOperationException("Handle " + alHandle + " is not an alignment.");
                 }
                 else
                 {
                     if (string.IsNullOrWhiteSpace(alName))
-                        throw new InvalidOperationException("需要 alignment（路线名）或 alignment_handle。");
+                        throw new InvalidOperationException("Requires alignment (name) or alignment_handle.");
                     al = FindAlignment(tr, civ, alName);
                     if (al == null)
-                        throw new InvalidOperationException("图中没有名为 " + alName + " 的路线。");
+                        throw new InvalidOperationException("No alignment named " + alName + " in the drawing.");
                 }
 
                 Polyline pl = tr.GetObject(ResolveHandle(db, plHandle), OpenMode.ForRead) as Polyline;
                 if (pl == null)
-                    throw new InvalidOperationException("句柄 " + plHandle + " 不是多段线（LWPOLYLINE）。");
+                    throw new InvalidOperationException("Handle " + plHandle + " is not a polyline (LWPOLYLINE).");
 
                 al.UpgradeOpen();
                 AlignmentRebuildCore.RebuildResult r = AlignmentRebuildCore.RebuildFromPolyline(al, pl);

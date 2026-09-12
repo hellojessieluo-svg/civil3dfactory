@@ -2,11 +2,11 @@
   "ops": [
     {
       "op": "draw_polylines",
-      "layer": "台田-边界",
+      "layer": "PARCEL-BND",
       "color": 2,
-      "clear_layers": ["台田-边界"],
+      "clear_layers": ["PARCEL-BND"],
       "polylines": [
-        { "name": "台田01", "closed": true,
+        { "name": "Parcel01", "closed": true,
           "vertices": [[0, 0, 0], [100, 0, 0.4142], [100, 100, 0], [0, 100, 0]] }
       ]
     }

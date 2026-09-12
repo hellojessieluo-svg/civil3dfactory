@@ -1,12 +1,12 @@
 {
   "node": "add_note_label",
   "version": 1,
-  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "fixture": "examples/channel-demo.dwg",
   "assertions": [
-    "placed 等于 points 条数，每条回报 handle",
-    "带 dx/dy 的点回报 dragged=true，plot_pdf 渲染出带引线的拖曳态",
-    "找不到样式名必须抛错，不静默"
+    "placed equals the number of points; every entry reports a handle",
+    "points given with dx/dy report dragged=true and plot_pdf renders the dragged state with a leader",
+    "an unknown style name must throw, never fail silently"
   ],
-  "note": "实测档案（2026-09-02 五期模板坐标标签优化）：NoteLabel.Create 只有 (Database, Point3d) 一个可用重载，样式靠随后设 StyleId；DraggedOffset 设 Vector3d 即进拖曳态。与 plot_pdf window 组成「改样式→放标签→渲染→看图」闭环，全程内存不落盘。锚点位置（AnchorLocation）与拖曳显示方式（StackedText/AsComposed）在 .NET API 里没暴露，改标签排版只能从 contents 下手。",
+  "note": "Field record (2026-09-02, coordinate-label tuning on a template drawing): NoteLabel.Create has a single usable overload (Database, Point3d); the style is applied afterwards via StyleId; setting DraggedOffset to a Vector3d switches the label into the dragged state. Together with a plot_pdf window this forms the loop restyle -> place label -> render -> inspect, entirely in memory without saving. AnchorLocation and the dragged display mode (StackedText/AsComposed) are not exposed in the .NET API, so label layout can only be changed through contents.",
   "status": "draft_assertions_pending_owner_review"
 }

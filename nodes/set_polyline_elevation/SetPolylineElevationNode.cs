@@ -8,12 +8,12 @@ using Autodesk.AutoCAD.DatabaseServices;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// set_polyline_elevation：给多段线设高程（Z）。
+    /// set_polyline_elevation: set the elevation (Z) of polylines.
     ///
-    /// 平面上画好的设计线常常整层躺在 0 高程上，要进 TIN / 要拿去放坡之前
-    /// 得先把它抬到自己的设计高程。elevation 一刀切，elevation_by_handle 逐条给。
+    /// Design lines drawn in plan often sit at elevation 0 for the whole layer; before going into a TIN / grading
+    /// they must be lifted to their design elevation. elevation applies to all, elevation_by_handle per polyline.
     ///
-    /// 只改 Elevation，不动几何、不动图层。
+    /// Only Elevation changes; geometry and layer are untouched.
     /// </summary>
     public static partial class Ops
     {
@@ -26,10 +26,10 @@ namespace Civil3DFactory
             double gz = GetDouble(a, "elevation", 0.0);
 
             if (!hasGlobal && (byHandle == null || byHandle.Count == 0))
-                throw new InvalidOperationException("elevation 与 elevation_by_handle 至少给一个。");
+                throw new InvalidOperationException("Give at least one of elevation and elevation_by_handle.");
             if (string.IsNullOrWhiteSpace(layer) && (handles == null || handles.Count == 0)
                 && (byHandle == null || byHandle.Count == 0))
-                throw new InvalidOperationException("layer、handles、elevation_by_handle 至少给一个来圈定对象。");
+                throw new InvalidOperationException("Give at least one of layer, handles, elevation_by_handle to select the objects.");
 
             var wanted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (handles != null)
@@ -59,7 +59,7 @@ namespace Civil3DFactory
                     double z = gz;
                     if (byHandle != null && byHandle[handle] != null)
                         z = byHandle[handle].GetValue<double>();
-                    else if (!hasGlobal) continue;   // 逐条模式下没点名的不动
+                    else if (!hasGlobal) continue;   // in per-handle mode, unnamed ones are untouched
 
                     seen.Add(handle);
                     double z0 = pl.Elevation;
@@ -83,10 +83,10 @@ namespace Civil3DFactory
                 tr.Commit();
             }
 
-            // 断言：一条都没动 = 没成功。点名了却一条都没找到，必须报错而不是 ok:true。
+            // Assert: nothing touched = not a success. Named handles with no match must error rather than ok:true.
             if (touched == 0 && same == 0)
                 throw new InvalidOperationException(
-                    "一条多段线都没匹配上（layer='" + (layer ?? "") + "'，点名 " + wanted.Count + " 条）。");
+                    "No polyline matched (layer='" + (layer ?? "") + "', " + wanted.Count + " named).");
 
             return new JsonObject
             {

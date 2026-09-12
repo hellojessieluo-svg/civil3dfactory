@@ -1,7 +1,7 @@
 {
   "node": "create_corridor_surface",
   "version": 1,
-  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "fixture": "examples/channel-demo.dwg",
   "prerequisite": "create_corridor",
   "assertions": [
     "data.link_codes_added contains at least one code",

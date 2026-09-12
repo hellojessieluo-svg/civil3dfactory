@@ -42,6 +42,7 @@ namespace Civil3DFactory
                 WritesDrawing = false,
                 Run = ViewOp
             };
+            RegisterStyleOps();   // Ops.Styles.cs (only one static constructor is allowed across the partial class)
         }
 
         // ------------------------------------------------------------------

@@ -15,33 +15,33 @@ namespace Civil3DFactory
     public static partial class Ops
     {
         /// <summary>
-        /// 给**已存在**的横断面图就地换样式 / 定高程范围，不删不重建。
+        /// Restyle **existing** section views in place / set the elevation range; no delete/rebuild.
         ///
-        /// 为什么有这个零件：create_section_views 覆盖重建要先删旧视图，旧视图带体积表时
-        /// 删完 save_dwg 必报 eWasOpenForWrite（2026-08-16 项目B实测二分：连照抄成功任务卡
-        /// 的参数单跑也炸，唯一成功过的组合是「create_sample_lines 删组连带删视图」在前）。
-        /// 视图样式和高程本来就是 create_section_views 建完**事后**设的（同一机制），
-        /// 对现有视图重设一遍效果等价，且完全不碰采样线、材质列表、体积表和工程量。
+        /// Why this part exists: create_section_views overwrite-rebuild must delete the old views first, and when they carry volume tables
+        /// save_dwg then always fails with eWasOpenForWrite (bisected on project B, 2026-08-16: even the parameters copied from a
+        /// successful task card crash on their own; the only combination that ever worked had "create_sample_lines deleting the group and its views" first).
+        /// View style and elevation are set by create_section_views **after** creation anyway (same mechanism),
+        /// so re-setting them on existing views is equivalent, and sample lines, material lists, volume tables and quantities are untouched.
         /// </summary>
         static JsonNode RunNodeRestyleSectionViews(JsonObject a, Document doc)
         {
-            string alName = GetString(a, "alignment", null);          // 缺省 = 全部路线
-            string style = GetString(a, "style", null);               // 断面图样式（SectionViewStyles）
-            string secStyle = GetString(a, "section_style", null);    // 地面线断面样式（SectionStyles）
-            string matStyle = GetString(a, "material_style", null);   // 材质断面样式（挖方填充观感归它），不给就不碰
-            // 材质**填充**样式（ShapeStyles）：挖方填充区在图上长什么样归它管，
-            // 挂在材质列表 QTOMaterial.ShapeStyleId 上，跟断面样式是两码事
+            string alName = GetString(a, "alignment", null);          // default = all alignments
+            string style = GetString(a, "style", null);               // section view style (SectionViewStyles)
+            string secStyle = GetString(a, "section_style", null);    // ground line section style (SectionStyles)
+            string matStyle = GetString(a, "material_style", null);   // material section style (controls the cut hatch look); untouched when omitted
+            // Material **shape** style (ShapeStyles): controls how the cut hatch area looks on the sheet,
+            // attached to QTOMaterial.ShapeStyleId in the material list; a different thing from the section style
             string matShape = GetString(a, "material_shape_style", null);
-            // 道路曲面断面（SourceType=CorridorSurface）：想隐藏就指个不打印样式，不给不碰
+            // Corridor surface sections (SourceType=CorridorSurface): point to a no-plot style to hide them; untouched when omitted
             string corSurfStyle = GetString(a, "corridor_surface_style", null);
             double elevMin = GetDouble(a, "elev_min", 0);
-            double elevMax = GetDouble(a, "elev_max", 0);             // min>=max → 不动高程
+            double elevMax = GetDouble(a, "elev_max", 0);             // min>=max -> elevation untouched
             bool manualElev = elevMin < elevMax;
-            bool autoElev = GetBool(a, "elev_auto", false);           // 显式回自动
+            bool autoElev = GetBool(a, "elev_auto", false);           // explicitly back to automatic
             if (string.IsNullOrEmpty(style) && string.IsNullOrEmpty(secStyle)
                 && string.IsNullOrEmpty(matStyle) && string.IsNullOrEmpty(matShape)
                 && string.IsNullOrEmpty(corSurfStyle) && !manualElev && !autoElev)
-                throw new InvalidOperationException("style / section_style / material_style / material_shape_style / corridor_surface_style / elev_min+elev_max / elev_auto 至少给一样。");
+                throw new InvalidOperationException("Give at least one of style / section_style / material_style / material_shape_style / corridor_surface_style / elev_min+elev_max / elev_auto.");
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
@@ -56,18 +56,18 @@ namespace Civil3DFactory
                 {
                     svStyleId = FindStyleId(tr, civ.Styles.SectionViewStyles, style);
                     if (svStyleId.IsNull)
-                        throw new InvalidOperationException("找不到断面图样式 '" + style + "'。");
+                        throw new InvalidOperationException("Section view style '" + style + "' not found.");
                 }
                 ObjectId secStyleId = string.IsNullOrEmpty(secStyle)
                     ? ObjectId.Null : FindStyleId(tr, civ.Styles.SectionStyles, secStyle);
                 if (!string.IsNullOrEmpty(secStyle) && secStyleId.IsNull)
-                    throw new InvalidOperationException("找不到断面样式 '" + secStyle + "'。");
-                // 材质断面（挖方填充）：**不给就不碰**。
-                // 不能拿地面线样式垫底——那会把用户手设的 @C3DF-CutFill 冲成 C3DF-GroundLine
-                // （2026-08-16 用户在属性面板手改 215 个 Material Section 的 Style=@C3DF-CutFill 后教的：
-                // 渲染读的是 MaterialSection.StyleId 这个槽）。
-                // 名字先在 SectionStyles 找，找不到再找 ShapeStyles——@C3DF-CutFill 就在后者。
-                // FindStyleId 匹配不到会兜底返回集合第一个（永不 Null），两级查找必须用严格版
+                    throw new InvalidOperationException("Section style '" + secStyle + "' not found.");
+                // Material sections (cut hatch): **untouched when omitted**.
+                // Do not fall back to the ground line style -- that would overwrite the user's hand-set @C3DF-CutFill with C3DF-GroundLine
+                // (learned 2026-08-16 after the user hand-set Style=@C3DF-CutFill on 215 Material Sections in the properties panel:
+                // rendering reads the MaterialSection.StyleId slot).
+                // Look the name up in SectionStyles first, then ShapeStyles -- @C3DF-CutFill lives in the latter.
+                // FindStyleId falls back to the first item on no match (never Null); a two-level lookup needs the strict version
                 ObjectId matStyleId = ObjectId.Null;
                 if (!string.IsNullOrEmpty(matStyle))
                 {
@@ -75,7 +75,7 @@ namespace Civil3DFactory
                     if (matStyleId.IsNull)
                         matStyleId = FindStyleIdStrict(tr, civ.Styles.ShapeStyles, matStyle);
                     if (matStyleId.IsNull)
-                        throw new InvalidOperationException("材质断面样式 '" + matStyle + "' 在 SectionStyles/ShapeStyles 里都找不到。");
+                        throw new InvalidOperationException("Material section style '" + matStyle + "' not found in SectionStyles or ShapeStyles.");
                     matStyleResolved = StyleName(tr.GetObject(matStyleId, OpenMode.ForRead));
                 }
                 ObjectId matShapeId = ObjectId.Null;
@@ -83,14 +83,14 @@ namespace Civil3DFactory
                 {
                     matShapeId = FindStyleId(tr, civ.Styles.ShapeStyles, matShape);
                     if (matShapeId.IsNull)
-                        throw new InvalidOperationException("找不到填充样式（ShapeStyle）'" + matShape + "'。");
+                        throw new InvalidOperationException("Shape style (ShapeStyle) '" + matShape + "' not found.");
                 }
                 ObjectId corSurfId = ObjectId.Null;
                 if (!string.IsNullOrEmpty(corSurfStyle))
                 {
                     corSurfId = FindStyleIdStrict(tr, civ.Styles.SectionStyles, corSurfStyle);
                     if (corSurfId.IsNull)
-                        throw new InvalidOperationException("找不到道路曲面断面样式 '" + corSurfStyle + "'（SectionStyles）。");
+                        throw new InvalidOperationException("Corridor surface section style '" + corSurfStyle + "' not found (SectionStyles).");
                 }
 
                 foreach (ObjectId alId in ModelSpace(db, tr))
@@ -105,13 +105,33 @@ namespace Civil3DFactory
                     int myViews = 0;
                     foreach (ObjectId gid in al.GetSampleLineGroupIds())
                     {
-                        // 组必须开写：改 GetSectionSources 下属断面的样式时，Civil 会回写组内数据，
-                        // 组只开读就 eNotOpenForWrite 硬崩进程（2026-08-16 实测；
-                        // create_section_views 里也是先 slg.UpgradeOpen 再动来源）
+                        // The group must be open for write: when section styles under GetSectionSources change, Civil writes back into the group,
+                        // and a read-only group hard-crashes the process with eNotOpenForWrite (verified 2026-08-16;
+                        // create_section_views also does slg.UpgradeOpen before touching the sources)
                         var g = (CivSampleLineGroup)tr.GetObject(gid, OpenMode.ForWrite);
                         foreach (ObjectId slId in g.GetSampleLineIds())
                         {
                             var sl = (CivSampleLine)tr.GetObject(slId, OpenMode.ForRead);
+                            // Material sections are not listed under the group's section sources; reach them through the
+                            // sample line's own sections and set their style slot (a ShapeStyle renders the hatch).
+                            if (!matStyleId.IsNull)
+                            {
+                                ObjectIdCollection secIds = null;
+                                try { secIds = sl.GetSectionIds(); } catch { }
+                                if (secIds != null)
+                                    foreach (ObjectId secId in secIds)
+                                    {
+                                        try
+                                        {
+                                            DBObject so = tr.GetObject(secId, OpenMode.ForRead);
+                                            if (so.GetType().Name != "MaterialSection") continue;
+                                            so.UpgradeOpen();
+                                            ((Autodesk.Civil.DatabaseServices.Section)so).StyleId = matStyleId;
+                                            matStyled++;
+                                        }
+                                        catch { }
+                                    }
+                            }
                             foreach (ObjectId svId in sl.GetSectionViewIds())
                             {
                                 var sv = (Autodesk.Civil.DatabaseServices.SectionView)
@@ -128,7 +148,7 @@ namespace Civil3DFactory
                             }
                         }
 
-                        // 材质填充样式：改材质列表里每个 QTOMaterial 的 ShapeStyleId
+                        // Material shape style: set ShapeStyleId on every QTOMaterial in the material list
                         if (!matShapeId.IsNull)
                         {
                             foreach (CivQtoMaterialList ml in g.MaterialLists)
@@ -143,10 +163,10 @@ namespace Civil3DFactory
                             }
                         }
 
-                        // 断面自身样式：走廊本体断面的 StyleId 是代码集样式，这里**不碰**
-                        // （SourceType 含 Corridor 且不含 CorridorSurface 的跳过）；
-                        // 材质断面 → material_style，其余（地面线/道路曲面）→ section_style。
-                        // 分型规则照抄 create_section_views（2026-07-28 逐属性对比查实的那套）。
+                        // Section styles: the corridor body section's StyleId is a code set style, **untouched** here
+                        // (skip SourceType containing Corridor but not CorridorSurface);
+                        // material sections -> material_style, the rest (ground line / corridor surface) -> section_style.
+                        // Classification copied from create_section_views (verified property by property on 2026-07-28).
                         if (secStyleId.IsNull && matStyleId.IsNull && corSurfId.IsNull) continue;
                         foreach (CivSectionSource src in g.GetSectionSources())
                         {
@@ -188,8 +208,8 @@ namespace Civil3DFactory
             }
             if (views == 0)
                 throw new InvalidOperationException(string.IsNullOrEmpty(alName)
-                    ? "图里没有任何横断面图。"
-                    : "路线 '" + alName + "' 没有横断面图。");
+                    ? "The drawing has no section view."
+                    : "Alignment '" + alName + "' has no section view.");
 
             return new JsonObject
             {
@@ -203,13 +223,13 @@ namespace Civil3DFactory
                 ["material_shape_styles_set"] = matShapeSet,
                 ["material_shape_style"] = matShape,
                 ["elevation"] = manualElev ? elevMin + " ~ " + elevMax
-                              : (autoElev ? "自动" : "未动"),
+                              : (autoElev ? "auto" : "unchanged"),
                 ["per_alignment"] = perAlign
             };
         }
 
-        /// <summary>FindStyleId 的严格版：精确 > 忽略大小写 > 前缀 > 包含，匹配不到返回 Null
-        /// （FindStyleId 会兜底返回集合第一个，跨集合两级查找必须靠 Null 才能走下一级）。</summary>
+        /// <summary>Strict version of FindStyleId: exact > case-insensitive > prefix > contains; returns Null on no match
+        /// (FindStyleId falls back to the first item; a cross-collection two-level lookup needs Null to move to the next level).</summary>
         static ObjectId FindStyleIdStrict(Transaction tr, object collection, string name)
         {
             if (string.IsNullOrEmpty(name)) return ObjectId.Null;

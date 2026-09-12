@@ -103,7 +103,8 @@ public sealed class Commands
                     continue;
                 }
                 string actualName = EffectiveName(tr, block);
-                if (!string.IsNullOrEmpty(requestedBlock.BlockName) && actualName != requestedBlock.BlockName)
+                if (!string.IsNullOrEmpty(requestedBlock.BlockName) &&
+                    !string.Equals(actualName, requestedBlock.BlockName, StringComparison.OrdinalIgnoreCase))
                 {
                     report.Issues.Add(new UpdateIssue
                     {
@@ -298,7 +299,8 @@ public sealed class Commands
                 continue;
             }
             string actualName = EffectiveName(tr, block);
-            if (!string.IsNullOrEmpty(requestedBlock.BlockName) && actualName != requestedBlock.BlockName)
+            if (!string.IsNullOrEmpty(requestedBlock.BlockName) &&
+                !string.Equals(actualName, requestedBlock.BlockName, StringComparison.OrdinalIgnoreCase))
             {
                 report.Issues.Add(new UpdateIssue
                 {
@@ -469,7 +471,8 @@ public sealed class UpdateIssue
 public sealed class BatchExportPayload
 {
     public List<BatchExportJob> Jobs { get; set; } = new();
-    public string BlockNameContains { get; set; } = "图框";
+    // Case-insensitive substring of the block name that marks a title block (e.g. C3DF-TITLEBLOCK-A3).
+    public string BlockNameContains { get; set; } = "TITLE";
 }
 
 public sealed class BatchExportJob

@@ -1,4 +1,4 @@
-#nullable disable   // 与 OffsetConeCore 同口径：Civil3DFactory（可空关）与 WaterBox（可空开）共同编译
+#nullable disable   // Same as OffsetConeCore: compiled by both Civil3DFactory (nullable off) and WaterBox (nullable on)
 
 using System;
 using System.Collections.Generic;
@@ -8,11 +8,11 @@ using Autodesk.AutoCAD.Geometry;
 namespace Civil3DFactory.Geometry
 {
     /// <summary>
-    /// 成田算法核心（纯 DB/几何，无交互）。唯一真源：
-    /// Civil3DFactory（节点 make_parcels）与 products\waterbox（C3DF-MakeParcels/CT）共同编译本文件。
-    /// 链路：中心线端头贴边外延 → 双侧偏移+平头封口成带 → 带并集 →
-    /// （外圈−岛洞）−带 = 台田 → 尖角甄别归圆（OffsetConeCore.RoundSharpCorners）。
-    /// 入参多段线由调用方保证：内存克隆、Elevation=0、边界已 Closed。
+    /// Terrace-building algorithm core (pure DB/geometry, no interaction). Single source of truth:
+    /// Civil3DFactory (node make_parcels) and products\waterbox (C3DF-MakeParcels/CT) both compile this file.
+    /// Chain: extend centerline ends to the boundary -> offset both sides + square caps into a band -> union of bands ->
+    /// (outer ring - island holes) - bands = terraces -> sharp-corner detection and rounding (OffsetConeCore.RoundSharpCorners).
+    /// Input polylines are guaranteed by the caller: in-memory clones, Elevation=0, boundaries already Closed.
     /// </summary>
     public static class MakeParcelsCore
     {
@@ -20,16 +20,16 @@ namespace Civil3DFactory.Geometry
 
         public sealed class ParcelResult
         {
-            public List<Polyline> Parcels = new List<Polyline>();      // 已归圆，调用方入库并设图层
-            public List<Polyline> ChannelLoops = new List<Polyline>(); // 水道范围闭合环 = 范围−圆角台田（外环+岛环，可直接 HATCH）
-            public double ChannelArea;                                 // 水道面积（Region 真值）
+            public List<Polyline> Parcels = new List<Polyline>();      // already rounded; caller appends them and sets the layer
+            public List<Polyline> ChannelLoops = new List<Polyline>(); // closed channel-extent rings = extent - rounded terraces (outer ring + island rings, ready for HATCH)
+            public double ChannelArea;                                 // channel area (Region truth)
             public List<string> Warnings = new List<string>();
-            public int Extended;                                       // 端头外延的中心线条数
+            public int Extended;                                       // number of centerlines whose ends were extended
         }
 
-        /// <summary>处理一个外圈：holes 是它的岛洞，centerlines 是归属它的中心线。
-        /// halfWs 给了就逐中心线取宽（与 centerlines 对齐；null=全用 halfW）。
-        /// 任一条中心线成带失败抛 InvalidOperationException（宁可不出不出错图）。</summary>
+        /// <summary>Process one outer ring: holes are its island holes, centerlines are the centerlines belonging to it.
+        /// If halfWs is given, the width is taken per centerline (aligned with centerlines; null = halfW for all).
+        /// Throws InvalidOperationException if any centerline fails to form a band (better no output than a wrong drawing).</summary>
         public static ParcelResult GenerateOne(Polyline outer, List<Polyline> holes,
             List<Polyline> centerlines, double halfW, double filletR, double minDeflDeg,
             IList<double> halfWs = null)
@@ -56,12 +56,12 @@ namespace Civil3DFactory.Geometry
                     Polyline band = BuildBand(work, w, out string err);
                     if (!ReferenceEquals(work, cl)) work.Dispose();
                     if (band == null)
-                        throw new InvalidOperationException($"中心线 #{i + 1} 成带失败：{err}");
+                        throw new InvalidOperationException($"Centerline #{i + 1} failed to form a band: {err}");
                     bandLoops.Add(band);
                 }
 
                 if (bandLoops.Count == 0)
-                    throw new InvalidOperationException("这一片没有任何中心线成带。");
+                    throw new InvalidOperationException("No centerline in this area formed a band.");
 
                 for (int i = 0; i < bandLoops.Count; i++)
                 {
@@ -72,12 +72,12 @@ namespace Civil3DFactory.Geometry
                                 bandsAll.BooleanOperation(BooleanOperationType.BoolUnite, r2);
                     }
                     catch (System.Exception ex)
-                    { throw new InvalidOperationException($"带 #{i + 1} 成域失败：{ex.Message}；{DumpPl(bandLoops[i])}"); }
+                    { throw new InvalidOperationException($"Band #{i + 1} failed to form a region: {ex.Message}; {DumpPl(bandLoops[i])}"); }
                 }
 
                 try { baseRegion = ToRegion(outer); }
                 catch (System.Exception ex)
-                { throw new InvalidOperationException($"外圈成域失败：{ex.Message}"); }
+                { throw new InvalidOperationException($"Outer ring failed to form a region: {ex.Message}"); }
                 foreach (var h in holes)
                     using (var hr = ToRegion(h))
                         baseRegion.BooleanOperation(BooleanOperationType.BoolSubtract, hr);
@@ -95,14 +95,14 @@ namespace Civil3DFactory.Geometry
                     loop.Dispose();
                     result.Parcels.Add(rounded);
                     if (st.Spanned > 0)
-                        result.Warnings.Add($"台田 #{idx} 有 {st.Spanned} 处短边撑不下 R{filletR:0.###}，弧已跨过短边连角一并吞掉（足额半径）");
+                        result.Warnings.Add($"Terrace #{idx}: {st.Spanned} short edges cannot hold R{filletR:0.###}; the arc spans the short edge and swallows the adjacent corner (full radius)");
                     if (st.Downgraded > 0)
-                        result.Warnings.Add($"台田 #{idx} 有 {st.Downgraded} 处角放不下 R{filletR:0.###}，已按现场最大半径倒（最小 R{st.MinUsedR:0.#}）");
+                        result.Warnings.Add($"Terrace #{idx}: {st.Downgraded} corners cannot hold R{filletR:0.###}; rounded with the largest local radius (min R{st.MinUsedR:0.#})");
                     if (st.CantFit > 0)
-                        result.Warnings.Add($"台田 #{idx} 有 {st.CantFit} 处角连 R{filletR / 32:0.##} 都放不下，保留尖角");
+                        result.Warnings.Add($"Terrace #{idx}: {st.CantFit} corners cannot even hold R{filletR / 32:0.##}; sharp corner kept");
                 }
 
-                // 水道范围 = 范围 −（圆角后的台田）：闭合、贴圆角，HATCH/算面积用
+                // Channel extent = extent - (rounded terraces): closed, hugging the fillets, for HATCH / area computation
                 using (var chan = (Region)baseRegion.Clone())
                 {
                     foreach (Polyline p in result.Parcels)
@@ -110,15 +110,15 @@ namespace Civil3DFactory.Geometry
                             chan.BooleanOperation(BooleanOperationType.BoolSubtract, pr);
                     result.ChannelArea = chan.Area;
                     result.ChannelLoops = RegionLoops(chan);
-                    // 碎环过滤：布尔把圈弧折线化后，台田贴圈边与真弧之间会剩发丝月牙
-                    // （数米长、毫米宽、面积个位数 m²，2026-08-24 项目B实测 7 条）——丢弃并报账
+                    // Sliver filter: after the boolean turns ring arcs into chords, hairline crescents remain between the terrace edge
+                    // and the true arc (metres long, millimetres wide, single-digit m² area; 7 observed on project B 2026-08-24) -- drop and report
                     for (int i = result.ChannelLoops.Count - 1; i >= 0; i--)
                     {
                         double a2 = 0;
                         try { a2 = Math.Abs(result.ChannelLoops[i].Area); } catch { }
                         if (a2 < 25.0)
                         {
-                            result.Warnings.Add($"丢弃水道碎环（面积 {a2:0.0}m²，圈弧折线化月牙屑）");
+                            result.Warnings.Add($"Dropped channel sliver ring (area {a2:0.0} m², crescent from ring-arc chording)");
                             result.ChannelLoops[i].Dispose();
                             result.ChannelLoops.RemoveAt(i);
                         }
@@ -133,13 +133,13 @@ namespace Civil3DFactory.Geometry
             return result;
         }
 
-        // ---- 端头外延量：端点离任一范围环 ≤ 2×半宽 才外延（贴边的捅穿，深居域内的死端不动） ----
+        // ---- End extension amount: extend only if the end is within 2 x half width of any extent ring (edge-hugging ends punch through; dead ends deep inside stay) ----
         public static double EndExtension(Point2d end, List<Polyline> boundaries, double halfW)
             => EndExtension(end, default, boundaries, halfW);
 
-        /// <summary>端头外延量。dir=中心线在该端的外向向量（给了就按斜角精确算：
-        /// 斜口时带子远角要多伸 halfW·tan(斜角)，不够就在口部与圈之间剩小楔子/飘弧——
-        /// 2026-08-24 项目B口部实测病）。不给 dir 退回老口径（距离+半宽）。</summary>
+        /// <summary>End extension amount. dir = outward vector of the centerline at that end (if given, computed exactly for the skew angle:
+        /// at a skewed mouth the far corner of the band must extend an extra halfW*tan(skew), otherwise a small wedge / floating arc remains between
+        /// the mouth and the ring -- observed at the mouths on project B 2026-08-24). Without dir, fall back to the old rule (distance + half width).</summary>
         public static double EndExtension(Point2d end, Vector2d dir, List<Polyline> boundaries, double halfW)
         {
             double best = double.MaxValue;
@@ -156,27 +156,27 @@ namespace Civil3DFactory.Geometry
                 }
                 catch { }
             }
-            if (best > halfW * 4) return 0;                    // 内部端（接别的通道），不外延
+            if (best > halfW * 4) return 0;                    // interior end (joins another channel), no extension
             if (hit == null || dir.Length < 1e-9)
-                return best + halfW;                           // 老口径兜底
+                return best + halfW;                           // old-rule fallback
             try
             {
-                var t3 = hit.GetFirstDerivative(q);            // 圈局部切向
+                var t3 = hit.GetFirstDerivative(q);            // local tangent of the ring
                 var t2 = new Vector2d(t3.X, t3.Y);
                 if (t2.Length < 1e-9) return best + halfW;
                 t2 = t2.GetNormal();
                 var u = dir.GetNormal();
-                var n = new Vector2d(-t2.Y, t2.X);             // 圈局部法向
+                var n = new Vector2d(-t2.Y, t2.X);             // local normal of the ring
                 double nu = Math.Abs(u.DotProduct(n));
-                if (nu < 0.1) return best + halfW * 6;         // 近平行擦边，给大余量截断
-                var p = new Vector2d(-u.Y, u.X);               // 带宽方向
+                if (nu < 0.1) return best + halfW * 6;         // nearly parallel graze; give a large margin, gets clipped
+                var p = new Vector2d(-u.Y, u.X);               // band-width direction
                 double np = Math.Abs(p.DotProduct(n));
-                return best / nu + halfW * np / nu + 2.0;      // 沿线到圈 + 斜角补偿 + 余量
+                return best / nu + halfW * np / nu + 2.0;      // along the line to the ring + skew compensation + margin
             }
             catch { return best + halfW; }
         }
 
-        // ---- 端头沿末段弦向外延（外延段在范围线外，形状会被布尔裁掉，弦向足够） ----
+        // ---- Extend ends along the chord of the last segment (the extension lies outside the extent line and is clipped by the boolean; chord direction suffices) ----
         public static Polyline Extend(Polyline src, double extS, double extE)
         {
             if (extS <= 0 && extE <= 0) return src;
@@ -198,10 +198,10 @@ namespace Civil3DFactory.Geometry
             return pl;
         }
 
-        // ---- 中心线 → 封闭带：左右各偏半宽，首尾平头封口拼成一个闭环 ----
-        // 偏移自算（不走 GetOffsetCurves——accore 对开放带弧多段线返回空集，实测坑）：
-        // GY 产物 G1 相切连续，直段平移、弧段同心变半径、bulge 不变，端点解析重合；
-        // 未归圆的小折角处两侧点都保留（微型倒棱），布尔无感。
+        // ---- Centerline -> closed band: offset half width on each side, square caps at both ends joined into one closed loop ----
+        // Offsets are computed here (not GetOffsetCurves -- accore returns an empty set for open polylines with arcs, observed):
+        // GY output is G1 tangent-continuous; straight segments translate, arcs stay concentric with a new radius, bulge unchanged, endpoints coincide analytically;
+        // at small un-rounded kinks both side points are kept (micro chamfer), invisible to the boolean.
         public static Polyline BuildBand(Polyline cl, double halfW, out string err)
         {
             err = null;
@@ -209,39 +209,39 @@ namespace Civil3DFactory.Geometry
             if (left == null || right == null)
             {
                 left?.Dispose(); right?.Dispose();
-                err = $"偏移失败（左侧:{dl ?? "ok"}；右侧:{dr ?? "ok"}；顶点 {cl.NumberOfVertices}）";
+                err = $"Offset failed (left:{dl ?? "ok"}; right:{dr ?? "ok"}; vertices {cl.NumberOfVertices})";
                 return null;
             }
             var band = new Polyline(left.NumberOfVertices + right.NumberOfVertices);
             int vi = 0;
             for (int i = 0; i < left.NumberOfVertices; i++)
             {
-                double b = i < left.NumberOfVertices - 1 ? left.GetBulgeAt(i) : 0;   // 末点接封口直线
+                double b = i < left.NumberOfVertices - 1 ? left.GetBulgeAt(i) : 0;   // last point joins the straight cap
                 band.AddVertexAt(vi++, left.GetPoint2dAt(i), b, 0, 0);
             }
             for (int i = right.NumberOfVertices - 1; i >= 0; i--)
             {
-                double b = i > 0 ? -right.GetBulgeAt(i - 1) : 0;                     // 反向段 bulge 取负；首点闭合封口
+                double b = i > 0 ? -right.GetBulgeAt(i - 1) : 0;                     // reversed segment: negate bulge; first point closes the cap
                 band.AddVertexAt(vi++, right.GetPoint2dAt(i), b, 0, 0);
             }
             band.Closed = true;
             left.Dispose(); right.Dispose();
-            if (Math.Abs(band.Area) < 1e-6) { band.Dispose(); err = "带面积为零"; return null; }
+            if (Math.Abs(band.Area) < 1e-6) { band.Dispose(); err = "band area is zero"; return null; }
             return band;
         }
 
-        // ---- 解析偏移：d>0 向行进方向左侧偏。要求开放多段线；弧段半径 ≤ |d| 时报错。
-        // 相切接头（GY 圆角产物）端点解析重合；未归圆的直-直小折角走斜接（miter，
-        // 两条偏移线求交），避免倒棱在折角内侧造出微小自交、Region 不收 ----
+        // ---- Analytic offset: d>0 offsets to the left of the travel direction. Requires an open polyline; errors when an arc radius <= |d|.
+        // Tangent joints (GY fillet output) coincide analytically; small un-rounded straight-straight kinks are mitred
+        // (intersect the two offset lines) so the chamfer cannot create a tiny self-intersection inside the kink that Region rejects ----
         public static Polyline ManualOffset(Polyline src, double d, out string diag)
         {
             diag = null;
             int n = src.NumberOfVertices;
-            if (n < 2) { diag = "顶点不足"; return null; }
+            if (n < 2) { diag = "too few vertices"; return null; }
 
-            // 每段的偏移原语：端点、bulge、是否弧
-            // 碎段阈值取工程尺度：毫米级碎段的方向是画图噪声，偏移后会在带上
-            // 造出微型乱折让 Region 拒收（实测 7mm 碎段翻车），跳过后由接头斜接补上
+            // Offset primitive per segment: endpoints, bulge, is-arc
+            // Tiny-segment threshold at engineering scale: the direction of millimetre-size fragments is drawing noise; after offsetting they
+            // create micro zigzags on the band that Region rejects (a 7 mm fragment failed in practice); skipped, and the joint mitre fills the gap
             double minSeg = Math.Max(0.01, Math.Abs(d) / 1000);
             var segs = new List<(Point2d q1, Point2d q2, double bulge, bool arc)>();
             for (int i = 0; i < n - 1; i++)
@@ -250,30 +250,30 @@ namespace Civil3DFactory.Geometry
                 double b = src.GetBulgeAt(i);
                 Vector2d chord = p2 - p1;
                 double ch = chord.Length;
-                if (ch < minSeg) continue;                     // 碎段跳过
-                var nl = new Vector2d(-chord.Y / ch, chord.X / ch);   // 行进左法向
+                if (ch < minSeg) continue;                     // skip tiny segments
+                var nl = new Vector2d(-chord.Y / ch, chord.X / ch);   // left normal of travel
 
                 if (Math.Abs(b) < 1e-9)
                     segs.Add((p1 + nl * d, p2 + nl * d, 0, false));
                 else
                 {
                     double r = ch * (1 + b * b) / (4 * Math.Abs(b));
-                    double rNew = r - Math.Sign(b) * d;        // 左偏：CCW 弧向心收，CW 弧离心放
-                    if (rNew < 1e-6) { diag = $"第 {i + 1} 段弧半径 {r:0.##} 容不下偏移 {Math.Abs(d):0.##}"; return null; }
+                    double rNew = r - Math.Sign(b) * d;        // left offset: CCW arc shrinks toward the centre, CW arc grows away
+                    if (rNew < 1e-6) { diag = $"Segment {i + 1}: arc radius {r:0.##} cannot hold offset {Math.Abs(d):0.##}"; return null; }
                     var m = new Point2d((p1.X + p2.X) / 2, (p1.Y + p2.Y) / 2);
-                    // 圆心在弦中点左法向上的带号距离。符号用标准四分之一圆核过：
-                    // p1=(1,0)→p2=(0,1) b=tan22.5° 的 CCW 弧圆心必须是 (0,0)——
-                    // 正 bulge（CCW）圆心在行进左侧、弧顶在右侧，别再记反。
+                    // Signed distance of the centre along the left normal at the chord midpoint. Sign verified with a standard quarter circle:
+                    // the CCW arc p1=(1,0)->p2=(0,1) with b=tan22.5° must have its centre at (0,0) --
+                    // positive bulge (CCW) has its centre on the travel-left side and its apex on the right; do not get it backwards again.
                     double t = (ch / 4) * (1 / b - b);
                     Point2d o = m + nl * t;
                     double k = rNew / r;
-                    // 同心缩放，扫角不变 → bulge 不变
+                    // concentric scaling, sweep unchanged -> bulge unchanged
                     segs.Add((o + (p1 - o) * k, o + (p2 - o) * k, b, true));
                 }
             }
-            if (segs.Count == 0) { diag = "偏移后没有有效段"; return null; }
+            if (segs.Count == 0) { diag = "no valid segments after offsetting"; return null; }
 
-            // 接头处理：相切→共点；直-直折角→斜接；带弧折角→中点凑合（GY 后不该出现）
+            // Joints: tangent -> shared point; straight-straight kink -> mitre; kink with arcs -> midpoint compromise (should not occur after GY)
             for (int i = 1; i < segs.Count; i++)
             {
                 var a = segs[i - 1]; var c = segs[i];
@@ -291,7 +291,7 @@ namespace Civil3DFactory.Geometry
                 segs[i] = (j, c.q2, c.bulge, c.arc);
             }
 
-            // 接头两侧已严格共点：顶点 = 首段起点 + 各段终点，bulge 属于起始顶点
+            // Both sides of each joint now coincide exactly: vertices = start of first segment + end of each segment; bulge belongs to the start vertex
             var pl = new Polyline(segs.Count + 1);
             pl.AddVertexAt(0, segs[0].q1, segs[0].bulge, 0, 0);
             for (int i = 0; i < segs.Count; i++)
@@ -331,11 +331,11 @@ namespace Civil3DFactory.Geometry
                 if (r == null && o is Region rg) r = rg;
                 else o.Dispose();
             }
-            if (r == null) throw new InvalidOperationException("Region 创建失败（环自相交？）");
+            if (r == null) throw new InvalidOperationException("Region creation failed (self-intersecting ring?)");
             return r;
         }
 
-        // ---- Region → 闭合多段线环：递归炸开收集边曲线，按端点串环，弧段转 bulge ----
+        // ---- Region -> closed polyline rings: explode recursively to collect edge curves, chain them by endpoints, convert arcs to bulges ----
         public static List<Polyline> RegionLoops(Region reg)
         {
             var curves = new List<Curve>();
@@ -383,11 +383,11 @@ namespace Civil3DFactory.Geometry
                             pl.AddVertexAt(vi++, new Point2d(p.X, p.Y), 0, 0, 0);
                         else
                         {
-                            // ACIS 布尔后圆弧边常以"椭圆弧"炸出——老代码不是 Arc 就默默拉弦，
-                            // 把大半径长弧削掉一条矢高（项目B台田贴圈边实测 1~2m 漂移）。
-                            // 注意不能用密集直段兜底：下游归圆的共线合并(0.5°)会把微折角
-                            // 密集直段重新并成长弦，白修。先三点定圆拟合出真 bulge 弧，
-                            // 拟合不上（真样条）才退密集采样。
+                            // After an ACIS boolean, arc edges often explode as "elliptical arcs" -- the old code silently chorded anything that was not an Arc,
+                            // shaving a full sagitta off long large-radius arcs (1~2 m drift observed on project B terrace edges hugging the ring).
+                            // Dense straight segments are not an acceptable fallback either: the downstream rounding's collinear merge (0.5°) would merge
+                            // the dense micro-kinked segments back into a long chord, undoing the fix. First fit a true bulge arc through three points;
+                            // only if the fit fails (true spline) fall back to dense sampling.
                             double len = 0;
                             try { len = c.GetDistanceAtParameter(c.EndParam); } catch { }
                             bool asArc = false;
@@ -406,9 +406,9 @@ namespace Civil3DFactory.Geometry
                                         double ux = (s2 * (pM.Y - pE.Y) + m2 * (pE.Y - pS.Y) + e2 * (pS.Y - pM.Y)) / det;
                                         double uy = (s2 * (pE.X - pM.X) + m2 * (pS.X - pE.X) + e2 * (pM.X - pS.X)) / det;
                                         double R = Math.Sqrt((pS.X - ux) * (pS.X - ux) + (pS.Y - uy) * (pS.Y - uy));
-                                        // 容差 5cm：ACIS 有时用样条近似圆弧，3mm 会拒真弧
-                                        // →退密集直段→又被归圆共线合并并回长弦（矢高级错误）。
-                                        // 5cm 的"圆弧化误差"远小于弦化的米级矢高。
+                                        // 5 cm tolerance: ACIS sometimes approximates arcs with splines, and 3 mm would reject true arcs
+                                        // -> fall back to dense segments -> merged back into a long chord by the collinear merge (sagitta-level error).
+                                        // A 5 cm "arc-fitting error" is far smaller than the metre-level sagitta of chording.
                                         bool fits = true;
                                         for (int k = 1; k <= 6 && fits; k++)
                                         {
@@ -432,9 +432,9 @@ namespace Civil3DFactory.Geometry
                                 catch { }
                             if (!asArc)
                             {
-                                // 整段不是单圆（ACIS 会把相切的弧+直+弧并成一条复合样条边）——
-                                // 逐 ~5m 分段三点定弧出带微 bulge 的小弧串。不能出纯直段：
-                                // 下游归圆的共线合并(0.5°)会把密集直段并回长弦（bulge≠0 才受保护）。
+                                // The whole edge is not a single circle (ACIS merges tangent arc+line+arc into one composite spline edge) --
+                                // fit three-point arcs every ~5 m into a string of small arcs with a tiny bulge. No pure straight segments allowed:
+                                // the downstream rounding's collinear merge (0.5°) would merge dense straight segments back into a long chord (only bulge!=0 is protected).
                                 int nSeg = Math.Max(1, (int)Math.Ceiling(len / 5.0));
                                 for (int k = 0; k < nSeg; k++)
                                 {
@@ -453,11 +453,11 @@ namespace Civil3DFactory.Geometry
                                     double bulge2 = 0;
                                     if (chord > 1e-6)
                                     {
-                                        // 中点到弦的带号距离 h → bulge = 2h/chord 的一阶弧近似的精确式：
-                                        // R=(c²/4+h²)/(2h), sweep=4·atan(2h/c)… 直接用 bulge=2h/c 对小段弧即为精确
+                                        // Signed distance h from the midpoint to the chord -> the exact form of the first-order arc approximation bulge = 2h/chord:
+                                        // R=(c²/4+h²)/(2h), sweep=4*atan(2h/c)... using bulge=2h/c directly is exact for small arcs
                                         double hx = (B2.X - A2.X) / chord, hy = (B2.Y - A2.Y) / chord;
-                                        double h = (M2.X - A2.X) * (-hy) + (M2.Y - A2.Y) * hx;   // 中点在弦左侧的带号距离
-                                        bulge2 = 2 * h / chord;   // tan(sweep/4)=2h/c，三点定弧精确式
+                                        double h = (M2.X - A2.X) * (-hy) + (M2.Y - A2.Y) * hx;   // signed distance of the midpoint left of the chord
+                                        bulge2 = 2 * h / chord;   // tan(sweep/4)=2h/c, exact three-point arc form
                                     }
                                     pl.AddVertexAt(vi++, new Point2d(A2.X, A2.Y), bulge2, 0, 0);
                                 }
@@ -481,7 +481,7 @@ namespace Civil3DFactory.Geometry
                 if (o is Region sub) { CollectCurves(sub, curves, loops); sub.Dispose(); }
                 else if (o is Circle ci)
                 {
-                    // 整圆独立成环：两个半圆 bulge=1
+                    // Full circle as its own ring: two semicircles with bulge=1
                     var pl = new Polyline(2);
                     pl.AddVertexAt(0, new Point2d(ci.Center.X - ci.Radius, ci.Center.Y), 1, 0, 0);
                     pl.AddVertexAt(1, new Point2d(ci.Center.X + ci.Radius, ci.Center.Y), 1, 0, 0);

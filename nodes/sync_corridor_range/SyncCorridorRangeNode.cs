@@ -8,9 +8,9 @@ using CivCorr = Autodesk.Civil.DatabaseServices.Corridor;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 节点 sync_corridor_range：走廊区间对齐路线起终点（换中线后配套）。
-    /// 算法核心在同目录 CorridorRangeCore.cs（与 products\waterbox 的
-    /// C3DF-SyncCorridorRange/QZ 同核）。
+    /// Node sync_corridor_range: align corridor regions to the alignment start/end (companion to replacing the centerline).
+    /// The algorithm core lives in CorridorRangeCore.cs in this folder (shared with
+    /// C3DF-SyncCorridorRange/QZ in products\waterbox).
     /// </summary>
     public static partial class Ops
     {
@@ -25,7 +25,7 @@ namespace Civil3DFactory
             {
                 CivCorr corr = FindCorridor(tr, db, name);
                 if (corr == null)
-                    throw new InvalidOperationException("找不到走廊 '" + name + "'。");
+                    throw new InvalidOperationException("Corridor '" + name + "' not found.");
                 corr.UpgradeOpen();
 
                 CorridorRangeCore.SyncResult r = CorridorRangeCore.SyncToAlignments(corr, tr);
@@ -50,11 +50,11 @@ namespace Civil3DFactory
                     });
                 }
 
-                // 断言：没有任何基线可同步（全部拿不到路线/没区间）是配置问题，不许安静成功
+                // Assert: no baseline to sync (none has an alignment / regions) is a configuration problem; no silent success
                 if (r.Baselines.Count == 0)
-                    throw new InvalidOperationException("走廊 '" + name + "' 没有基线。");
+                    throw new InvalidOperationException("Corridor '" + name + "' has no baseline.");
                 if (!r.Rebuilt)
-                    throw new InvalidOperationException("走廊重建失败：" + r.RebuildError);
+                    throw new InvalidOperationException("Corridor rebuild failed: " + r.RebuildError);
 
                 tr.Commit();
                 return new JsonObject

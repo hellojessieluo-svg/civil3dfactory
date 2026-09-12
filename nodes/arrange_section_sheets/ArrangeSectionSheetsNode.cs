@@ -18,32 +18,32 @@ namespace Civil3DFactory
         const string SectionSheetFrameLayer = "C3DF-SECTION-SHEET-FRAME";
 
         /// <summary>
-        /// 横断面图排版真源：把已生成的断面图集中摆到全部路线右侧的空地上。
+        /// Single source of truth for section-view layout: move the generated section views onto the empty area right of all alignments.
         ///
-        /// 两种版式：
-        ///   rows  （默认）一条路线占一行，图框沿 +X 排开，行首写路线名；查图册、校对最直观；
-        ///   sheets            图框按 sheets_per_row 排成网格，一页 rows×cols 张。
-        /// 图框在模型空间的尺寸 = 纸张 mm × 出图比例 ÷ 1000（A3@1:200 = 84×59.4 m，只放得下一张
-        /// ±30 m 宽的断面；要一页 4 张得 1:500 以上）。
+        /// Two layouts:
+        ///   rows   (default) one alignment per row, frames laid out along +X, alignment name at the row head; easiest for browsing and checking;
+        ///   sheets           frames arranged in a grid by sheets_per_row, rows x cols views per page.
+        /// Frame size in model space = paper mm x plot scale / 1000 (A3@1:200 = 84 x 59.4 m, which fits only one
+        /// +/-30 m wide section; 4 per page needs 1:500 or coarser).
         ///
-        /// 位置靠改 Graph.Location（可写）实现，不重建断面图，样式、标注、体积表全保留。
-        /// 每格装不下时不静默：记进 oversize 并在结果里报数。
+        /// Positioning is done by writing Graph.Location; section views are not rebuilt, so styles, labels and volume tables are all kept.
+        /// A view that does not fit its cell is not silently ignored: it is recorded in oversize and counted in the result.
         /// </summary>
         static JsonNode RunNodeArrangeSectionSheets(JsonObject args, Document doc)
         {
             string layout = GetString(args, "layout", "rows").ToLowerInvariant();
             if (layout != "rows" && layout != "sheets")
-                throw new ArgumentException("layout 只能是 rows 或 sheets。");
+                throw new ArgumentException("layout must be rows or sheets.");
 
             double scale = GetDouble(args, "scale", 200);
-            if (scale <= 0) throw new ArgumentException("scale 必须为正数（1:200 就传 200）。");
+            if (scale <= 0) throw new ArgumentException("scale must be positive (pass 200 for 1:200).");
             string paper = GetString(args, "paper", "A3");
             double paperW = GetDouble(args, "paper_w", 0);
             double paperH = GetDouble(args, "paper_h", 0);
-            if (paperW <= 0 || paperH <= 0) PaperSizeMm(paper, out paperW, out paperH);   // 预设不认识就报错；自定义走 paper_w/paper_h
+            if (paperW <= 0 || paperH <= 0) PaperSizeMm(paper, out paperW, out paperH);   // unknown preset throws; custom sizes go through paper_w/paper_h
             int rows = (int)GetDouble(args, "rows", 1);
             int cols = (int)GetDouble(args, "cols", 1);
-            if (rows < 1 || cols < 1) throw new ArgumentException("rows/cols 必须 ≥ 1。");
+            if (rows < 1 || cols < 1) throw new ArgumentException("rows/cols must be >= 1.");
             int sheetsPerRow = (int)GetDouble(args, "sheets_per_row", 10);
             if (sheetsPerRow < 1) sheetsPerRow = 1;
             double margin = GetDouble(args, "margin", 200);
@@ -52,8 +52,8 @@ namespace Civil3DFactory
             double innerRatio = GetDouble(args, "inner_margin_ratio", 0.05);
             bool perAlignmentNewSheet = GetBool(args, "per_alignment_new_sheet", true);
             var onlyAlignments = args["alignments"] as JsonArray;
-            // 断面图显示宽度：给了就顺手收窄（OffsetLeft/Right 可写，不必重生成断面图）。
-            // 采样宽度常按最宽堤埝取，出图时格子装不下，这里是唯一的收口点。
+            // Section view display width: narrow it here if given (OffsetLeft/Right are writable; no need to regenerate views).
+            // Sample width is usually taken from the widest dike, so views overflow the cell at plot time; this is the only place to trim it.
             double offLeft = GetDouble(args, "offset_left", 0);
             double offRight = GetDouble(args, "offset_right", 0);
 
@@ -62,15 +62,15 @@ namespace Civil3DFactory
             double inner = Math.Min(paperW, paperH) * innerRatio * scale / 1000.0;
             double cellW = (sheetW - 2 * inner) / cols;
             double cellH = (sheetH - 2 * inner) / rows;
-            // 行/列间距直接给（模型单位，= 相邻断面中心的距离）；0 = 老行为，按图框均分。
-            // 断面图本身往往比均分格子矮，均分就留一大截白；这是把行距收紧的唯一旋钮。
+            // Row/column pitch given directly (model units, = distance between adjacent view centres); 0 = old behaviour, evenly divide the frame.
+            // Section views are often shorter than an evenly divided cell, leaving a lot of white; this is the only knob to tighten row spacing.
             double rowPitch = GetDouble(args, "row_pitch", 0);
             double colPitch = GetDouble(args, "col_pitch", 0);
-            if (rowPitch < 0 || colPitch < 0) throw new ArgumentException("row_pitch/col_pitch 不能为负。");
+            if (rowPitch < 0 || colPitch < 0) throw new ArgumentException("row_pitch/col_pitch cannot be negative.");
             double effH = rowPitch > 0 ? rowPitch : cellH;
             double effW = colPitch > 0 ? colPitch : cellW;
 
-            // 图框辅助框：看得见页边界，且 DWGTitleblockPlotter 能按「图层上的闭合多段线」直接批量打印
+            // Frame helper rectangles: page edges become visible, and DWGTitleblockPlotter can batch-plot by "closed polylines on a layer"
             bool wantFrames = GetBool(args, "draw_frames", true);
             bool wantLabel = GetBool(args, "row_label", true) && layout == "rows";
             double labelHeight = GetDouble(args, "label_height", sheetH * 0.05);
@@ -83,7 +83,7 @@ namespace Civil3DFactory
             if (onlyAlignments != null)
                 foreach (JsonNode n in onlyAlignments) wanted.Add(n.GetValue<string>());
 
-            // ── 排版起点：全部路线的包围盒右侧（只看路线本体，不含断面图）──
+            // -- Layout origin: right of the bounding box of all alignments (alignments only, no section views) --
             double x0 = GetDouble(args, "x", double.NaN);
             double y0 = GetDouble(args, "y", double.NaN);
             var alignNames = new List<string>();
@@ -107,14 +107,14 @@ namespace Civil3DFactory
                     }
                     catch { }
                 }
-                if (!any) throw new InvalidOperationException("图中没有路线，无法定位排版起点（可显式传 x/y）。");
+                if (!any) throw new InvalidOperationException("No alignment in the drawing; cannot locate the layout origin (pass x/y explicitly).");
                 if (double.IsNaN(x0)) x0 = maxX + margin;
                 if (double.IsNaN(y0)) y0 = maxY;
                 tr.Commit();
             }
             alignNames.Sort(CompareDikeName);
 
-            // 重跑先清掉上次的行首文字和图框，避免旧的叠在新排版上
+            // On rerun, first remove last run's row-head texts and frames so old ones do not overlap the new layout
             int labelsErased = 0, framesErased = 0;
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
@@ -147,7 +147,7 @@ namespace Civil3DFactory
             var oversize = new JsonArray();
             int perPage = rows * cols;
             int globalSlot = 0, movedTotal = 0, labelsMade = 0;
-            double curRowTop = y0;          // rows 版式：当前行的顶边
+            double curRowTop = y0;          // rows layout: top edge of the current row
             int rowIndex = 0;
             double maxRowRight = x0;
 
@@ -155,7 +155,7 @@ namespace Civil3DFactory
             {
                 if (wanted.Count > 0 && !wanted.Contains(alName)) continue;
 
-                // 收集本路线全部断面图，按桩号排序
+                // Collect all section views of this alignment, sorted by station
                 var items = new List<(double station, ObjectId svId)>();
                 using (Transaction tr = db.TransactionManager.StartTransaction())
                 {
@@ -183,7 +183,7 @@ namespace Civil3DFactory
 
                 if (layout == "sheets")
                 {
-                    // 每条路线单独成册时，补齐到下一页开头，避免同一张图框里混两条堤埝
+                    // When each alignment gets its own booklet, pad to the start of the next page so two dikes never share a frame
                     if (perAlignmentNewSheet && globalSlot % perPage != 0)
                         globalSlot += perPage - (globalSlot % perPage);
                     startPage = globalSlot / perPage;
@@ -195,7 +195,7 @@ namespace Civil3DFactory
                     int slot;
                     if (layout == "rows")
                     {
-                        // 一条路线一行：图框沿 +X 排开，行内第 i/perPage 个图框
+                        // One alignment per row: frames laid out along +X, frame index i/perPage within the row
                         int sheetIdx = i / perPage;
                         slot = i % perPage;
                         sheetLeft = x0 + sheetIdx * (sheetW + sheetGap);
@@ -221,7 +221,7 @@ namespace Civil3DFactory
                         var sv = (CivSectionView)tr.GetObject(items[i].svId, OpenMode.ForWrite);
                         if (offLeft > 0 || offRight > 0)
                         {
-                            // 先收范围再量包围盒，否则按旧宽度定位会偏
+                            // Trim the range before measuring the bounding box, otherwise positioning by the old width drifts
                             try
                             {
                                 sv.IsOffsetRangeAutomatic = false;
@@ -248,7 +248,7 @@ namespace Civil3DFactory
                                 ["cell_h"] = Math.Round(effH, 2)
                             });
 
-                        // Location 未必是图形左下角，按「当前中心 → 目标中心」平移最稳
+                        // Location is not necessarily the graph's lower-left; translating "current centre -> target centre" is the most robust
                         double curCx = (ext.MinPoint.X + ext.MaxPoint.X) / 2;
                         double curCy = (ext.MinPoint.Y + ext.MaxPoint.Y) / 2;
                         sv.Location = new Point3d(
@@ -317,7 +317,7 @@ namespace Civil3DFactory
                 }
             }
 
-            // 画图框辅助框（闭合多段线，一页一个）
+            // Draw frame helper rectangles (closed polyline, one per page)
             int framesDrawn = 0;
             if (wantFrames && pages.Count > 0)
             {
@@ -341,7 +341,7 @@ namespace Civil3DFactory
                         pl.Closed = true;
                         ms.AppendEntity(pl);
                         tr.AddNewlyCreatedDBObject(pl, true);
-                        pl.LayerId = layerId;    // 入库后才能设图层
+                        pl.LayerId = layerId;    // layer can only be set after appending to the database
                         framesDrawn++;
                     }
                     tr.Commit();
@@ -360,7 +360,7 @@ namespace Civil3DFactory
                 ["cell_size_model"] = Math.Round(effW, 2) + " × " + Math.Round(effH, 2) + " m",
                 ["row_pitch"] = Math.Round(effH, 3),
                 ["col_pitch"] = Math.Round(effW, 3),
-                ["grid_per_sheet"] = rows + " 行 × " + cols + " 列",
+                ["grid_per_sheet"] = rows + " rows x " + cols + " cols",
                 ["layout_origin"] = Math.Round(x0, 3) + ", " + Math.Round(y0, 3),
                 ["alignments_arranged"] = perAlign.Count,
                 ["section_views_moved"] = movedTotal,
@@ -390,14 +390,14 @@ namespace Civil3DFactory
             var ltr = new LayerTableRecord();
             ltr.Name = SectionSheetFrameLayer;
             ltr.Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
-                Autodesk.AutoCAD.Colors.ColorMethod.ByAci, 8);   // 灰，不抢断面图
+                Autodesk.AutoCAD.Colors.ColorMethod.ByAci, 8);   // grey, does not compete with the section views
             ObjectId id = lt.Add(ltr);
             tr.AddNewlyCreatedDBObject(ltr, true);
             return id;
         }
 
-        /// <summary>行首路线名：右对齐贴着第一张图框，垂直居中于行。
-        /// 写法照 annotate_grid_elevations——设了对齐模式必须给 AlignmentPoint 并调 AdjustAlignment，否则不生效。</summary>
+        /// <summary>Row-head alignment name: right-aligned against the first frame, vertically centred on the row.
+        /// Same pattern as annotate_grid_elevations: once an alignment mode is set you must give AlignmentPoint and call AdjustAlignment, otherwise it has no effect.</summary>
         static void AddRowLabel(Database db, string text, double x, double y, double height)
         {
             using (Transaction tr = db.TransactionManager.StartTransaction())
@@ -435,7 +435,7 @@ namespace Civil3DFactory
             }
         }
 
-        /// <summary>堤埝编号排序：X-2 排在 X-10 前面（纯字符串排序会反）。</summary>
+        /// <summary>Dike number ordering: X-2 sorts before X-10 (plain string ordering would reverse them).</summary>
         static int CompareDikeName(string a, string b)
         {
             int na = DikeNumber(a), nb = DikeNumber(b);

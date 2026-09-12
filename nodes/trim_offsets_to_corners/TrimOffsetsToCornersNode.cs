@@ -13,15 +13,15 @@ namespace Civil3DFactory
         static JsonNode RunNodeTrimOffsetsToCorners(JsonObject args, Document doc)
             => TrimOffsetsToCorners(args, doc);
 
-        // 台田角收口：连接路线建成时父段必须伸过角点相交（留下小尾巴）；
-        // 本零件把每个角两侧偏移段的区间端**原位**缩回到弧切点外 margin 处
-        // （AlignmentRegion.Start/EndStation 可写，不删不重建，角保持存活）。
-        // 桩号帧：区间端用母线中线帧（StationOffset 对中线量），避开偏移自家弧长帧漂移。
+        // Terrace corner trim: when a connected alignment is created the parent segments must extend past the corner to intersect (leaving small tails);
+        // this part shrinks the region ends of the offset segments on both sides of each corner **in place** to margin beyond the arc tangent point
+        // (AlignmentRegion.Start/EndStation are writable; no delete/rebuild, the corner stays alive).
+        // Station frame: region ends use the parent centerline frame (StationOffset measured against the centerline), avoiding drift of the offset's own arc-length frame.
         static JsonNode TrimOffsetsToCorners(JsonObject a, Document doc)
         {
             var arr = a["corners"] as JsonArray;
             if (arr == null || arr.Count == 0)
-                throw new InvalidOperationException("需要 corners:[{corner,in_alignment,out_alignment},...]");
+                throw new InvalidOperationException("Requires corners:[{corner,in_alignment,out_alignment},...]");
             double margin = GetDouble(a, "margin", 0.05);
 
             Database db = doc.Database;
@@ -40,7 +40,7 @@ namespace Civil3DFactory
                     var segOut = FindAlignment(tr, civ, Need(o, "out_alignment"));
                     if (corner == null || segIn == null || segOut == null)
                     {
-                        report.Add(cname + ": 对象缺失，跳过");
+                        report.Add(cname + ": object missing, skipped");
                         skipped++;
                         continue;
                     }
@@ -49,8 +49,8 @@ namespace Civil3DFactory
                     {
                         double e = 0, nn = 0;
                         corner.PointLocation(sta, 0, ref e, ref nn);
-                        // 该端点属于哪条段：先对段量偏移≈0；量不到（切点在段区间外）就退回
-                        // 用段的母线量——|偏移−标称值|≈0 也算命中（区间端本就存母线帧桩号）。
+                        // Which segment owns this end: first measure offset ~= 0 against the segment; if unmeasurable (tangent point outside the segment range) fall back to
+                        // measuring against the segment's parent -- |offset - nominal| ~= 0 also counts as a hit (region ends store parent-frame stations anyway).
                         CivAlignment seg = null;
                         foreach (var cand in new[] { segIn, segOut })
                         {
@@ -73,20 +73,20 @@ namespace Civil3DFactory
                                 if (Math.Abs(Math.Abs(off3) - Math.Abs(oi.NominalOffset)) < 0.1) { seg = cand; break; }
                             }
                         }
-                        if (seg == null) { report.Add(cname + ": 有端点不在任何段上"); continue; }
+                        if (seg == null) { report.Add(cname + ": an end point lies on no segment"); continue; }
 
                         Autodesk.Civil.DatabaseServices.OffsetAlignmentInfo info;
                         try { info = seg.OffsetAlignmentInfo; }
-                        catch { info = null; }   // 非偏移路线（如边界中线）取该属性会抛异常而非返回空
-                        if (info == null) { report.Add(seg.Name + ": 不是偏移路线，跳过该端"); continue; }
+                        catch { info = null; }   // non-offset alignments (e.g. boundary centerline) throw on this property instead of returning null
+                        if (info == null) { report.Add(seg.Name + ": not an offset alignment, end skipped"); continue; }
                         var parent = (CivAlignment)tr.GetObject(info.ParentAlignmentId, OpenMode.ForRead);
                         double psta = 0, poff = 0;
                         try { parent.StationOffset(e, nn, ref psta, ref poff); }
-                        catch { report.Add(seg.Name + ": 切点超出母线范围"); continue; }
+                        catch { report.Add(seg.Name + ": tangent point outside the parent range"); continue; }
 
                         var segW = (CivAlignment)tr.GetObject(seg.ObjectId, OpenMode.ForWrite);
                         var regions = segW.OffsetAlignmentInfo.Regions;
-                        // 找覆盖/最近该桩号的区间
+                        // Find the region covering / nearest to this station
                         int best = -1;
                         double bestD = double.MaxValue;
                         for (int i = 0; i < regions.Count; i++)
@@ -96,7 +96,7 @@ namespace Civil3DFactory
                                 : Math.Min(Math.Abs(psta - r.StartStation), Math.Abs(psta - r.EndStation));
                             if (d < bestD) { bestD = d; best = i; }
                         }
-                        if (best < 0) { report.Add(seg.Name + ": 无区间"); continue; }
+                        if (best < 0) { report.Add(seg.Name + ": no region"); continue; }
                         var reg = regions[best];
                         bool nearStart = Math.Abs(psta - reg.StartStation) < Math.Abs(psta - reg.EndStation);
                         double before, after;
@@ -104,18 +104,18 @@ namespace Civil3DFactory
                         {
                             before = reg.StartStation;
                             after = psta - margin;
-                            if (after > reg.EndStation - 1) { report.Add(seg.Name + ": 收口会吃光区间，跳过"); continue; }
+                            if (after > reg.EndStation - 1) { report.Add(seg.Name + ": trim would consume the region, skipped"); continue; }
                             reg.StartStation = after;
                         }
                         else
                         {
                             before = reg.EndStation;
                             after = psta + margin;
-                            if (after < reg.StartStation + 1) { report.Add(seg.Name + ": 收口会吃光区间，跳过"); continue; }
+                            if (after < reg.StartStation + 1) { report.Add(seg.Name + ": trim would consume the region, skipped"); continue; }
                             reg.EndStation = after;
                         }
                         trimmed++;
-                        report.Add(seg.Name + (nearStart ? " 起点 " : " 终点 ")
+                        report.Add(seg.Name + (nearStart ? " start " : " end ")
                             + Math.Round(before, 2) + " -> " + Math.Round(after, 2));
                     }
                 }

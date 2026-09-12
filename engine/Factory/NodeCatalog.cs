@@ -6,20 +6,20 @@ using System.Text.Json.Nodes;
 
 namespace Civil3DFactory
 {
-    /// <summary>节点的一个入参：来自 node.json 的 inputs 或 parameters。</summary>
+    /// <summary>One node argument, from the inputs or parameters of node.json.</summary>
     public sealed class NodeArgDef
     {
         public string Key;
-        /// <summary>node.json 里的原始类型串，已去掉表示可选的问号。</summary>
+        /// <summary>Raw type string from node.json, with the optional question mark already removed.</summary>
         public string Type;
         public bool Optional;
-        /// <summary>true = 来自 inputs（图中已有对象，界面上给下拉选择）。</summary>
+        /// <summary>true = from inputs (objects already in the drawing, offered in a dropdown).</summary>
         public bool IsInput;
-        /// <summary>类型串的语义解析结果，参数对话框据此决定用哪种控件。</summary>
+        /// <summary>Semantic parse of the type string; the parameter dialog picks its control from it.</summary>
         public NodeArgType Parsed;
     }
 
-    /// <summary>node.json 里的一条节点契约。</summary>
+    /// <summary>One node contract from node.json.</summary>
     public sealed class NodeDef
     {
         public string Id;
@@ -35,7 +35,7 @@ namespace Civil3DFactory
             get { return string.IsNullOrEmpty(Name) ? Id : Name; }
         }
 
-        /// <summary>该节点在插件里是否有执行入口（外部 PowerShell 节点也登记在 Ops 注册表里）。</summary>
+        /// <summary>Whether the node has an execution entry in the plugin (external PowerShell nodes are also registered in the Ops registry).</summary>
         public bool Runnable
         {
             get { return Ops.Registry.ContainsKey(Id); }
@@ -48,12 +48,12 @@ namespace Civil3DFactory
     }
 
     /// <summary>
-    /// nodes/node.json 读取器。契约仍是唯一真源：功能区面板、参数对话框、命令名全部由它生成，
-    /// 新增节点只要写进 node.json 并在 Ops 注册表登记执行入口即可自动出现。
+    /// nodes/node.json reader. The contract remains the single source of truth: ribbon panels, parameter dialogs and command names are all generated from it;
+    /// a new node appears automatically once it is written into node.json and its execution entry is registered in the Ops registry.
     /// </summary>
     public static class NodeCatalog
     {
-        const string DefaultPanel = "其他";
+        const string DefaultPanel = "Other";
 
         static List<NodeDef> _nodes;
         static readonly object Gate = new object();
@@ -88,7 +88,7 @@ namespace Civil3DFactory
             return ids;
         }
 
-        /// <summary>按 ui.panel 分组，面板与面板内节点都按 ui.order 排序。</summary>
+        /// <summary>Groups by ui.panel; panels and the nodes within them are both sorted by ui.order.</summary>
         public static List<KeyValuePair<string, List<NodeDef>>> Panels()
         {
             var order = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -133,12 +133,12 @@ namespace Civil3DFactory
         {
             string path = FactoryPaths.NodeJsonPath();
             if (!File.Exists(path))
-                throw new InvalidOperationException("找不到节点契约: " + path);
+                throw new InvalidOperationException("Node contract not found: " + path);
 
             JsonNode root = JsonNode.Parse(File.ReadAllText(path, Encoding.UTF8));
             JsonArray arr = root as JsonArray;
             if (arr == null)
-                throw new InvalidOperationException("nodes/node.json 根元素必须是数组。");
+                throw new InvalidOperationException("The root element of nodes/node.json must be an array.");
 
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var list = new List<NodeDef>();
@@ -147,13 +147,13 @@ namespace Civil3DFactory
             {
                 index++;
                 JsonObject o = item as JsonObject;
-                if (o == null) throw new InvalidOperationException("nodes/node.json 第 " + index + " 条不是对象。");
+                if (o == null) throw new InvalidOperationException("Entry " + index + " of nodes/node.json is not an object.");
 
                 string id = Str(o, "id");
                 if (string.IsNullOrWhiteSpace(id))
-                    throw new InvalidOperationException("nodes/node.json 存在缺少 id 的记录。");
+                    throw new InvalidOperationException("nodes/node.json contains a record without an id.");
                 if (!seen.Add(id))
-                    throw new InvalidOperationException("nodes/node.json 存在重复 id: " + id);
+                    throw new InvalidOperationException("nodes/node.json contains a duplicate id: " + id);
 
                 var def = new NodeDef
                 {

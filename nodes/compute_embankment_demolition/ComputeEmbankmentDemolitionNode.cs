@@ -13,12 +13,12 @@ namespace Civil3DFactory
     public static partial class Ops
     {
         /// <summary>
-        /// 拆堤工程量（平均断面法）：逐断面量清表面积与底土开挖面积，按测线相邻桩号平均断面法出方量表。
-        /// 搬自拆堤插件 V1 的 C3DF-CalcVolume。
+        /// Embankment demolition quantities (average end area method): measure stripping and subsoil excavation area per section, then tabulate volumes between adjacent stations of each survey line.
+        /// Ported from C3DF-CalcVolume of the demolition plugin V1.
         ///
-        /// 关键性质（别改）：面积算的是**图上实际的** C3DF-STRIP-LINE / C3DF-CUT-LINE，
-        /// 不是 generate_demolition_design_lines 的内存结果——边坡等特殊断面人工修过边界后，
-        /// 重跑本节点就是按修过的线算。所以本节点必须在设计线画完（并修完）之后跑。
+        /// Key property (do not change): areas are computed from the **actual** C3DF-STRIP-LINE / C3DF-CUT-LINE in the drawing,
+        /// not from the in-memory result of generate_demolition_design_lines; after special sections (slopes etc.) are edited by hand,
+        /// rerunning this node uses the edited lines. So this node must run after the design lines are drawn (and edited).
         /// </summary>
         static JsonNode RunNodeComputeEmbankmentDemolition(JsonObject a, Document doc)
             => ComputeEmbankmentDemolition(a, doc);
@@ -41,17 +41,17 @@ namespace Civil3DFactory
             string layStrip = GetString(a, "strip_line_layer", "C3DF-STRIP-LINE");
             string layExc = GetString(a, "excavation_line_layer", "C3DF-CUT-LINE");
             double ownMargin = GetDouble(a, "own_margin", 30.0);
-            if (ownMargin <= 0) throw new InvalidOperationException("own_margin 必须大于 0（图纸单位）。");
+            if (ownMargin <= 0) throw new InvalidOperationException("own_margin must be greater than 0 (drawing units).");
 
             bool annotate = GetBool(a, "annotate_sections", true);
             string layNote = GetString(a, "annotation_layer", "C3DF-QTY-LABEL");
             double textHeight = GetDouble(a, "text_height", 2.5);
             string textStyle = GetString(a, "text_style", null);
             bool clearExisting = GetBool(a, "clear_existing", true);
-            if (textHeight <= 0) throw new InvalidOperationException("text_height 必须大于 0。");
+            if (textHeight <= 0) throw new InvalidOperationException("text_height must be greater than 0.");
 
             bool exportExcel = GetBool(a, "export_excel", true);
-            string excelFormat = GetString(a, "excel_format", "xlsx");   // 归一化/校验在 Excel.Write
+            string excelFormat = GetString(a, "excel_format", "xlsx");   // normalised/validated in Excel.Write
 
             Database db = doc.Database;
             var rows = new List<DikeQtyRow>();
@@ -78,16 +78,16 @@ namespace Civil3DFactory
                 }
                 if (stripPls.Count == 0 && excPls.Count == 0)
                     throw new InvalidOperationException(
-                        "图层 '" + layStrip + "' / '" + layExc + "' 上没有设计线；" +
-                        "先跑 generate_demolition_design_lines，或核对图层名。");
+                        "No design lines on layer '" + layStrip + "' / '" + layExc + "'; " +
+                        "run generate_demolition_design_lines first, or check the layer names.");
 
                 List<MeasuredSection> all = Sections.Read(db, tr, opt);
                 List<MeasuredSection> picked = all
                     .Where(s => s.Valid && Sections.Matches(s, filter)).ToList();
                 if (picked.Count == 0)
                     throw new InvalidOperationException(
-                        "共读到 " + all.Count + " 个断面，但没有标定通过且匹配 line_filter 的；" +
-                        "先跑 extract_measured_sections 看标定情况。");
+                        "Read " + all.Count + " sections, but none is calibrated and matches line_filter; " +
+                        "run extract_measured_sections first to inspect calibration.");
 
                 ObjectId idNote = annotate ? GridEnsureLayer(tr, db, layNote, 3) : ObjectId.Null;
                 ObjectId styleId = annotate ? DikeTextStyle(tr, db, textStyle) : ObjectId.Null;
@@ -111,13 +111,13 @@ namespace Civil3DFactory
                     if (mineStrip.Count == 0 && mineExc.Count == 0)
                     {
                         noLine++;
-                        warnings.Add(s.Title + "：断面范围内没有设计线，面积按 0 计入");
+                        warnings.Add(s.Title + ": no design line inside the section extent, area counted as 0");
                     }
 
                     rows.Add(new DikeQtyRow
                     {
                         Title = s.Title,
-                        LineName = string.IsNullOrEmpty(s.LineName) ? "(图名未解析)" : s.LineName,
+                        LineName = string.IsNullOrEmpty(s.LineName) ? "(title not parsed)" : s.LineName,
                         Stake = string.IsNullOrEmpty(s.LineName) ? s.Title : s.Stake,
                         StakeM = s.StakeM,
                         StripArea = aStrip,
@@ -130,7 +130,7 @@ namespace Civil3DFactory
                     if (annotate)
                     {
                         var txt = new DBText();
-                        txt.TextString = "清表 " + Sections.F(aStrip, 2) + " m²  底土 " + Sections.F(aExc, 2) + " m²";
+                        txt.TextString = "Strip " + Sections.F(aStrip, 2) + " m2  Subsoil " + Sections.F(aExc, 2) + " m2";
                         txt.Position = s.ToPaper3(new Point2d(s.Ground[0].X, s.Ground.Max(p => p.Y) + 1.2));
                         txt.Height = textHeight;
                         txt.LayerId = idNote;
@@ -144,13 +144,13 @@ namespace Civil3DFactory
                 unassignedStrip = stripPls.Count(p => !usedStrip.Contains(p.Handle.ToString()));
                 unassignedExc = excPls.Count(p => !usedExc.Contains(p.Handle.ToString()));
                 if (unassignedStrip + unassignedExc > 0)
-                    warnings.Add("有 " + unassignedStrip + " 条清表线、" + unassignedExc +
-                                 " 条开挖线没归到任何断面（未计入方量）；own_margin 可能太小，或这些线画在断面范围外");
+                    warnings.Add(unassignedStrip + " strip line(s) and " + unassignedExc +
+                                 " excavation line(s) were not assigned to any section (excluded from volumes); own_margin may be too small, or the lines lie outside the section extents");
 
                 tr.Commit();
             }
 
-            // ---- 平均断面法：同测线相邻桩号，方量 = 平均面积 × 间距；首断面不成体积 ----
+            // ---- Average end area: adjacent stations on the same survey line, volume = mean area x spacing; the first section yields no volume ----
             var perSection = new JsonArray();
             var perLine = new JsonArray();
             var tableRows = new List<object[]>();
@@ -166,7 +166,7 @@ namespace Civil3DFactory
                 for (int i = 0; i < ord.Count; i++)
                 {
                     DikeQtyRow r = ord[i];
-                    // 图名没解析出桩号的断面无法定间距，只报面积、不参与方量
+                    // Sections whose title yields no station have no spacing: report area only, no volume
                     double d = (i == 0 || !r.Parsed || !ord[i - 1].Parsed) ? 0 : r.StakeM - ord[i - 1].StakeM;
                     double vS = d <= 0 ? 0 : (ord[i - 1].StripArea + r.StripArea) / 2 * d;
                     double vE = d <= 0 ? 0 : (ord[i - 1].ExcArea + r.ExcArea) / 2 * d;
@@ -208,7 +208,7 @@ namespace Civil3DFactory
                 });
             }
             if (unparsed)
-                warnings.Add("有断面的图名不匹配 title_regex，桩号未知：只报面积、不计入方量。核对 title_regex 或图名写法");
+                warnings.Add("Some section titles do not match title_regex, station unknown: area only, excluded from volumes. Check title_regex or the title format");
 
             var excelFiles = new JsonArray();
             var excelPaths = new List<string>();
@@ -216,22 +216,22 @@ namespace Civil3DFactory
             {
                 tableRows.Add(new object[]
                 {
-                    "总计", "", null, null, null,
+                    "Total", "", null, null, null,
                     Math.Round(sumStrip, 1), Math.Round(sumExc, 1), Math.Round(sumStrip + sumExc, 1)
                 });
                 string[] headers =
                 {
-                    "测线", "桩号", "清表面积(m²)", "底土面积(m²)",
-                    "间距(m)", "清表方量(m³)", "底土方量(m³)", "小计(m³)"
+                    "Survey line", "Station", "Strip area (m2)", "Subsoil area (m2)",
+                    "Spacing (m)", "Strip volume (m3)", "Subsoil volume (m3)", "Subtotal (m3)"
                 };
-                // outdir 显式读一次：契约申报了就要在节点实现里出现，契约对账才对得上
+                // Read outdir explicitly once: what the contract declares must appear in the node implementation for the contract audit to match
                 string outdirParam = GetString(a, "outdir", null);
                 string outdir = string.IsNullOrWhiteSpace(outdirParam)
                     ? ResolveOutDir(a, doc)
                     : Path.GetFullPath(outdirParam);
                 string excelOutPath = GetString(a, "excel_out_path", null);
                 string baseName = string.IsNullOrWhiteSpace(excelOutPath)
-                    ? Sanitize(Path.GetFileNameWithoutExtension(SafeFile(db))) + "_拆堤工程量"
+                    ? Sanitize(Path.GetFileNameWithoutExtension(SafeFile(db))) + "_DemolitionQuantities"
                     : Path.GetFileNameWithoutExtension(excelOutPath);
                 string targetDir = string.IsNullOrWhiteSpace(excelOutPath)
                     ? outdir

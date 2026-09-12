@@ -9,12 +9,12 @@ using CivDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 节点 list_profiles：逐路线盘点剖面线（地面线/设计线）、纵断面图、采样线组。
+    /// Node list_profiles: per alignment, inventory the profiles (EG / FG), profile views and sample line groups.
     ///
-    /// 出纵断面图前的体检表：has_ground / has_design 用的是 create_profile_view
-    /// **同一套识别规则**（地面线看 EG/Surface，设计线看 FG/Layout），
-    /// 所以这两列为 false 的路线，出图必然报「无法识别现状地形/设计纵断面」——
-    /// 不用等出图失败才知道。
+    /// Health check before creating profile views: has_ground / has_design use the SAME recognition rules
+    /// as create_profile_view (ground = EG/Surface, design = FG/Layout),
+    /// so an alignment with either column false will certainly fail there with "cannot recognise existing ground / design profile" --
+    /// no need to wait for the sheet run to fail.
     /// </summary>
     public static partial class Ops
     {
@@ -39,7 +39,7 @@ namespace Civil3DFactory
                     if (al == null) continue;
                     if (!string.IsNullOrWhiteSpace(only) &&
                         !string.Equals(al.Name, only, StringComparison.OrdinalIgnoreCase)) continue;
-                    // 偏移路线（Alignment - (n)-Left-25.000 这类）默认不列，太吵
+                    // Offset alignments (like Alignment - (n)-Left-25.000) are hidden by default; too noisy
                     if (skipOffsets && string.IsNullOrWhiteSpace(only) &&
                         al.Name.StartsWith("Alignment -", StringComparison.OrdinalIgnoreCase)) continue;
 
@@ -50,7 +50,7 @@ namespace Civil3DFactory
                         var p = tr.GetObject(pid, OpenMode.ForRead) as CivProfile;
                         if (p == null) continue;
                         string pt = SafeStr(delegate { return p.ProfileType.ToString(); });
-                        // 与 create_profile_view 完全一致的识别规则
+                        // Recognition rules identical to create_profile_view
                         bool isGround = pt.Equals("EG", StringComparison.OrdinalIgnoreCase)
                                      || pt.IndexOf("Surface", StringComparison.OrdinalIgnoreCase) >= 0;
                         bool isDesign = pt.Equals("FG", StringComparison.OrdinalIgnoreCase)
@@ -62,7 +62,7 @@ namespace Civil3DFactory
                         {
                             ["name"] = p.Name,
                             ["type"] = pt,
-                            ["role"] = isGround ? "地面线" : isDesign ? "设计线" : "(识别不出)",
+                            ["role"] = isGround ? "EG" : isDesign ? "FG" : "(unrecognised)",
                             ["handle"] = p.Handle.ToString(),
                             ["style"] = SafeStr(delegate { return p.StyleName; })
                         };

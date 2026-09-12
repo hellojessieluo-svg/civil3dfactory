@@ -11,12 +11,12 @@ using Civil3DFactory.Geometry;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// make_parcels：范围线 + 圆滑中心线 → 台田闭合边界（成田）。
+    /// make_parcels: extent lines + smoothed centerlines -> closed terrace boundaries (terrace building).
     ///
-    /// 与 products\waterbox 的 C3DF-MakeParcels/CT 同一算法核心（MakeParcelsCore.cs）。
-    /// 多外圈自动分组：按包含深度判 外圈(0)/岛洞(1)/忽略(≥2)，岛洞挂给包含它的
-    /// 最小外圈；中心线按中点落在哪个外圈归组，各组独立成田。
-    /// 幂等：clear_previous 默认清掉 out_layer 上已有多段线再画。
+    /// Same algorithm core (MakeParcelsCore.cs) as C3DF-MakeParcels/CT in products\waterbox.
+    /// Multiple outer rings are grouped automatically: containment depth decides outer ring (0) / island hole (1) / ignored (>=2); holes attach to the
+    /// smallest outer ring containing them; centerlines are grouped by which outer ring their midpoint falls in; each group builds terraces independently.
+    /// Idempotent: clear_previous (default on) erases existing polylines on out_layer before drawing.
     /// </summary>
     public static partial class Ops
     {
@@ -29,16 +29,16 @@ namespace Civil3DFactory
             double halfW = GetDouble(a, "half_width", 15.0);
             bool widthsFromOffsets = GetBool(a, "widths_from_offsets", true);
             double filletR = GetDouble(a, "fillet_r", 20.0);
-            double minDefl = GetDouble(a, "min_defl_deg", 8.0);   // 8°=GY 噪声底线：钝角也倒圆，台田角个个要圆（厂长 08-22 口径）
+            double minDefl = GetDouble(a, "min_defl_deg", 8.0);   // 8 deg = GY noise floor: obtuse corners are rounded too, every terrace corner must be round (owner's rule 08-22)
             double minArea = GetDouble(a, "min_area", 500.0);
-            string outLayer = GetString(a, "out_layer", "台田边界");
-            string chanLayer = GetString(a, "channel_layer", "水道范围");
+            string outLayer = GetString(a, "out_layer", "C3DF-TERRACE-BOUNDARY");
+            string chanLayer = GetString(a, "channel_layer", "C3DF-CHANNEL-EXTENT");
             bool clearPrev = GetBool(a, "clear_previous", true);
 
             if (string.IsNullOrWhiteSpace(boundaryLayer) && boundaryHandles.Count == 0)
-                throw new InvalidOperationException("boundary_layer 与 boundary_handles 至少给一个。");
+                throw new InvalidOperationException("Give at least one of boundary_layer or boundary_handles.");
             if (string.IsNullOrWhiteSpace(centerLayer) && centerHandles.Count == 0)
-                throw new InvalidOperationException("centerline_layer 与 centerline_handles 至少给一个。");
+                throw new InvalidOperationException("Give at least one of centerline_layer or centerline_handles.");
 
             Database db = doc.Database;
             var warnings = new JsonArray();
@@ -51,7 +51,7 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // ---- 收集范围线与中心线（内存克隆，z 归零） ----
+                // ---- Collect extent lines and centerlines (in-memory clones, z zeroed) ----
                 var bounds = new List<(string handle, Polyline pl)>();
                 var centers = new List<(string handle, Polyline pl)>();
                 foreach (ObjectId id in ModelSpace(db, tr))
@@ -73,12 +73,12 @@ namespace Civil3DFactory
                         centers.Add((h, c));
                     }
                     else if (wantB || wantC)
-                        warnings.Add((JsonNode)$"实体 {h} 不满足条件（范围线要闭合/中心线要开放），忽略");
+                        warnings.Add((JsonNode)$"Entity {h} does not qualify (extent lines must be closed / centerlines open), ignored");
                 }
-                if (bounds.Count == 0) throw new InvalidOperationException("没有找到闭合的范围线。");
-                if (centers.Count == 0) throw new InvalidOperationException("没有找到开放的中心线。");
+                if (bounds.Count == 0) throw new InvalidOperationException("No closed extent line found.");
+                if (centers.Count == 0) throw new InvalidOperationException("No open centerline found.");
 
-                // ---- 包含深度分组（点在面内走厂里现成 GridSamplePolygon/GridPointInPolygon） ----
+                // ---- Grouping by containment depth (point-in-polygon via the factory's GridSamplePolygon/GridPointInPolygon) ----
                 var rings = bounds.Select(b => GridSamplePolygon(b.pl, 2.0)).ToList();
                 int n = bounds.Count;
                 var depth = new int[n];
@@ -102,15 +102,15 @@ namespace Civil3DFactory
                     {
                         int host = containers[i].OrderBy(j => Math.Abs(bounds[j].pl.Area)).First();
                         if (holesOf.ContainsKey(host)) holesOf[host].Add(i);
-                        else ignoredBounds.Add((JsonNode)$"{bounds[i].handle}（宿主非外圈）");
+                        else ignoredBounds.Add((JsonNode)$"{bounds[i].handle} (host is not an outer ring)");
                     }
                     else if (depth[i] >= 2)
-                        ignoredBounds.Add((JsonNode)$"{bounds[i].handle}（包含深度 {depth[i]}）");
+                        ignoredBounds.Add((JsonNode)$"{bounds[i].handle} (containment depth {depth[i]})");
                 }
-                if (outers.Count == 0) throw new InvalidOperationException("没有判出任何外圈。");
+                if (outers.Count == 0) throw new InvalidOperationException("No outer ring identified.");
 
-                // ---- 逐通道宽度：中心线多段线↔主线路线按起点+长度对号，取其偏移子线 |NominalOffset|
-                //      （〈半宽〉面板改的就是它——成田跟着谁改的宽出谁的台田；对不上号退全局 half_width）----
+                // ---- Per-channel width: match centerline polyline <-> main alignment by start point + length, take |NominalOffset| of its offset child
+                //      (that is what the half-width panel edits -- terraces follow whichever width was changed; unmatched falls back to the global half_width) ----
                 var widthLut = new List<(Point2d start, double len, double w)>();
                 if (widthsFromOffsets)
                 {
@@ -148,7 +148,7 @@ namespace Civil3DFactory
                     return halfW;
                 }
 
-                // ---- 中心线按中点归组 ----
+                // ---- Group centerlines by midpoint ----
                 var clsOf = outers.ToDictionary(o => o, o => new List<Polyline>());
                 var wsOf = outers.ToDictionary(o => o, o => new List<double>());
                 foreach (var (h, cl) in centers)
@@ -164,7 +164,7 @@ namespace Civil3DFactory
                     wsOf[home].Add(WidthOf(cl));
                 }
 
-                // ---- 幂等清旧 ----
+                // ---- Idempotent clean-up of old output ----
                 var space = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
                 if (clearPrev)
                 {
@@ -177,14 +177,14 @@ namespace Civil3DFactory
                     }
                 }
                 MpEnsureLayer(tr, db, outLayer, 3);
-                MpEnsureLayer(tr, db, chanLayer, 4);   // 青
+                MpEnsureLayer(tr, db, chanLayer, 4);   // cyan
 
-                // ---- 逐外圈成田 ----
+                // ---- Build terraces per outer ring ----
                 foreach (int o in outers)
                 {
                     if (clsOf[o].Count == 0)
                     {
-                        warnings.Add((JsonNode)$"外圈 {bounds[o].handle} 没有归属中心线，跳过");
+                        warnings.Add((JsonNode)$"Outer ring {bounds[o].handle} has no centerline assigned, skipped");
                         perOuter.Add(new JsonObject
                         { ["outer"] = bounds[o].handle, ["parcels"] = 0, ["skipped"] = true });
                         continue;
@@ -236,9 +236,9 @@ namespace Civil3DFactory
                 tr.Commit();
             }
 
-            // 断言：一块田都没出 = 没成功（安静地成功会打破复用）
+            // Assert: no terrace at all = failure (silent success breaks reuse)
             if (parcelTotal == 0)
-                throw new InvalidOperationException("布尔跑完一块台田都没有——检查范围线闭合性与中心线归属。");
+                throw new InvalidOperationException("The boolean produced no terrace at all -- check extent-line closure and centerline assignment.");
 
             return new JsonObject
             {

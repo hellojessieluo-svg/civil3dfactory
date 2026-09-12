@@ -15,19 +15,19 @@ namespace Civil3DFactory
     public static partial class Ops
     {
         /// <summary>
-        /// 给**已存在**的纵断面图换标注栏（Band）样式，不删不重建，不碰视图样式和标签。
+        /// Swap band styles on **existing** profile views; no delete/rebuild, view style and labels untouched.
         ///
-        /// 为什么有这个零件：create_profile_view 只能在**建图时**套一整套 band set，对已经出好的
-        /// 视图无能为力；几十张图统一换四条 band 的样式，GUI 里只能一张张开
-        /// Profile View Properties → Bands 手改。
+        /// Why this part exists: create_profile_view can only apply a whole band set **at creation time** and cannot help
+        /// views already produced; changing four band styles across dozens of views in the GUI means opening each one's
+        /// Profile View Properties -> Bands by hand.
         ///
-        /// **为什么按位置(index)而不是按「旧样式名→新样式名」映射**（2026-08-27 实证，别再试）：
-        /// Civil 3D 2025 托管 API 里 ProfileViewBandItem.BandStyleId 只写不可读
-        /// （反射 probe 出来是 BandStyleId(ObjectId,w)，没有 getter；同类的 Profile1Id/Profile2Id 是 r,w）。
-        /// 读不出当前样式名，就没法做「认名换名」。错位风险靠条数校验兜：每个视图的 band 条数
-        /// 必须等于给定数组长度，不等就整张跳过并报进 views_mismatched，绝不半写。
-        /// 动手前先 dry_run 看 per_view 的 fingerprint（BandType/Gap/间隔/标注开关），
-        /// 各视图逐位置同构 = 这批图出自同一套 band set，位置顺序可信。
+        /// **Why by position (index) instead of an "old style name -> new style name" map** (verified 2026-08-27, do not retry):
+        /// in the Civil 3D 2025 managed API ProfileViewBandItem.BandStyleId is write-only
+        /// (a reflection probe shows BandStyleId(ObjectId,w) with no getter; the sibling Profile1Id/Profile2Id are r,w).
+        /// Without reading the current style name there is no name-based swap. Misalignment risk is caught by a count check: each view's band count
+        /// must equal the given array length; otherwise the whole view is skipped and reported in views_mismatched, never half-written.
+        /// Run dry_run first and check the per_view fingerprint (BandType/Gap/intervals/label switches);
+        /// if the views are position-wise identical they came from the same band set and the positional order can be trusted.
         /// </summary>
         static JsonNode RunNodeRestyleProfileViewBands(JsonObject a, Document doc)
         {
@@ -35,9 +35,9 @@ namespace Civil3DFactory
             List<string> topWant = StyleNameList(a, "top");
             if (bottomWant.Count == 0 && topWant.Count == 0)
                 throw new InvalidOperationException(
-                    "bottom / top 至少给一个：按标注栏**从上到下的位置**列样式名，"
-                    + "如 bottom=[\"C3DF-GroundElevation\",\"C3DF-DesignElevation\",\"C3DF-CutFillDepth\",\"C3DF-Station\"]；"
-                    + "数组里给 null 或空串表示该位置不动。");
+                    "Give at least one of bottom / top: list style names by band **position from top to bottom**, "
+                    + "e.g. bottom=[\"C3DF-GroundElevation\",\"C3DF-DesignElevation\",\"C3DF-CutFillDepth\",\"C3DF-Station\"]; "
+                    + "null or an empty string in the array leaves that position untouched.");
 
             var onlyViews = new List<string>();
             if (a["views"] is JsonArray va)
@@ -53,9 +53,9 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // 目标样式在 CivilDocument.Styles.BandStyles 底下所有集合里按**精确名**找。
-                // 不走 FindStyleId 的「兜底返回第一个」——band 样式设错了照样出图，只是内容全不对，
-                // 比报错难查得多。
+                // Target styles are looked up by **exact name** across every collection under CivilDocument.Styles.BandStyles.
+                // Not via FindStyleId's "fall back to the first" -- a wrong band style still plots, just with all-wrong content,
+                // which is far harder to catch than an error.
                 Dictionary<string, ObjectId> bandStyles = CollectBandStyles(tr, civ);
                 Dictionary<int, ObjectId> bottomIds = ResolveByIndex(bottomWant, bandStyles, "bottom");
                 Dictionary<int, ObjectId> topIds = ResolveByIndex(topWant, bandStyles, "top");
@@ -81,13 +81,13 @@ namespace Civil3DFactory
 
                     CivBandItems top = pv.Bands.GetTopBandItems();
                     CivBandItems bottom = pv.Bands.GetBottomBandItems();
-                    // 条数对不上就整张跳过：位置替换错位 = 四条 band 全串味，比不改糟得多
+                    // Skip the whole view when the counts differ: a misaligned positional swap scrambles all four bands, much worse than no change
                     string bad = null;
                     if (topWant.Count > 0 && top.Count != topWant.Count)
-                        bad = "顶部 band " + top.Count + " 条，给了 " + topWant.Count + " 个位置";
+                        bad = "top has " + top.Count + " bands, " + topWant.Count + " positions given";
                     if (bottomWant.Count > 0 && bottom.Count != bottomWant.Count)
-                        bad = (bad == null ? "" : bad + "；") + "底部 band " + bottom.Count
-                            + " 条，给了 " + bottomWant.Count + " 个位置";
+                        bad = (bad == null ? "" : bad + "; ") + "bottom has " + bottom.Count
+                            + " bands, " + bottomWant.Count + " positions given";
                     if (bad != null)
                     {
                         mismatched.Add(new JsonObject { ["view"] = pvName, ["why"] = bad });
@@ -101,7 +101,7 @@ namespace Civil3DFactory
                     n += ApplyByIndex(bottom, bottomIds, "bottom", changes, bottomWant, topWant, dryRun);
                     if (!dryRun && n > 0)
                     {
-                        // 集合改完必须整体写回，band 项是值拷贝语义（照 create_profile_view 设数据源那套）
+                        // The collection must be written back as a whole; band items are value copies (same as create_profile_view setting data sources)
                         if (topIds.Count > 0) pv.Bands.SetTopBandItems(top);
                         if (bottomIds.Count > 0) pv.Bands.SetBottomBandItems(bottom);
                     }
@@ -119,8 +119,8 @@ namespace Civil3DFactory
 
             if (viewsScanned == 0)
                 throw new InvalidOperationException(onlyViews.Count > 0
-                    ? "按 views 过滤后一张纵断面图都没匹配上：" + string.Join("、", onlyViews)
-                    : "图里没有纵断面图（ProfileView）。");
+                    ? "No profile view matched the views filter: " + string.Join(", ", onlyViews)
+                    : "The drawing has no profile view (ProfileView).");
 
             var missedArr = new JsonArray();
             foreach (string s in viewsMissed) missedArr.Add(s);
@@ -131,7 +131,7 @@ namespace Civil3DFactory
                 ["views_scanned"] = viewsScanned,
                 ["views_changed"] = viewsChanged,
                 ["bands_changed"] = bandsChanged,
-                ["views_mismatched"] = mismatched,   // band 条数对不上、整张跳过的
+                ["views_mismatched"] = mismatched,   // band count mismatch, whole view skipped
                 ["views_not_found"] = missedArr,
                 ["per_view"] = perView
             };
@@ -145,7 +145,7 @@ namespace Civil3DFactory
             return list;
         }
 
-        /// <summary>位置 → 样式 ObjectId。空位置（null/空串）不进表 = 不动那条 band。</summary>
+        /// <summary>Position -> style ObjectId. Empty positions (null/empty string) are left out = that band is untouched.</summary>
         static Dictionary<int, ObjectId> ResolveByIndex(
             List<string> want, Dictionary<string, ObjectId> bandStyles, string where)
         {
@@ -161,8 +161,8 @@ namespace Civil3DFactory
             }
             if (missing.Count > 0)
                 throw new InvalidOperationException(
-                    where + " 里这些标注栏样式图中不存在：" + string.Join("、", missing)
-                    + "。图里现有的是：" + string.Join("、", new List<string>(bandStyles.Keys)));
+                    where + ": these band styles do not exist in the drawing: " + string.Join(", ", missing)
+                    + ". Available: " + string.Join(", ", new List<string>(bandStyles.Keys)));
             return map;
         }
 
@@ -177,7 +177,7 @@ namespace Civil3DFactory
                 ObjectId styleId;
                 if (ids.TryGetValue(idx, out styleId))
                 {
-                    if (!dryRun) item.BandStyleId = styleId;   // 只写不可读，改完无法回读校验
+                    if (!dryRun) item.BandStyleId = styleId;   // write-only, cannot be read back for verification
                     changes.Add(new JsonObject
                     {
                         ["position"] = position,
@@ -191,8 +191,8 @@ namespace Civil3DFactory
             return done;
         }
 
-        /// <summary>band 的可读指纹：拿它横向比各视图是否逐位置同构，
-        /// 同构 = 同一套 band set 生成、位置顺序可信（BandStyleId 读不出来，只能这么侧证）。</summary>
+        /// <summary>Readable band fingerprint: used to compare views for position-wise identity;
+        /// identical = generated from the same band set, positional order trustworthy (BandStyleId is unreadable, so this is the only indirect proof).</summary>
         static JsonArray Fingerprint(CivBandItems top, CivBandItems bottom)
         {
             var arr = new JsonArray();
@@ -219,8 +219,8 @@ namespace Civil3DFactory
             return arr;
         }
 
-        /// <summary>把 CivilDocument.Styles.BandStyles 底下所有样式集合摊平成「名字 → ObjectId」。
-        /// 反射走属性树，不手写集合名（照 list_styles 那套）；重名以先遇到的为准。</summary>
+        /// <summary>Flatten every style collection under CivilDocument.Styles.BandStyles into "name -> ObjectId".
+        /// Walks the property tree by reflection instead of hard-coding collection names (same as list_styles); first one wins on duplicate names.</summary>
         static Dictionary<string, ObjectId> CollectBandStyles(Transaction tr, CivDoc civ)
         {
             var result = new Dictionary<string, ObjectId>(StringComparer.OrdinalIgnoreCase);

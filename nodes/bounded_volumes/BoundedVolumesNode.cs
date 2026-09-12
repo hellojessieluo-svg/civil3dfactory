@@ -10,16 +10,16 @@ using CivDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// bounded_volumes：逐条闭合边界报体积曲面的挖填方（只读）。
+    /// bounded_volumes: report cut/fill of a volume surface per closed boundary (read-only).
     ///
-    /// 走 Civil 的 <c>Surface.GetBoundedVolumes(多边形)</c>——就是体积面板里
-    /// 「加一条统计边界」拿到的那组数，边界内的挖/填/净。
+    /// Uses Civil's <c>Surface.GetBoundedVolumes(polygon)</c>, i.e. the numbers you get in the volumes panel
+    /// by "adding a bounded volume boundary": cut/fill/net inside the boundary.
     ///
-    /// **别拿 calculate_surface_volume 干这活**：那个走 GetVolumeProperties()，
-    /// 拿的是整个体积曲面的量，boundary_polyline 只进了报表的文字说明，
-    /// 给 N 条边界会返回 N 个一模一样的数（安静地错）。
+    /// **Do not use calculate_surface_volume for this**: it goes through GetVolumeProperties(),
+    /// which returns the whole volume surface; boundary_polyline only ends up in the report text,
+    /// so N boundaries give N identical numbers (silently wrong).
     ///
-    /// 口径：Cut = 现状高于设计要挖掉的，Fill = 现状低于设计要填起来的（相对基准曲面）。
+    /// Convention: Cut = existing above design, to be removed; Fill = existing below design, to be filled (relative to the base surface).
     /// </summary>
     public static partial class Ops
     {
@@ -31,14 +31,14 @@ namespace Civil3DFactory
             if (string.IsNullOrWhiteSpace(volName) &&
                 (string.IsNullOrWhiteSpace(baseName) || string.IsNullOrWhiteSpace(compName)))
                 throw new InvalidOperationException(
-                    "给 volume_surface（已有体积曲面名），或者 base_surface + comparison_surface 两个都给。");
+                    "Give volume_surface (existing volume surface name), or both base_surface and comparison_surface.");
 
             string layer = GetString(a, "layer", null);
             var handles = a["handles"] as JsonArray;
             var names = a["names"] as JsonObject;
-            double step = GetDouble(a, "sample_step", 1.0);   // 边界含弧段，按步长展成点环
-            double inset = GetDouble(a, "inset", 0.0);        // 边界往内缩，躲开曲面外沿
-            bool closeRing = GetBool(a, "close_ring", true);  // 首点补到末尾
+            double step = GetDouble(a, "sample_step", 1.0);   // boundaries may contain arcs; expand into a point ring by step
+            double inset = GetDouble(a, "inset", 0.0);        // shrink the boundary inward to avoid the surface edge
+            bool closeRing = GetBool(a, "close_ring", true);  // append the first point at the end
             double cutFactor = GetDouble(a, "cut_factor", 1.0);
             double fillFactor = GetDouble(a, "fill_factor", 1.0);
             bool hasDatum = a["datum_elevation"] != null;
@@ -46,9 +46,9 @@ namespace Civil3DFactory
             bool exportExcel = GetBool(a, "export_excel", false);
             string excelFormat = GetString(a, "excel_format", "xlsx");
 
-            if (step <= 0) throw new InvalidOperationException("sample_step 必须大于 0。");
+            if (step <= 0) throw new InvalidOperationException("sample_step must be greater than 0.");
             if (string.IsNullOrWhiteSpace(layer) && (handles == null || handles.Count == 0))
-                throw new InvalidOperationException("layer 与 handles 至少给一个来圈定边界。");
+                throw new InvalidOperationException("Give at least one of layer or handles to select boundaries.");
 
             var wanted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (handles != null)
@@ -69,14 +69,14 @@ namespace Civil3DFactory
                 if (!string.IsNullOrWhiteSpace(volName))
                 {
                     volId = FindSurfaceId(tr, civ, volName);
-                    if (volId.IsNull) throw new InvalidOperationException("找不到体积曲面 '" + volName + "'。");
+                    if (volId.IsNull) throw new InvalidOperationException("Volume surface '" + volName + "' not found.");
                 }
                 else
                 {
                     ObjectId bId = FindSurfaceId(tr, civ, baseName);
-                    if (bId.IsNull) throw new InvalidOperationException("找不到基准曲面 '" + baseName + "'。");
+                    if (bId.IsNull) throw new InvalidOperationException("Base surface '" + baseName + "' not found.");
                     ObjectId cId = FindSurfaceId(tr, civ, compName);
-                    if (cId.IsNull) throw new InvalidOperationException("找不到对比曲面 '" + compName + "'。");
+                    if (cId.IsNull) throw new InvalidOperationException("Comparison surface '" + compName + "' not found.");
                     volName = "Vol_" + Sanitize(baseName) + "_" + Sanitize(compName);
                     ObjectId old = FindSurfaceId(tr, civ, volName);
                     if (!old.IsNull) volId = old;
@@ -85,7 +85,7 @@ namespace Civil3DFactory
                 var vol = (CivSurface)tr.GetObject(volId, OpenMode.ForRead);
                 usedVol = vol.Name;
                 if (!(vol is Autodesk.Civil.DatabaseServices.TinVolumeSurface))
-                    warnings.Add((JsonNode)("'" + usedVol + "' 不是体积曲面，取到的不是挖填方。"));
+                    warnings.Add((JsonNode)("'" + usedVol + "' is not a volume surface; the numbers are not cut/fill."));
 
                 int seq = 0;
                 foreach (ObjectId id in ModelSpace(db, tr))
@@ -101,15 +101,15 @@ namespace Civil3DFactory
                     if (names != null && names[handle] != null) label = names[handle].ToString();
                     if (string.IsNullOrEmpty(label)) label = "B" + seq.ToString("00");
 
-                    // 边界展成点环：与放坡链共用 DredgeBuildRing，弧段按真实弧长展开
+                    // Expand the boundary into a point ring: shares DredgeBuildRing with the grading chain; arcs expanded by true arc length
                     DredgeRing ring = DredgeBuildRing(pl, step);
                     if (ring.Count < 3)
                     {
-                        warnings.Add((JsonNode)(label + "（" + handle + "）成不了环，跳过。"));
+                        warnings.Add((JsonNode)(label + " (" + handle + ") cannot form a ring, skipped."));
                         continue;
                     }
-                    // 边界压在设计面外沿时 Civil 会判「illegal bounding polygon」，
-                    // inset 往形心缩一点点把它挪进曲面里（缺省 0 = 不缩）
+                    // When the boundary sits on the design surface edge Civil reports "illegal bounding polygon";
+                    // inset shrinks it slightly toward the centroid to move it inside the surface (default 0 = no shrink)
                     double cx = 0, cy = 0;
                     for (int i = 0; i < ring.Count; i++) { cx += ring.P[i].X; cy += ring.P[i].Y; }
                     cx /= ring.Count; cy /= ring.Count;
@@ -125,7 +125,7 @@ namespace Civil3DFactory
                         }
                         pts.Add(new Point3d(px, py, 0.0));
                     }
-                    if (closeRing && pts.Count > 0) pts.Add(pts[0]);   // 首点补到末尾，显式闭合
+                    if (closeRing && pts.Count > 0) pts.Add(pts[0]);   // append the first point at the end, explicit close
 
                     double cut = 0, fill = 0, net = 0;
                     string err = null;
@@ -142,7 +142,7 @@ namespace Civil3DFactory
 
                     if (err != null)
                     {
-                        warnings.Add((JsonNode)(label + "（" + handle + "）取体积失败 —— " + err));
+                        warnings.Add((JsonNode)(label + " (" + handle + ") volume query failed: " + err));
                     }
                     else
                     {
@@ -176,18 +176,18 @@ namespace Civil3DFactory
                 tr.Commit();
             }
 
-            // 断言：一条边界都没算出来 = 没成功
+            // Assert: no boundary computed = failure
             if (per.Count == 0)
                 throw new InvalidOperationException(
-                    "一条边界都没匹配上（layer='" + (layer ?? "") + "'，点名 " + wanted.Count + " 条）。");
+                    "No boundary matched (layer='" + (layer ?? "") + "', " + wanted.Count + " named).");
             bool anyOk = false;
             foreach (JsonNode r in per) if (r["cut"] != null) { anyOk = true; break; }
             if (!anyOk)
             {
-                // 报错要带着原因走，别让调用方再去别处捞 warnings
-                string first = warnings.Count > 0 ? warnings[0].ToString() : "（没有 warning，说明失败在别处）";
+                // Carry the reason in the error; do not make the caller dig through warnings
+                string first = warnings.Count > 0 ? warnings[0].ToString() : "(no warning; the failure is elsewhere)";
                 throw new InvalidOperationException(
-                    "每条边界取体积都失败了（共 " + per.Count + " 条）。第一条的原因：" + first);
+                    "Volume query failed for every boundary (" + per.Count + " total). First reason: " + first);
             }
 
             var files = new JsonArray();
@@ -195,7 +195,7 @@ namespace Civil3DFactory
             if (exportExcel)
             {
                 outdir = ResolveOutDir(a, doc);
-                foreach (string p in Excel.Write(outdir, "边界挖填方_" + Sanitize(usedVol),
+                foreach (string p in Excel.Write(outdir, "BoundedVolumes_" + Sanitize(usedVol),
                                                  HeadersBoundedVol, rows, excelFormat))
                     files.Add(p);
             }
@@ -220,7 +220,7 @@ namespace Civil3DFactory
         }
 
         static readonly string[] HeadersBoundedVol = {
-            "编号", "句柄", "边界面积m2", "挖方m3", "填方m3", "净方m3",
-            "挖方系数", "填方系数", "调整后挖方m3", "调整后填方m3" };
+            "No.", "Handle", "Boundary area m2", "Cut m3", "Fill m3", "Net m3",
+            "Cut factor", "Fill factor", "Adjusted cut m3", "Adjusted fill m3" };
     }
 }

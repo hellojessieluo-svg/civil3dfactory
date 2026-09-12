@@ -1,7 +1,7 @@
 {
   "node": "create_profiles",
   "version": 1,
-  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "fixture": "examples/channel-demo.dwg",
   "prerequisite": "create_alignment",
   "assertions": [
     "data.ground_profile exists",

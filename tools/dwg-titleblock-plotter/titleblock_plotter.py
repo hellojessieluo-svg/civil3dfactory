@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""DWG 图框批量打印桌面工具。
+"""Desktop tool: batch-plot DWG title blocks to PDF.
 
-选一个文件夹 → 后台起一个隐藏的 AutoCAD/Civil 3D 实例 → 逐个打开里面的 DWG，
-把每个「块名包含‘图框’」的图框块按其包围盒窗口出一张黑白 A3 PDF → 全部完成后退出实例。
+Pick a folder (or DWG files) -> every title block (block name containing "TITLE" by
+default) is plotted by its bounding box to one monochrome A3 PDF -> done.
 
-打印逻辑沿用 2026-07-08_03_项目B补图纸\\headless_plot.py 的 COM 方案（proven）。
-界面沿用 2026-07-14_02_图框属性exe 的 PySide6 布局。
+Two engines: a hidden background AutoCAD/Civil 3D instance driven over COM (proven,
+supports OLE tables), or accoreconsole with the bundled CadPlotPlugin (one process for
+the whole batch, fast, no dialogs). The command line always uses accoreconsole.
 """
 
 from __future__ import annotations
@@ -23,8 +24,9 @@ import traceback
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-# 后台（命令行）模式用 print 输出中文日志；Windows 下 stdout 默认 cp1252
-# 编不了中文会崩溃。这里强制 UTF-8。GUI(--windowed) 模式 stdout 可能为 None，逐一判空跳过。
+# Command-line mode logs with print(); on Windows stdout defaults to a legacy code page
+# that cannot encode every character and would crash. Force UTF-8. In GUI (--windowed)
+# mode stdout may be None, so check each stream before touching it.
 if sys.platform == "win32":
     try:
         os.system("chcp 65001 >nul 2>&1")
@@ -61,35 +63,38 @@ from PySide6.QtWidgets import (
 )
 
 
-APP_NAME = "DWG 图框批量打印"
-TITLE_BLOCK_FILTER = "图框"          # 块名（EffectiveName）包含此串即视为图框
+APP_NAME = "DWG Title Block Plotter"
+TITLE_BLOCK_FILTER = "TITLE"         # block name (EffectiveName) containing this substring (case-insensitive) is a title block
 POLYLINE_OBJECT_NAMES = {"AcDbPolyline", "AcDb2dPolyline", "AcDb3dPolyline"}
 PLOTTER = "DWG To PDF.pc3"
 CTB_MONO = "monochrome.ctb"
-CTB_COLOR = ""                       # 空 = 用图层原色（彩色）
-BACKUP_DIR_NAME = ".dwg-attribute-backups"   # 与属性工具一致，发现时跳过
+CTB_COLOR = ""                       # empty = no style table (plot in layer colours)
+BACKUP_DIR_NAME = ".dwg-attribute-backups"   # same as the attribute editor; skipped when found
+STYLE_COLOR_LABEL = "(color, no style table)"
+ACCORE_YEARS = ("2027", "2026", "2025", "2024", "2023", "2022")   # newest first
 
-# AutoCAD COM 枚举常量
+# AutoCAD COM enum constants
 AC_WINDOW = 4
 AC_SCALE_TO_FIT = 0
 AC_90 = 1
 AC_0 = 0
 
-# 常见图名 / 图号属性标签（按优先级匹配；匹配不到则回退文件名）
-TUMING_TAGS = ("02图名", "图名", "DWGNAME", "TITLE")
-TUHAO_TAGS = ("03图号", "图号", "DWGNO", "NUMBER")
+# Attribute tags for sheet title / sheet number, in priority order; the file name is
+# built as "<number> <title>" and falls back to "<dwg stem>_<layout>" when none match.
+TUMING_TAGS = ("SHEET_TITLE", "TITLE", "DWGNAME")
+TUHAO_TAGS = ("SHEET_NO", "SHEETNO", "NUMBER", "DWGNO")
 
 
 # ---------------------------------------------------------------------------
-# 通用小工具
+# Small helpers
 # ---------------------------------------------------------------------------
 def sanitize(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|]', "_", name).strip()
 
 
 def parse_keywords(text: str) -> list[str]:
-    """逗号分隔的多关键字 → 列表（英文逗号为准，顺手兼容中文逗号；去空白、去空项）。"""
-    return [part.strip() for part in re.split(r"[,，]", text or "") if part.strip()]
+    """Comma-separated keywords -> list (ASCII comma, fullwidth comma U+FF0C tolerated; blanks dropped)."""
+    return [part.strip() for part in re.split("[,\uff0c]", text or "") if part.strip()]
 
 
 def matches_any(name: str, keywords: list[str]) -> bool:
@@ -109,7 +114,7 @@ def effective_name(ref: Any) -> str:
 
 
 def iter_com(collection: Any) -> Iterable[Any]:
-    """COM 集合偶发枚举失败时，退回 Item(index)。"""
+    """COM collections occasionally fail to enumerate; fall back to Item(index)."""
     try:
         yield from collection
         return
@@ -131,8 +136,8 @@ def discover_dwgs(folder: Path, recursive: bool) -> list[Path]:
 
 
 def resolve_inputs(entries: Iterable[str], recursive: bool) -> tuple[list[Path], Path]:
-    """把界面里的输入项（手选的 DWG 文件为主，也兼容整个文件夹）解析成
-    (待处理 DWG 列表, 基准目录)。基准目录用于日志里的相对路径与默认输出位置。"""
+    """Resolve the GUI inputs (hand-picked DWG files, or whole folders) into
+    (DWG list, base folder). The base folder drives relative paths in the log and the default output location."""
     dwgs: list[Path] = []
     dir_inputs: list[Path] = []
     file_inputs: list[Path] = []
@@ -156,7 +161,7 @@ def resolve_inputs(entries: Iterable[str], recursive: bool) -> tuple[list[Path],
             seen.add(key)
             ordered.append(path)
     if not ordered:
-        raise RuntimeError("没有选到任何 DWG 文件。请手选 .dwg 文件（可多选），或输入一个文件夹。")
+        raise RuntimeError("No DWG files selected. Pick .dwg files (multi-select) or enter a folder.")
 
     if dir_inputs and not file_inputs and len(dir_inputs) == 1:
         base = dir_inputs[0].resolve()
@@ -166,7 +171,7 @@ def resolve_inputs(entries: Iterable[str], recursive: bool) -> tuple[list[Path],
 
 
 def rel_display(path: Path, base: Path) -> str:
-    """日志里尽量显示相对路径；跨盘或不在基准目录下时退回文件名。"""
+    """Prefer a relative path in the log; fall back to the file name across drives or outside the base."""
     try:
         return path.relative_to(base).as_posix()
     except ValueError:
@@ -174,11 +179,11 @@ def rel_display(path: Path, base: Path) -> str:
 
 
 def resolve_ctb(style_text: str) -> str:
-    """把「打印样式表」下拉里的文本解析成 AutoCAD 能用的样式表名。
-    彩色 / 空 → 返回空串（不套样式表，按图层原色）。
-    定位到 .ctb/.stb 原件（完整路径）时取文件名——AutoCAD 按名字在打印样式搜索路径里找。"""
+    """Turn the 'Plot style table' combo text into a style sheet name AutoCAD accepts.
+    Colour / empty -> empty string (no style table, layer colours).
+    A full path to a .ctb/.stb file -> its file name; AutoCAD looks it up in the plot style search path."""
     text = (style_text or "").strip().strip('"')
-    if not text or "彩色" in text or "无样式表" in text:
+    if not text or text == STYLE_COLOR_LABEL or text.lower() in ("color", "colour", "none"):
         return ""
     if any(sep in text for sep in ("\\", "/")):
         text = Path(text).name
@@ -186,7 +191,7 @@ def resolve_ctb(style_text: str) -> str:
 
 
 def unique_path(path: Path) -> Path:
-    """输出名冲突时追加 _2 / _3……避免互相覆盖。"""
+    """Append _2 / _3 ... when the output name already exists so nothing is overwritten."""
     if not path.exists():
         return path
     stem, suffix, parent = path.stem, path.suffix, path.parent
@@ -199,10 +204,10 @@ def unique_path(path: Path) -> Path:
 
 
 def resolve_out_path(path: Path, used: set[str], overwrite: bool) -> Path:
-    """决定一张 PDF 的最终落盘路径。
-    overwrite=False：遇到磁盘上已存在的同名文件就加 _2/_3（沿用旧行为）。
-    overwrite=True ：直接覆盖磁盘上的旧同名文件；但只在「本次运行内」已产出的名字上避让，
-                     避免同一批里两个不同图纸的同名输出互相覆盖。"""
+    """Decide the final path of one PDF.
+    overwrite=False: an existing file on disk gets _2/_3 appended (legacy behaviour).
+    overwrite=True : replace existing files on disk, but still avoid names produced
+                     earlier in this run so two different sheets never clobber each other."""
     if not overwrite:
         chosen = unique_path(path)
         used.add(str(chosen).casefold())
@@ -219,7 +224,8 @@ def resolve_out_path(path: Path, used: set[str], overwrite: bool) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# COM 会话：后台隐藏实例（DispatchEx 起独立进程，绝不碰用户界面里的 CAD）
+# COM session: hidden background instance (DispatchEx starts a separate process and
+# never touches the CAD the user has open)
 # ---------------------------------------------------------------------------
 class AcadHiddenSession:
     def __init__(self, visible: bool, log: Callable[[str], None]):
@@ -236,31 +242,32 @@ class AcadHiddenSession:
             from win32com.client import VARIANT
         except ImportError as exc:
             raise RuntimeError(
-                "缺少 pywin32。请使用随程序提供的 EXE，或先运行：pip install pywin32"
+                "pywin32 is missing. Use the bundled EXE or run: pip install pywin32"
             ) from exc
 
         self.pythoncom = pythoncom
         self.VARIANT = VARIANT
         pythoncom.CoInitialize()
         t0 = time.time()
-        self.log("正在启动后台 AutoCAD/Civil 3D 实例……（冷启动可能要等十几秒）")
+        self.log("Starting a background AutoCAD/Civil 3D instance... (a cold start can take 10-30 s)")
         try:
-            # DispatchEx = 新进程；不要用 Dispatch/GetActiveObject，避免影响已开的 CAD
+            # DispatchEx = new process; do not use Dispatch/GetActiveObject, which would hijack an open CAD
             self.acad = win32com.client.DispatchEx("AutoCAD.Application")
             self.acad.Visible = bool(self.visible)
             _ = self.acad.Name
         except Exception as exc:
             pythoncom.CoUninitialize()
             self.pythoncom = None
-            raise RuntimeError(f"无法启动 AutoCAD/Civil 3D 实例：{exc}") from exc
-        self.log(f"实例已就绪：{self.acad.Name}（{time.time() - t0:.0f}s）")
+            raise RuntimeError(f"Could not start an AutoCAD/Civil 3D instance: {exc}") from exc
+        self.log(f"Instance ready: {self.acad.Name} ({time.time() - t0:.0f}s)")
         self._warmup()
         return self
 
     def _warmup(self) -> None:
-        """访问启动时自带的空白图（Drawing1）的集合，把文档子系统热起来，避免第一张
-        真实 DWG 撞上冷启动故障（COM 版对应 02 项目 seed.dwg 那条踩坑）。复用已有空白图，
-        不再 Documents.Add() 另造 Drawing2——否则退出时会弹“是否保存 Drawing2”。"""
+        """Touch the collections of the start-up blank drawing (Drawing1) so the document
+        subsystem is warm before the first real DWG (avoids cold-start failures). Reuse the
+        existing blank drawing instead of Documents.Add(); a second one would trigger a
+        "save Drawing2?" prompt on exit."""
         seed = safe_get(self.acad, "ActiveDocument", None)
         deadline = time.time() + 30
         while time.time() < deadline:
@@ -274,12 +281,12 @@ class AcadHiddenSession:
                 for lay in seed.Layouts:
                     _ = lay.Name
                 _ = int(self.acad.Documents.Count)
-                self.log("后台实例已预热")
+                self.log("Background instance warmed up")
                 return
             except Exception:
                 time.sleep(0.5)
                 seed = safe_get(self.acad, "ActiveDocument", None)
-        self.log("预热超时，继续尝试打印")
+        self.log("Warm-up timed out; plotting anyway")
 
     def pt2(self, x: float, y: float) -> Any:
         return self.VARIANT(self.pythoncom.VT_ARRAY | self.pythoncom.VT_R8, [x, y])
@@ -288,15 +295,15 @@ class AcadHiddenSession:
         last_error = None
         for attempt in range(8):
             try:
-                # 只读打开：打印无需写，也避免与你前台已开的同名图冲突
+                # Read-only: plotting does not write, and this avoids clashing with the same drawing open in the foreground
                 return self.acad.Documents.Open(str(path), True)
             except Exception as exc:
                 last_error = exc
                 time.sleep(0.75 + attempt * 0.25)
-        raise RuntimeError(f"AutoCAD 无法打开：{path}\n{last_error}")
+        raise RuntimeError(f"AutoCAD could not open: {path}\n{last_error}")
 
     def wait_doc_ready(self, opened_doc: Any, timeout: int = 90) -> Any:
-        """Open 返回后文档对象可能还没就绪；等到 Name/Layout 可读再继续。"""
+        """The document object may not be ready right after Open; wait until Name/Layout are readable."""
         deadline = time.time() + timeout
         last_error = None
         while time.time() < deadline:
@@ -310,12 +317,12 @@ class AcadHiddenSession:
                 except Exception as exc:
                     last_error = exc
             time.sleep(1)
-        raise RuntimeError(f"DWG 已 Open 但文档对象未就绪：{last_error!r}")
+        raise RuntimeError(f"DWG opened but the document object never became ready: {last_error!r}")
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         try:
             if self.acad is not None:
-                # 退出前把所有文档都以“不保存”关闭，避免弹“是否保存 DrawingN”
+                # Close every document without saving before quitting to avoid "save DrawingN?" prompts
                 try:
                     while int(self.acad.Documents.Count) > 0:
                         self.acad.Documents.Item(0).Close(False)
@@ -331,16 +338,16 @@ class AcadHiddenSession:
 
 
 # ---------------------------------------------------------------------------
-# 单个图框 → 一张 PDF
+# One title block -> one PDF
 # ---------------------------------------------------------------------------
 def read_titleblock_name(block: Any) -> tuple[str, str]:
-    """从图框块属性里读 图号 / 图名，读不到返回空串。"""
+    """Read sheet number / sheet title from the title block attributes; empty strings when absent."""
     tuming = tuhao = ""
     try:
         attrs = list(block.GetAttributes())
     except Exception:
         return "", ""
-    tags = {str(safe_get(att, "TagString")): str(safe_get(att, "TextString")) for att in attrs}
+    tags = {str(safe_get(att, "TagString")).upper(): str(safe_get(att, "TextString")) for att in attrs}
     for tag in TUMING_TAGS:
         if tag in tags and tags[tag].strip():
             tuming = tags[tag].strip()
@@ -353,7 +360,7 @@ def read_titleblock_name(block: Any) -> tuple[str, str]:
 
 
 def iter_spaces(doc: Any) -> Iterable[tuple[str, Any, Any]]:
-    """产出 (布局名, 布局对象, 该布局对应的块表)。含模型空间。"""
+    """Yield (layout name, layout object, block table record of that layout), model space included."""
     for layout in iter_com(doc.Layouts):
         name = str(safe_get(layout, "Name"))
         if name.casefold() == "model":
@@ -369,7 +376,8 @@ def find_titleblocks(space: Any, block_keywords: list[str]) -> list[Any]:
     for ent in iter_com(space):
         if safe_get(ent, "ObjectName") != "AcDbBlockReference":
             continue
-        # 不要求属性块：普通块也算图框，属性只影响 PDF 命名（读不到回退 DWG名_布局名）
+        # Attributes are not required: plain blocks count as frames; attributes only affect
+        # the PDF name (fallback: <dwg stem>_<layout>)
         if not matches_any(effective_name(ent), block_keywords):
             continue
         found.append(ent)
@@ -377,7 +385,7 @@ def find_titleblocks(space: Any, block_keywords: list[str]) -> list[Any]:
 
 
 def find_layer_frames(space: Any, layer_keywords: list[str]) -> list[Any]:
-    """闭合多段线图框：图层名包含任一关键字的闭合多段线，按其包围盒当图框打印。"""
+    """Closed-polyline frames: closed polylines whose layer name contains any keyword are plotted by their bounding box."""
     found: list[Any] = []
     if not layer_keywords:
         return found
@@ -393,8 +401,8 @@ def find_layer_frames(space: Any, layer_keywords: list[str]) -> list[Any]:
 
 
 def configure_layout_device(doc: Any, ctb: str, paper_hint: str) -> None:
-    """配置当前活动布局的绘图仪 / 纸张 / 笔样式 / 比例。这些是布局级设置，
-    一张布局只需做一次；同布局多个图框时不必重复（去掉每图框重载绘图仪的浪费）。"""
+    """Configure plotter / paper / pen style / scale on the active layout. These are layout-level
+    settings, so one call per layout is enough even with several title blocks on it."""
     doc.SetVariable("BACKGROUNDPLOT", 0)
     active = doc.ActiveLayout
     active.ConfigName = PLOTTER
@@ -403,7 +411,7 @@ def configure_layout_device(doc: Any, ctb: str, paper_hint: str) -> None:
     except Exception:
         pass
 
-    # 选纸：优先含 paper_hint（A3/A4）的介质名，尽量取 full_bleed
+    # Paper: prefer a media name containing paper_hint (A3/A4), full_bleed when available
     chosen = None
     for media in active.GetCanonicalMediaNames():
         if paper_hint in media:
@@ -413,15 +421,15 @@ def configure_layout_device(doc: Any, ctb: str, paper_hint: str) -> None:
     if chosen:
         active.CanonicalMediaName = chosen
 
-    # 黑白：必须先开 PlotWithPlotStyles，再赋 StyleSheet，否则 ctb 不生效
+    # Monochrome: PlotWithPlotStyles must be enabled before assigning StyleSheet or the ctb is ignored
     if ctb:
         active.PlotWithPlotStyles = True
         active.StyleSheet = ctb
     else:
         active.PlotWithPlotStyles = False
 
-    # 始终忽略对象/图层线宽。COM 的属性名是 PlotWithLineweights；同时关闭
-    # ScaleLineweights，避免布局里遗留的“缩放线宽”设置影响最终 PDF。
+    # Always ignore object/layer lineweights. The COM property is PlotWithLineweights; also
+    # disable ScaleLineweights so a stale "scale lineweights" layout setting cannot leak into the PDF.
     active.PlotWithLineweights = False
     try:
         active.ScaleLineweights = False
@@ -433,7 +441,7 @@ def configure_layout_device(doc: Any, ctb: str, paper_hint: str) -> None:
     active.CenterPlot = True
 
     try:
-        doc.SetVariable("PLOTTRANSPARENCYOVERRIDE", 1)  # 1=不打印透明度（实心）
+        doc.SetVariable("PLOTTRANSPARENCYOVERRIDE", 1)  # 1 = do not plot transparency (solid fills)
     except Exception:
         try:
             doc.SendCommand("PLOTTRANSPARENCYOVERRIDE\n1\n")
@@ -448,7 +456,7 @@ def plot_block_window(
     out_path: Path,
     log: Callable[[str], None],
 ) -> bool:
-    """按单个图框包围盒设打印窗口并出一张 PDF（布局设备已由 configure_layout_device 配好）。"""
+    """Set the plot window to one frame's bounding box and plot a PDF (device configured by configure_layout_device)."""
     active = doc.ActiveLayout
     mn, mx = block.GetBoundingBox()
     active.SetWindowToPlot(session.pt2(mn[0], mn[1]), session.pt2(mx[0], mx[1]))
@@ -457,14 +465,14 @@ def plot_block_window(
 
     ok = doc.Plot.PlotToFile(str(out_path))
     if ok and out_path.exists():
-        log(f"    ✓ {out_path.name}（{out_path.stat().st_size} 字节）")
+        log(f"    OK   {out_path.name} ({out_path.stat().st_size} bytes)")
         return True
-    log(f"    ✗ 未生成 {out_path.name}")
+    log(f"    FAIL {out_path.name} was not produced")
     return False
 
 
 # ---------------------------------------------------------------------------
-# 主流程：文件夹 → 批量打印
+# Main flow: folder -> batch plot
 # ---------------------------------------------------------------------------
 def _process_dwg(
     session: AcadHiddenSession,
@@ -478,7 +486,7 @@ def _process_dwg(
     used: set[str],
     log: Callable[[str], None],
 ) -> tuple[int, bool, str | None]:
-    """处理一个 DWG，返回 (出图数, 是否含图框, 错误信息或None)。"""
+    """Process one DWG; returns (pdf count, whether any frame was found, error message or None)."""
     doc = None
     made = 0
     found_any = False
@@ -491,7 +499,7 @@ def _process_dwg(
             if not blocks and not frames:
                 continue
             doc.ActiveLayout = layout
-            configure_layout_device(doc, ctb, paper_hint)  # 每张布局只配一次绘图仪
+            configure_layout_device(doc, ctb, paper_hint)  # configure the plotter once per layout
             for block in blocks:
                 found_any = True
                 tuhao, tuming = read_titleblock_name(block)
@@ -503,7 +511,7 @@ def _process_dwg(
                     if plot_block_window(session, doc, block, out_path, log):
                         made += 1
                 except Exception as exc:
-                    return made, found_any, f"打印失败：{exc}"
+                    return made, found_any, f"Plot failed: {exc}"
             for frame in frames:
                 found_any = True
                 base = sanitize(f"{path.stem}_{layout_name}")
@@ -512,7 +520,7 @@ def _process_dwg(
                     if plot_block_window(session, doc, frame, out_path, log):
                         made += 1
                 except Exception as exc:
-                    return made, found_any, f"打印失败：{exc}"
+                    return made, found_any, f"Plot failed: {exc}"
         return made, found_any, None
     except Exception as exc:
         return made, found_any, str(exc)
@@ -537,26 +545,26 @@ def plot_folder(
     log: Callable[[str], None],
 ) -> dict[str, Any]:
     if not dwgs:
-        raise RuntimeError("没有待处理的 DWG。")
+        raise RuntimeError("No DWG files to process.")
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    log(f"共 {len(dwgs)} 个 DWG，输出到：{output_dir}")
-    log(f"打印样式表：{ctb or '（彩色·按图层原色）'}")
-    log("同名 PDF：直接覆盖" if overwrite else "同名 PDF：加 _2/_3 保留旧文件")
+    log(f"{len(dwgs)} DWG(s), output folder: {output_dir}")
+    log(f"Plot style table: {ctb or '(color, layer colours)'}")
+    log("Existing PDF names: overwrite" if overwrite else "Existing PDF names: append _2/_3 and keep the old file")
 
     dwg_count = 0
     pdf_count = 0
     errors: list[dict[str, str]] = []
-    used: set[str] = set()   # 本次运行已产出的输出名，避免同批内互相覆盖
+    used: set[str] = set()   # output names produced in this run, to avoid clobbering within the batch
 
     with AcadHiddenSession(visible, log) as session:
         for index, path in enumerate(dwgs, 1):
             rel = rel_display(path, base)
             log(f"[{index}/{len(dwgs)}] {rel}")
             made, found_any, err = _process_dwg(session, path, output_dir, block_keywords, layer_keywords, ctb, paper_hint, overwrite, used, log)
-            # 冷启动瞬时故障（如第一张的 <unknown>.Count）：预热后重试一次
+            # Transient cold-start failure (e.g. <unknown>.Count on the first drawing): retry once
             if err and made == 0 and not found_any:
-                log("    首次读取失败，稍候重试一次……")
+                log("    First read failed; retrying once...")
                 time.sleep(1.5)
                 made, found_any, err = _process_dwg(session, path, output_dir, block_keywords, layer_keywords, ctb, paper_hint, overwrite, used, log)
             pdf_count += made
@@ -564,9 +572,9 @@ def plot_folder(
                 dwg_count += 1
             if err:
                 errors.append({"file": rel, "error": err})
-                log(f"    ✗ {err}")
+                log(f"    FAIL {err}")
             elif not found_any:
-                log("    （未找到匹配的图框块 / 闭合图框，跳过）")
+                log("    (no matching title block / closed frame, skipped)")
 
     return {
         "dwg_total": len(dwgs),
@@ -578,19 +586,23 @@ def plot_folder(
 
 
 # ---------------------------------------------------------------------------
-# 后端二：accoreconsole 无界面内核 + CadPlotPlugin（一次进程批量，快、零弹窗）
+# Engine 2: accoreconsole (headless core) + CadPlotPlugin (one process per batch, fast, no dialogs)
 # ---------------------------------------------------------------------------
 def find_core_console() -> Path:
+    """Locate accoreconsole.exe: C3DF_ACCORECONSOLE first, then AutoCAD 2027..2022 (newest first)."""
     configured = os.environ.get("C3DF_ACCORECONSOLE", "").strip()
-    candidates = [
-        Path(configured) if configured else None,
-        Path(r"C:\Program Files\Autodesk\AutoCAD 2025\accoreconsole.exe"),
-        Path(r"C:\Program Files\Autodesk\AutoCAD 2026\accoreconsole.exe"),
-    ]
+    candidates: list[Path] = []
+    if configured:
+        candidates.append(Path(configured))
+    for year in ACCORE_YEARS:
+        candidates.append(Path(rf"C:\Program Files\Autodesk\AutoCAD {year}\accoreconsole.exe"))
     for candidate in candidates:
-        if candidate is not None and candidate.is_file():
+        if candidate.is_file():
             return candidate
-    raise RuntimeError("找不到 accoreconsole.exe，请确认已安装 AutoCAD/Civil 3D 2025。")
+    raise RuntimeError(
+        "accoreconsole.exe not found. Install Civil 3D / AutoCAD 2022-2027 "
+        "or set C3DF_ACCORECONSOLE to its full path."
+    )
 
 
 def bundled_plugin_path() -> Path:
@@ -600,7 +612,7 @@ def bundled_plugin_path() -> Path:
     else:
         candidate = Path(__file__).resolve().parent / "CadPlotPlugin" / "bin" / "hotload" / "CadPlotPlugin.dll"
     if not candidate.is_file():
-        raise RuntimeError(f"缺少后台打印插件：{candidate}")
+        raise RuntimeError(f"Headless plot plugin is missing: {candidate}")
     return candidate
 
 
@@ -627,16 +639,16 @@ def plot_folder_accore(
     lwdefault: int = 0,
 ) -> dict[str, Any]:
     if not dwgs:
-        raise RuntimeError("没有待处理的 DWG。")
+        raise RuntimeError("No DWG files to process.")
     output_dir.mkdir(parents=True, exist_ok=True)
-    log(f"共 {len(dwgs)} 个 DWG，启动无界面内核批量出图……（首次加载引擎要等一会）")
-    log(f"打印样式表：{ctb or '（彩色·按图层原色）'}")
-    log("打印透明度：开（透明对象按透明呈现）" if plot_transparency else "打印透明度：关（透明对象出实心）")
+    log(f"{len(dwgs)} DWG(s); starting the headless core for batch plotting... (first engine load takes a moment)")
+    log(f"Plot style table: {ctb or '(color, layer colours)'}")
+    log("Plot transparency: on (transparent objects stay transparent)" if plot_transparency else "Plot transparency: off (transparent objects print solid)")
     if print_lineweights:
-        log(f"打印线宽：开，默认线宽 {lwdefault/100:.2f}mm（细字打实、治淡显）" if lwdefault > 0 else "打印线宽：开（按对象线宽）")
+        log(f"Plot lineweights: on, default lineweight {lwdefault/100:.2f} mm (thin text prints solid)" if lwdefault > 0 else "Plot lineweights: on (object lineweights)")
     else:
-        log("打印线宽：关（细单线文字可能发灰淡显）")
-    log("同名 PDF：直接覆盖" if overwrite else "同名 PDF：加 _2/_3 保留旧文件")
+        log("Plot lineweights: off (thin single-stroke text may print faint)")
+    log("Existing PDF names: overwrite" if overwrite else "Existing PDF names: append _2/_3 and keep the old file")
 
     with tempfile.TemporaryDirectory(prefix="c3df_plot_", ignore_cleanup_errors=True) as temporary:
         workdir = Path(temporary)
@@ -645,13 +657,14 @@ def plot_folder_accore(
         out_tmp = workdir / "out"
         out_tmp.mkdir()
 
-        # 待处理图纸复制成英文临时副本，规避中文路径在内核里的坑；原名放 stem 供命名回退
+        # Copy each drawing to an ASCII-named temp file to dodge non-ASCII path issues in the
+        # core; the original stem is passed along for the naming fallback.
         jobs = []
         for index, path in enumerate(dwgs):
             input_dwg = workdir / f"input_{index}.dwg"
             shutil.copy2(path, input_dwg)
-            # origin_dir 给插件还原相对外参路径用：副本在临时英文目录里，
-            # 图上存的 .\0-参照\xx.dwg 只有按原目录拼才找得到（2026-08-27 项目B 1103）
+            # origin_dir lets the plugin rebuild relative xref paths: the copy lives in a temp
+            # folder, so a stored .\xrefs\x.dwg only resolves against the original folder.
             jobs.append({"id": str(index), "path": str(input_dwg), "stem": path.stem,
                          "origin_dir": str(path.parent)})
 
@@ -660,24 +673,25 @@ def plot_folder_accore(
             "layer_keywords": layer_keywords,
             "output_dir": str(out_tmp),
             "paper": paper_hint,
-            "ctb": ctb,                          # 新插件优先用它；空串 = 彩色
-            "monochrome": ctb.lower() == "monochrome.ctb",  # 兼容旧插件的回退字段
-            "plot_transparency": plot_transparency,  # 打印透明度开关（默认关）
-            "print_lineweights": print_lineweights,  # 打印线宽开关（默认关）
-            "lwdefault": lwdefault,                  # >0 设 LWDEFAULT（百分之毫米）
+            "ctb": ctb,                          # preferred by the current plugin; empty = colour
+            "monochrome": ctb.lower() == "monochrome.ctb",  # fallback field for older plugins
+            "plot_transparency": plot_transparency,  # plot transparency switch (default off)
+            "print_lineweights": print_lineweights,  # plot lineweights switch (default off)
+            "lwdefault": lwdefault,                  # > 0 sets LWDEFAULT (hundredths of mm)
             "jobs": jobs,
         }
         batch_json = workdir / "batch.json"
         result_json = workdir / "result.json"
         batch_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        # 独立 seed.dwg 作内核启动文件，避免第一张图既当启动又被侧读的占用冲突（02 项目踩坑）
+        # A separate seed.dwg starts the core so the first drawing is not both the start-up
+        # file and a side-read database at the same time (file-lock conflict).
         seed = workdir / "seed.dwg"
         shutil.copy2(dwgs[0], seed)
 
         script = workdir / "plot.scr"
         # /loadmodule does not reliably register managed .NET commands on all
-        # AutoCAD/Civil 3D 2025 installations. NETLOAD is reliable, but the DLL
+        # AutoCAD/Civil 3D installations. NETLOAD is reliable, but the DLL
         # lives in a random temp folder. Preserve SECURELOAD's exact original
         # value, lower it only for NETLOAD, and restore it before plugin code runs.
         lines = [
@@ -707,45 +721,45 @@ def plot_folder_accore(
                 timeout=3600, creationflags=flags, check=False,
             )
         except subprocess.TimeoutExpired as exc:
-            raise RuntimeError("无界面内核处理超时（60 分钟）。") from exc
+            raise RuntimeError("Headless core timed out (60 minutes).") from exc
         output = core_output_text(completed.stdout)
-        time.sleep(0.5)  # 进程退出后 Windows 偶尔仍短暂持有临时目录句柄
+        time.sleep(0.5)  # after exit, Windows occasionally keeps the temp folder handle briefly
 
         if not result_json.is_file():
             tail = "\n".join(output.strip().splitlines()[-25:])
-            raise RuntimeError(f"无界面内核未生成结果（退出码 {completed.returncode}）：\n{tail}")
+            raise RuntimeError(f"Headless core produced no result (exit code {completed.returncode}):\n{tail}")
         result = json.loads(result_json.read_text(encoding="utf-8-sig"))
 
         by_id = {str(f.get("id")): f for f in result.get("files", [])}
         dwg_count = 0
         pdf_count = 0
         errors = 0
-        used: set[str] = set()   # 本次运行已落盘的输出名，避免同批内互相覆盖
+        used: set[str] = set()   # output names written in this run, to avoid clobbering within the batch
         for index, path in enumerate(dwgs):
             rel = rel_display(path, base)
             item = by_id.get(str(index))
             if item is None:
                 errors += 1
-                log(f"[{index + 1}/{len(dwgs)}] {rel} ✗ 内核未返回结果")
+                log(f"[{index + 1}/{len(dwgs)}] {rel} FAIL core returned no result")
                 continue
             if item.get("error"):
                 errors += 1
-                log(f"[{index + 1}/{len(dwgs)}] {rel} ✗ {item['error']}")
+                log(f"[{index + 1}/{len(dwgs)}] {rel} FAIL {item['error']}")
                 continue
             item_errors = item.get("errors", [])
             if item_errors:
                 errors += len(item_errors)
                 for message in item_errors:
-                    log(f"    ✗ {message}")
+                    log(f"    FAIL {message}")
             pdfs = item.get("pdfs", [])
             moved = 0
             for pdf in pdfs:
                 src = Path(pdf.get("path", ""))
                 if not src.is_file():
-                    log(f"    ✗ 未生成 {pdf.get('name')}")
+                    log(f"    FAIL {pdf.get('name')} was not produced")
                     continue
                 dest = resolve_out_path(output_dir / src.name, used, overwrite)
-                if dest.exists():          # overwrite 时磁盘旧同名先删，shutil.move 才能落
+                if dest.exists():          # when overwriting, delete the old file first so shutil.move can land
                     try:
                         dest.unlink()
                     except OSError:
@@ -753,14 +767,14 @@ def plot_folder_accore(
                 shutil.move(str(src), str(dest))
                 moved += 1
                 pdf_count += 1
-                log(f"    ✓ {dest.name}（{dest.stat().st_size} 字节）")
+                log(f"    OK   {dest.name} ({dest.stat().st_size} bytes)")
             if moved:
                 dwg_count += 1
-                log(f"[{index + 1}/{len(dwgs)}] {rel}：{moved} 张")
+                log(f"[{index + 1}/{len(dwgs)}] {rel}: {moved} PDF(s)")
             elif item_errors:
-                log(f"[{index + 1}/{len(dwgs)}] {rel}：未成功生成 PDF")
+                log(f"[{index + 1}/{len(dwgs)}] {rel}: no PDF produced")
             else:
-                log(f"[{index + 1}/{len(dwgs)}] {rel}：（未找到匹配的图框块 / 闭合图框，跳过）")
+                log(f"[{index + 1}/{len(dwgs)}] {rel}: (no matching title block / closed frame, skipped)")
 
         return {
             "dwg_total": len(dwgs),
@@ -772,18 +786,18 @@ def plot_folder_accore(
 
 
 def app_icon_path() -> Path:
-    """打包后 app.ico 随 --add-data 落在 _MEIPASS；源码运行时在脚本旁。"""
+    """Packaged: app.ico is bundled via --add-data into _MEIPASS; from source it sits next to the script."""
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
     return base / "app.ico"
 
 
 def default_output_dir(folder: Path) -> Path:
     stamp = datetime.date.today().strftime("%Y-%m-%d")
-    return folder / f"打印输出_{stamp}"
+    return folder / f"plot-output_{stamp}"
 
 
 # ---------------------------------------------------------------------------
-# PySide6 界面（布局参考 2026-07-14_02_图框属性exe 的 QtApp）
+# PySide6 GUI
 # ---------------------------------------------------------------------------
 class WorkerSignals(QObject):
     log = Signal(str)
@@ -807,7 +821,7 @@ class Worker(QRunnable):
 
 
 class QtApp(QMainWindow):
-    """首页只做三件事：选图 → 输出到 → 开始打印。其余全部收进「高级选项」。"""
+    """The main page does three things: pick drawings -> output folder -> Plot. Everything else lives under 'Advanced'."""
 
     _log_signal = Signal(str)
     _PROGRESS_RE = re.compile(r"^\[(\d+)/(\d+)\]")
@@ -827,7 +841,7 @@ class QtApp(QMainWindow):
         self.setStyleSheet(build_qss())
         self._log_signal.connect(self._append_log)
 
-    # -- 构建 --
+    # -- build --
     def _build_ui(self) -> None:
         central = QWidget()
         central.setObjectName("root")
@@ -838,13 +852,13 @@ class QtApp(QMainWindow):
 
         title = QLabel(APP_NAME)
         title.setObjectName("title")
-        subtitle = QLabel("把每张 DWG 里的图框各出一张 PDF，文件名取图号+图名。后台运行，不用先开 CAD。")
+        subtitle = QLabel("One PDF per title block in each DWG, named <sheet number> <sheet title>. Runs in the background; no need to open CAD first.")
         subtitle.setObjectName("subtitle")
         subtitle.setWordWrap(True)
         outer.addWidget(title)
         outer.addWidget(subtitle)
 
-        # 主卡片：两行输入
+        # Main card: two input rows
         card = QFrame()
         card.setObjectName("card")
         form = QGridLayout(card)
@@ -854,14 +868,14 @@ class QtApp(QMainWindow):
         form.setColumnStretch(1, 1)
 
         self.folder_edit = QLineEdit()
-        self.folder_edit.setPlaceholderText("把 DWG 或文件夹拖到这里，或点右边选择")
-        folder_button = QPushButton("选择 DWG…")
+        self.folder_edit.setPlaceholderText("Drop DWG files or a folder here, or browse on the right")
+        folder_button = QPushButton("Select DWG...")
         folder_button.setObjectName("secondary")
         folder_button.clicked.connect(self._choose_inputs)
-        dir_button = QPushButton("选文件夹…")
+        dir_button = QPushButton("Select folder...")
         dir_button.setObjectName("secondary")
         dir_button.clicked.connect(self._choose_folder)
-        form.addWidget(QLabel("图纸"), 0, 0)
+        form.addWidget(QLabel("Drawings"), 0, 0)
         form.addWidget(self.folder_edit, 0, 1)
         picks = QHBoxLayout()
         picks.setSpacing(6)
@@ -870,19 +884,19 @@ class QtApp(QMainWindow):
         form.addLayout(picks, 0, 2)
 
         self.output_edit = QLineEdit()
-        self.output_edit.setPlaceholderText("留空 = 图纸所在文件夹里的「打印输出_日期」")
-        output_button = QPushButton("选择…")
+        self.output_edit.setPlaceholderText("Empty = 'plot-output_<date>' next to the drawings")
+        output_button = QPushButton("Browse...")
         output_button.setObjectName("secondary")
         output_button.clicked.connect(self._choose_output)
-        form.addWidget(QLabel("PDF 输出到"), 1, 0)
+        form.addWidget(QLabel("PDF output"), 1, 0)
         form.addWidget(self.output_edit, 1, 1)
         form.addWidget(output_button, 1, 2)
         outer.addWidget(card)
 
-        # 高级选项（默认折叠）
+        # Advanced options (collapsed by default)
         self.adv_toggle = QToolButton()
         self.adv_toggle.setObjectName("advToggle")
-        self.adv_toggle.setText("高级选项")
+        self.adv_toggle.setText("Advanced")
         self.adv_toggle.setCheckable(True)
         self.adv_toggle.setChecked(False)
         self.adv_toggle.setArrowType(Qt.RightArrow)
@@ -901,50 +915,50 @@ class QtApp(QMainWindow):
         adv.setColumnStretch(3, 1)
 
         self.filter_edit = QLineEdit(TITLE_BLOCK_FILTER)
-        self.filter_edit.setToolTip("图框块的块名关键字；英文逗号分隔可多选。\n清空且填了「图框图层含」时，只按图层找闭合图框。")
-        adv.addWidget(QLabel("图框块名含"), 0, 0)
+        self.filter_edit.setToolTip("Keyword(s) in the title block's block name, case-insensitive; separate several with commas.\nLeave empty and fill 'Frame layer contains' to find closed frames by layer only.")
+        adv.addWidget(QLabel("Block name contains"), 0, 0)
         adv.addWidget(self.filter_edit, 0, 1)
 
         self.layer_edit = QLineEdit()
-        self.layer_edit.setPlaceholderText("留空 = 不按图层找")
-        self.layer_edit.setToolTip("闭合多段线图框所在图层的关键字；英文逗号分隔可多选。\n图层名包含任一关键字的闭合多段线，按其包围盒各出一张 PDF。")
-        adv.addWidget(QLabel("图框图层含"), 0, 2)
+        self.layer_edit.setPlaceholderText("Empty = do not search by layer")
+        self.layer_edit.setToolTip("Keyword(s) in the layer name of closed-polyline frames; separate several with commas.\nEvery closed polyline on a matching layer is plotted by its bounding box.")
+        adv.addWidget(QLabel("Frame layer contains"), 0, 2)
         adv.addWidget(self.layer_edit, 0, 3)
 
         self.style_combo = QComboBox()
         self.style_combo.setEditable(True)
-        self.style_combo.addItems(["monochrome.ctb", "acad.ctb", "（彩色·按图层原色，无样式表）"])
-        self.style_combo.setToolTip("打印样式表：monochrome.ctb（黑白）/ acad.ctb / 彩色。\n也可直接输入 .ctb/.stb 文件名，AutoCAD 按名字在打印样式搜索路径里找。")
-        adv.addWidget(QLabel("打印样式表"), 1, 0)
+        self.style_combo.addItems(["monochrome.ctb", "acad.ctb", STYLE_COLOR_LABEL])
+        self.style_combo.setToolTip("Plot style table: monochrome.ctb (black and white) / acad.ctb / color.\nYou can also type a .ctb/.stb file name; AutoCAD looks it up in the plot style search path.")
+        adv.addWidget(QLabel("Plot style table"), 1, 0)
         adv.addWidget(self.style_combo, 1, 1)
 
         self.paper_combo = QComboBox()
         self.paper_combo.addItems(["A3", "A4", "A2", "A1", "A0"])
-        adv.addWidget(QLabel("纸张"), 1, 2)
+        adv.addWidget(QLabel("Paper"), 1, 2)
         adv.addWidget(self.paper_combo, 1, 3)
 
         self.engine_combo = QComboBox()
-        self.engine_combo.addItems(["后台 CAD 实例（稳，支持 OLE 表）", "无界面内核 accoreconsole（快）"])
-        self.engine_combo.setToolTip("后台 CAD 实例：另起隐藏的 Civil 3D，冷启动约 30 秒，OLE 表/样式表支持最全。\n无界面内核：accoreconsole 批量出图，快、无弹窗；图里有 OLE 表会印成空框。")
+        self.engine_combo.addItems(["Background CAD instance (robust, supports OLE tables)", "Headless core accoreconsole (fast)"])
+        self.engine_combo.setToolTip("Background CAD instance: starts a hidden Civil 3D (about 30 s cold start); best OLE table / style table support.\nHeadless core: accoreconsole batch plotting, fast and dialog-free; OLE tables print as empty frames.")
         self.engine_combo.currentIndexChanged.connect(self._sync_engine_options)
-        adv.addWidget(QLabel("引擎"), 2, 0)
+        adv.addWidget(QLabel("Engine"), 2, 0)
         adv.addWidget(self.engine_combo, 2, 1, 1, 3)
 
         checks = QHBoxLayout()
         checks.setSpacing(18)
-        self.recursive_check = QCheckBox("含子文件夹")
+        self.recursive_check = QCheckBox("Include subfolders")
         self.recursive_check.setChecked(True)
-        self.recursive_check.setToolTip("输入是文件夹时递归查找 DWG。")
-        self.overwrite_check = QCheckBox("覆盖同名 PDF")
+        self.recursive_check.setToolTip("Search folders recursively for DWG files.")
+        self.overwrite_check = QCheckBox("Overwrite existing PDFs")
         self.overwrite_check.setChecked(True)
-        self.overwrite_check.setToolTip("取消则同名一律加 _2/_3 保留旧文件。")
-        self.lineweight_check = QCheckBox("打印线宽（治细字淡显）")
+        self.overwrite_check.setToolTip("Unchecked: existing names get _2/_3 appended and old files are kept.")
+        self.lineweight_check = QCheckBox("Plot lineweights (fixes faint text)")
         self.lineweight_check.setChecked(True)
-        self.lineweight_check.setToolTip("默认线宽抬到 0.30mm，细单线文字打实。仅无界面内核支持。")
-        self.transparency_check = QCheckBox("打印透明度")
-        self.transparency_check.setToolTip("半透明填充按透明呈现；默认出实心。仅无界面内核支持。")
-        self.visible_check = QCheckBox("显示 CAD 窗口")
-        self.visible_check.setToolTip("排查问题时勾上看过程。仅后台 CAD 实例支持。")
+        self.lineweight_check.setToolTip("Raises the default lineweight to 0.30 mm so thin single-stroke text prints solid. Headless core only.")
+        self.transparency_check = QCheckBox("Plot transparency")
+        self.transparency_check.setToolTip("Semi-transparent fills stay transparent; by default they print solid. Headless core only.")
+        self.visible_check = QCheckBox("Show CAD window")
+        self.visible_check.setToolTip("Tick to watch the process when troubleshooting. Background CAD instance only.")
         for box in (self.recursive_check, self.overwrite_check, self.lineweight_check,
                     self.transparency_check, self.visible_check):
             checks.addWidget(box)
@@ -953,22 +967,22 @@ class QtApp(QMainWindow):
         outer.addWidget(self.adv_panel)
         self._sync_engine_options()
 
-        # 动作行
+        # Action row
         actions = QHBoxLayout()
         actions.setSpacing(10)
-        self.run_button = QPushButton("开始打印")
+        self.run_button = QPushButton("Plot")
         self.run_button.setObjectName("primary")
         self.run_button.setMinimumHeight(40)
         self.run_button.setMinimumWidth(160)
         self.run_button.clicked.connect(self._run)
-        self.open_out_button = QPushButton("打开输出文件夹")
+        self.open_out_button = QPushButton("Open output folder")
         self.open_out_button.setObjectName("link")
         self.open_out_button.setCursor(Qt.PointingHandCursor)
         self.open_out_button.clicked.connect(self._open_output)
         actions.addWidget(self.run_button)
         actions.addWidget(self.open_out_button)
         actions.addStretch(1)
-        self.status_label = QLabel("就绪")
+        self.status_label = QLabel("Ready")
         self.status_label.setObjectName("status")
         actions.addWidget(self.status_label)
         outer.addLayout(actions)
@@ -985,7 +999,7 @@ class QtApp(QMainWindow):
         self.log_text.setObjectName("log")
         self.log_text.setReadOnly(True)
         self.log_text.setLineWrapMode(QTextEdit.WidgetWidth)
-        self.log_text.setPlaceholderText("打印进度会显示在这里")
+        self.log_text.setPlaceholderText("Plot progress appears here")
         outer.addWidget(self.log_text, 1)
 
     def _toggle_advanced(self, on: bool) -> None:
@@ -998,7 +1012,7 @@ class QtApp(QMainWindow):
         self.transparency_check.setEnabled(accore)
         self.visible_check.setEnabled(not accore)
 
-    # -- 拖放 --
+    # -- drag and drop --
     def dragEnterEvent(self, event) -> None:  # noqa: N802
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
@@ -1010,7 +1024,7 @@ class QtApp(QMainWindow):
             self._set_inputs(paths)
             event.acceptProposedAction()
 
-    # -- 交互 --
+    # -- interaction --
     def _set_inputs(self, paths: list[str]) -> None:
         self.folder_edit.setText(" ; ".join(paths))
         first = Path(paths[0])
@@ -1028,25 +1042,25 @@ class QtApp(QMainWindow):
 
     def _choose_inputs(self) -> None:
         files, _ = QFileDialog.getOpenFileNames(
-            self, "选择 DWG 文件（可多选）", self._start_dir(), "AutoCAD 图纸 (*.dwg)"
+            self, "Select DWG files (multi-select)", self._start_dir(), "AutoCAD drawings (*.dwg)"
         )
         if files:
             self._set_inputs(files)
 
     def _choose_folder(self) -> None:
-        selected = QFileDialog.getExistingDirectory(self, "选择存放 DWG 的文件夹", self._start_dir())
+        selected = QFileDialog.getExistingDirectory(self, "Select the folder containing the DWG files", self._start_dir())
         if selected:
             self._set_inputs([selected])
 
     def _choose_output(self) -> None:
-        selected = QFileDialog.getExistingDirectory(self, "选择输出文件夹", self.output_edit.text())
+        selected = QFileDialog.getExistingDirectory(self, "Select output folder", self.output_edit.text())
         if selected:
             self.output_edit.setText(selected)
 
     def _open_output(self) -> None:
         path = Path(self.output_edit.text().strip())
         if not path.is_dir():
-            QMessageBox.information(self, APP_NAME, "输出文件夹还不存在，先打印一次。")
+            QMessageBox.information(self, APP_NAME, "The output folder does not exist yet; plot once first.")
             return
         os.startfile(path)  # type: ignore[attr-defined]
 
@@ -1054,7 +1068,7 @@ class QtApp(QMainWindow):
         raw = self.folder_edit.text().strip()
         entries = [part for part in raw.split(";") if part.strip()]
         if not entries:
-            QMessageBox.critical(self, APP_NAME, "请先选 DWG 文件或文件夹（也可以直接拖进来）。")
+            QMessageBox.critical(self, APP_NAME, "Select DWG files or a folder first (drag and drop works too).")
             return
         recursive = self.recursive_check.isChecked()
         try:
@@ -1116,11 +1130,11 @@ class QtApp(QMainWindow):
     def _set_busy(self, busy: bool) -> None:
         self.busy = busy
         self.run_button.setEnabled(not busy)
-        self.run_button.setText("正在打印…" if busy else "开始打印")
-        self.status_label.setText("正在打印，请等待……" if busy else "就绪")
+        self.run_button.setText("Plotting..." if busy else "Plot")
+        self.status_label.setText("Plotting, please wait..." if busy else "Ready")
         self.progress.setVisible(busy)
         if busy:
-            self.progress.setRange(0, 0)  # 未拿到进度前走忙碌动画
+            self.progress.setRange(0, 0)  # busy animation until the first progress line arrives
 
     def _append_log(self, message: str) -> None:
         text = message.rstrip()
@@ -1130,22 +1144,22 @@ class QtApp(QMainWindow):
             done, total = int(m.group(1)), int(m.group(2))
             self.progress.setRange(0, max(total, 1))
             self.progress.setValue(done)
-            self.status_label.setText(f"正在打印 {done}/{total}")
+            self.status_label.setText(f"Plotting {done}/{total}")
 
     def _run_done(self, result: dict[str, Any]) -> None:
         summary = (
-            f"完成：{result['dwg_total']} 个 DWG，其中 {result['dwg_plotted']} 个含图框；"
-            f"共出 {result['pdf_count']} 张 PDF；失败 {result['error_count']} 项。"
+            f"Finished: {result['dwg_total']} DWG(s), {result['dwg_plotted']} with title blocks; "
+            f"{result['pdf_count']} PDF(s) produced; {result['error_count']} error(s)."
         )
         self._append_log(summary)
-        self.status_label.setText(f"完成 · {result['pdf_count']} 张 PDF")
+        self.status_label.setText(f"Done - {result['pdf_count']} PDF(s)")
         box = QMessageBox(self)
         box.setWindowTitle(APP_NAME)
         box.setIcon(QMessageBox.Information if not result["error_count"] else QMessageBox.Warning)
         box.setText(summary)
-        box.setInformativeText(f"输出：{result['output_dir']}")
-        open_btn = box.addButton("打开输出文件夹", QMessageBox.AcceptRole)
-        box.addButton("关闭", QMessageBox.RejectRole)
+        box.setInformativeText(f"Output: {result['output_dir']}")
+        open_btn = box.addButton("Open output folder", QMessageBox.AcceptRole)
+        box.addButton("Close", QMessageBox.RejectRole)
         box.exec()
         if box.clickedButton() is open_btn:
             self.output_edit.setText(str(result["output_dir"]))
@@ -1194,7 +1208,7 @@ QProgressBar { background: #e1e5ea; border: none; border-radius: 3px; }
 QProgressBar::chunk { background: #2f7bf5; border-radius: 3px; }
 QTextEdit#log {
     background: #ffffff; border: 1px solid #e1e5ea; border-radius: 8px;
-    padding: 8px; font-family: Consolas, "Microsoft YaHei", monospace; font-size: 12px; color: #2b2f33;
+    padding: 8px; font-family: Consolas, "Segoe UI", monospace; font-size: 12px; color: #2b2f33;
 }
 QToolTip { background: #1d2329; color: #ffffff; border: none; padding: 6px 8px; font-size: 12px; }
 """
@@ -1209,7 +1223,7 @@ _CHECK_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" vi
 
 
 def build_qss() -> str:
-    """Qt 样式表不认 data URI，把两个小图标落到临时目录再引用。"""
+    """Qt style sheets do not accept data URIs; write the two small icons to a temp folder and reference them."""
     icon_dir = Path(tempfile.gettempdir()) / "c3df-titleblock-plotter"
     icon_dir.mkdir(parents=True, exist_ok=True)
     arrow = icon_dir / "arrow.svg"
@@ -1219,15 +1233,68 @@ def build_qss() -> str:
     return APP_QSS.replace("{ARROW}", arrow.as_posix()).replace("{CHECK}", check.as_posix())
 
 
+USAGE = """Usage:
+  DWGTitleblockPlotter.exe                                            GUI
+  DWGTitleblockPlotter.exe <folder-or-dwg> [outdir] [--block <substring>] [--color]
+
+  <folder-or-dwg>       a DWG file, or a folder searched recursively for DWG files
+  [outdir]              output folder (default: plot-output_<date> next to the drawings)
+  --block <substring>   block name filter, case-insensitive (default "TITLE")
+  --color               plot in colour (no style table) instead of monochrome.ctb
+
+  Environment: C3DF_PLOT_TRANSPARENCY=1 plots transparency; C3DF_PLOT_NO_LINEWEIGHT=1 disables lineweights.
+"""
+
+
+def parse_cli(argv: list[str]) -> tuple[list[str], str | None, bool]:
+    """Split argv into positional arguments, the optional --block value and the --color flag."""
+    positional: list[str] = []
+    block: str | None = None
+    color = False
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--block":
+            if index + 1 >= len(argv):
+                raise SystemExit("--block requires a value.\n" + USAGE)
+            block = argv[index + 1]
+            index += 2
+            continue
+        if arg.startswith("--block="):
+            block = arg.split("=", 1)[1]
+            index += 1
+            continue
+        if arg in ("--color", "--colour"):
+            color = True
+            index += 1
+            continue
+        if arg.startswith("--"):
+            raise SystemExit(f"Unknown option: {arg}\n" + USAGE)
+        positional.append(arg)
+        index += 1
+    return positional, block, color
+
+
 def main() -> None:
-    # 命令行无界面用法：python titleblock_plotter.py <文件夹或DWG> [输出文件夹]（默认走 accoreconsole）
+    # Command-line headless usage (always accoreconsole):
+    #   titleblock_plotter.py <folder-or-dwg> [outdir] [--block <substring>] [--color]
+    if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help", "/?"):
+        print(USAGE)
+        return
     if len(sys.argv) >= 2 and sys.argv[1] not in ("--gui", ""):
-        dwgs, base = resolve_inputs([sys.argv[1]], True)
-        output_dir = Path(sys.argv[2]).resolve() if len(sys.argv) >= 3 else default_output_dir(base)
+        positional, block, color = parse_cli(sys.argv[1:])
+        if not positional:
+            raise SystemExit(USAGE)
+        dwgs, base = resolve_inputs([positional[0]], True)
+        output_dir = Path(positional[1]).resolve() if len(positional) >= 2 else default_output_dir(base)
+        block_keywords = parse_keywords(block) if block is not None else []
+        if not block_keywords:
+            block_keywords = [TITLE_BLOCK_FILTER]
+        ctb = CTB_COLOR if color else CTB_MONO
         transparency = os.environ.get("C3DF_PLOT_TRANSPARENCY", "").strip().lower() in ("1", "true", "yes", "on")
         lw_on = os.environ.get("C3DF_PLOT_NO_LINEWEIGHT", "").strip().lower() not in ("1", "true", "yes", "on")
         result = plot_folder_accore(
-            dwgs, base, output_dir, [TITLE_BLOCK_FILTER], [], CTB_MONO, "A3", True, print,
+            dwgs, base, output_dir, block_keywords, [], ctb, "A3", True, print,
             transparency, lw_on, 30 if lw_on else 0,
         )
         print(result)
@@ -1235,7 +1302,7 @@ def main() -> None:
     app = QApplication(sys.argv)
     window = QtApp()
     window.show()
-    if os.environ.get("C3DF_PLOT_SCREENSHOT"):  # 无人值守核版面：截一张主窗口就退出
+    if os.environ.get("C3DF_PLOT_SCREENSHOT"):  # unattended layout check: grab the main window and quit
         from PySide6.QtCore import QTimer
 
         def _shot() -> None:

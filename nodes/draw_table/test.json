@@ -2,27 +2,27 @@
   "node": "draw_table",
   "version": 1,
   "executor": "engine",
-  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
-  "prerequisite": "目标布局存在；rows 由项目胶水脚本从 xlsx 读出（节点本身不读 xlsx，不引第三方库）",
+  "fixture": "examples/channel-demo.dwg",
+  "prerequisite": "The target layout exists; rows are read from xlsx by project glue scripts (the node itself does not read xlsx and pulls in no third-party library)",
   "task": {
     "op": "draw_table",
     "space": "Layout1",
-    "name": "工程量统计表",
+    "name": "QuantityTable",
     "x": 944.121, "y": -392.611, "width": 165.461,
     "row_height": 5.3, "text_height": 2.5, "header_rows": 1,
     "rows": [
-      ["序号", "位置", "平均上口宽", "疏浚底高程", "边坡", "挖方量（m³）", "含系数挖方量（m³）", "备注"],
-      [1, "DK1#地块", "/", "3.0m", "1:5", "239900.02", "249496.02", "浚深"]
+      ["No.", "Location", "Mean top width", "Dredge bottom elev.", "Side slope", "Cut (m3)", "Cut with factor (m3)", "Remarks"],
+      [1, "Parcel DK1", "/", "3.0m", "1:5", "239900.02", "249496.02", "deepening"]
     ]
   },
   "assertions": [
-    "横线数 = 行数+1，竖线数 = 列数+1，文字数 = 非空单元格数；全部带 XData C3DF_TBL:<name>",
-    "space 给布局名时实体落在该布局的纸空间块里（DXF 67=1 / 410=布局名），给 Model 时落模型空间",
-    "width 给了时各列宽等比缩放、总宽 == width（±1e-6）；不给时按最长文本估宽",
-    "同 name 重跑：cleared == 上次 entities，图上不叠加；不同 name 互不清",
-    "文字比格子宽时 WidthFactor 压到 avail/est（下限 0.5），不溢出格线",
-    "布局名不存在抛错并点名；rows 为空抛错；x/y 缺失抛错",
-    "text_style 给了图里没有的样式名抛错；缺省有 -黑体 用 -黑体，没有走图默认"
+    "horizontal lines = rows + 1, vertical lines = columns + 1, texts = non-empty cells; all carry XData C3DF_TBL:<name>",
+    "with a layout name in space the entities land in that layout's paper-space block (DXF 67=1 / 410=layout name); with Model they land in model space",
+    "with width given, column widths scale proportionally and the total == width (+/- 1e-6); without it widths are estimated from the longest text",
+    "rerun with the same name: cleared == previous entities, nothing stacks; different names do not clear each other",
+    "text wider than its cell gets WidthFactor reduced to avail/est (floor 0.5) so it does not overflow the grid",
+    "a non-existent layout name throws and names it; empty rows throws; missing x/y throws",
+    "a text_style not present in the drawing throws; by default the SimHei-convention style (see normalize_textstyles) is used when present, otherwise the drawing default"
   ],
   "status": "draft_assertions_pending_real_drawing_regression"
 }

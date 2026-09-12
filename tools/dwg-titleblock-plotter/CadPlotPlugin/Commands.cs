@@ -15,9 +15,10 @@ using AcDbPlotType = Autodesk.AutoCAD.DatabaseServices.PlotType;
 
 namespace CadPlotPlugin;
 
-// accoreconsole（无界面内核）里用 PlotEngine 把图框出成 PDF。
-// C3DF-TESTPLOT  = 可行性单张测试（已验证：无界面能出正确 A3/黑白/横向 PDF）。
-// C3DF-BATCHPLOT = 一次进程批量：逐张读侧数据库、每个含关键字的图框出一张 PDF。
+// Plots title blocks to PDF with PlotEngine inside accoreconsole (headless core).
+// C3DF-TESTPLOT  = single-sheet feasibility test (verified: headless produces a correct A3/mono/landscape PDF).
+// C3DF-BATCHPLOT = one process, many drawings: each DWG is read as a side database and
+//                  every title block whose name contains a keyword is plotted to its own PDF.
 public sealed class Commands
 {
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -27,9 +28,9 @@ public sealed class Commands
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    // 图名 / 图号 属性标签优先级（与 Python 端一致）
-    private static readonly string[] TumingTags = { "02图名", "图名", "DWGNAME", "TITLE" };
-    private static readonly string[] TuhaoTags = { "03图号", "图号", "DWGNO", "NUMBER" };
+    // Attribute tags for sheet title / sheet number, in priority order (kept in sync with the Python side).
+    private static readonly string[] TumingTags = { "SHEET_TITLE", "TITLE", "DWGNAME" };
+    private static readonly string[] TuhaoTags = { "SHEET_NO", "SHEETNO", "NUMBER", "DWGNO" };
 
     [CommandMethod("C3DF-TESTPLOT")]
     public void TestPlot()
@@ -39,11 +40,11 @@ public sealed class Commands
         Editor ed = doc.Editor;
         string outPdf = Environment.GetEnvironmentVariable("C3DF_PLOT_OUTPUT")
             ?? Path.Combine(Path.GetTempPath(), "c3df_testplot.pdf");
-        string blockContains = Environment.GetEnvironmentVariable("C3DF_PLOT_BLOCK") ?? "图框";
+        string blockContains = Environment.GetEnvironmentVariable("C3DF_PLOT_BLOCK") ?? "TITLE";
         try
         {
             Application.SetSystemVariable("BACKGROUNDPLOT", 0);
-            Application.SetSystemVariable("PLOTTRANSPARENCYOVERRIDE", 1); // 1=不打印透明度（实心）
+            Application.SetSystemVariable("PLOTTRANSPARENCYOVERRIDE", 1); // 1 = do not plot transparency (solid fills)
             ObjectId layoutId = ObjectId.Null;
             Extents3d window = new Extents3d();
             using (Transaction tr = db.TransactionManager.StartTransaction())
@@ -56,7 +57,7 @@ public sealed class Commands
                 }
                 tr.Commit();
             }
-            if (layoutId.IsNull) { ed.WriteMessage($"\nC3DF-TESTPLOT: 未找到含“{blockContains}”的图框布局。\n"); return; }
+            if (layoutId.IsNull) { ed.WriteMessage($"\nC3DF-TESTPLOT: no layout contains a title block matching \"{blockContains}\".\n"); return; }
             PlotWindow(db, layoutId, window, outPdf, "A3", "monochrome.ctb", false, false);
             bool ok = File.Exists(outPdf);
             long size = ok ? new FileInfo(outPdf).Length : 0;
@@ -79,12 +80,13 @@ public sealed class Commands
         Editor ed = Application.DocumentManager.MdiActiveDocument.Editor;
 
         Application.SetSystemVariable("BACKGROUNDPLOT", 0);
-        // 2=强制打印透明度，1=强制不打印（透明对象出实心）。跟随 payload 开关，默认 1。
+        // 2 = force plotting transparency, 1 = force off (transparent objects print solid). Follows the payload flag; default 1.
         Application.SetSystemVariable("PLOTTRANSPARENCYOVERRIDE", payload.PlotTransparency ? 2 : 1);
-        // >0 时抬高“默认”线宽（百分之毫米），让走默认线宽的细字有可见笔宽（治 hairline 淡显）
+        // When > 0, raise the "default" lineweight (hundredths of mm) so thin text that uses the
+        // default lineweight gets a visible pen width instead of a faint hairline.
         if (payload.LwDefault > 0) Application.SetSystemVariable("LWDEFAULT", payload.LwDefault);
-        // 优先用 Python 端明确指定的样式表名（acad.ctb / monochrome.ctb / 定位到的原件名）；
-        // 未指定时回退到旧的 Monochrome 布尔字段，保持对旧调用方的兼容。
+        // Prefer the style sheet named explicitly by the Python side (acad.ctb / monochrome.ctb / a
+        // located file name); fall back to the legacy Monochrome boolean for older callers.
         string ctb = !string.IsNullOrWhiteSpace(payload.Ctb)
             ? payload.Ctb.Trim()
             : (payload.Monochrome ? "monochrome.ctb" : "");
@@ -100,13 +102,15 @@ public sealed class Commands
                 using var db = new Database(false, true);
                 db.ReadDwgFile(job.Path, FileOpenMode.OpenForReadAndAllShare, true, null);
                 db.CloseInput(true);
-                // 关键：把侧数据库设为当前工作库，PlotEngine 才能出它的布局
+                // Required: the side database must be the working database for PlotEngine to plot its layouts.
                 HostApplicationServices.WorkingDatabase = db;
-                // 关键：侧库不会自动加载外参，图面靠外参的图纸会静默出白纸——必须显式解析
+                // Required: side databases do not load xrefs automatically; sheets that depend on xrefs
+                // would silently plot blank, so resolve them explicitly.
                 PrepareXrefs(db, job, file, ed);
-                // 兜底：出图前重解析文字样式（无头缺失的“交互式 regen”那步），避免 TTF 发浅
+                // Safety net: re-resolve text styles before plotting (the interactive regen step that
+                // headless mode skips) so TrueType text does not print faint.
                 int restyled = RefreshTextStyles(db);
-                if (restyled > 0) ed.WriteMessage($"\nC3DF-BATCHPLOT [{job.Id}]: 重解析文字样式 {restyled} 个。\n");
+                if (restyled > 0) ed.WriteMessage($"\nC3DF-BATCHPLOT [{job.Id}]: re-resolved {restyled} text style(s).\n");
                 PlotDatabaseTitleBlocks(db, payload, job, file, ctb);
             }
             catch (System.Exception ex)
@@ -126,11 +130,12 @@ public sealed class Commands
     }
 
     /// <summary>
-    /// 外参预处理。侧库（ReadDwgFile）**不会**自动加载 xref：图面内容全靠外参的图纸
-    /// 会静默出白纸——不报错、PDF 照样生成（2026-08-27 项目B 1103 实测，12 张全是空图框）。
-    /// 两步：①打印用的是临时英文副本，相对外参路径在副本目录下必然落空，
-    /// 所以先按原图目录 origin_dir 把相对路径还原成绝对路径（只改内存侧库，不落盘）；
-    /// ②显式 ResolveXrefs，再把没解析成功的报进 Errors，绝不让白纸冒充成品。
+    /// Xref preparation. A side database (ReadDwgFile) does NOT load xrefs automatically: a sheet whose
+    /// content lives in xrefs plots as a blank page with no error and a valid-looking PDF.
+    /// Two steps: (1) plotting uses a temporary ASCII-named copy, so relative xref paths cannot resolve
+    /// from the copy's folder; rebuild them as absolute paths from the original folder (origin_dir),
+    /// in memory only. (2) Call ResolveXrefs explicitly and report anything still unresolved in Errors,
+    /// so a blank page is never passed off as a finished sheet.
     /// </summary>
     private static int PrepareXrefs(Database db, BatchPlotJob job, BatchPlotFile file, Editor ed)
     {
@@ -174,11 +179,11 @@ public sealed class Commands
         }
         foreach (string bad in unresolved)
         {
-            string msg = $"外参未解析：{bad} —— 图面会缺内容，这张 PDF 不能当成品。";
+            string msg = $"Unresolved xref: {bad} -- sheet content is missing; this PDF is not a deliverable.";
             file.Errors.Add(msg);
             ed.WriteMessage($"\nC3DF-BATCHPLOT [{job.Id}] WARN: {msg}\n");
         }
-        ed.WriteMessage($"\nC3DF-BATCHPLOT [{job.Id}]: 外参 {names.Count} 个，未解析 {unresolved.Count} 个。\n");
+        ed.WriteMessage($"\nC3DF-BATCHPLOT [{job.Id}]: {names.Count} xref(s), {unresolved.Count} unresolved.\n");
         return names.Count;
     }
 
@@ -195,9 +200,10 @@ public sealed class Commands
             string baseName = Sanitize((hit.Tuhao + " " + hit.Tuming).Trim());
             if (baseName.Length == 0) baseName = Sanitize($"{job.Stem}_{hit.LayoutName}");
             string outPdf = UniquePath(Path.Combine(p.OutputDir, baseName + ".pdf"));
-            // eLayoutNotCurrent 修复：PlotInfoValidator 要求目标布局必须是当前布局。
-            // 侧库已设为 WorkingDatabase，出图前把图框所在的布局（模型或某个布局）切为当前；
-            // 已是当前则不动。切换失败就交给下面 Plot 抛出并记录具体错误。
+            // eLayoutNotCurrent fix: PlotInfoValidator requires the target layout to be current.
+            // The side database is already the WorkingDatabase, so switch to the layout that holds
+            // the title block (model or a paper layout) unless it is current already. If switching
+            // fails, let the plot below throw and record the concrete error.
             try
             {
                 if (!string.Equals(LayoutManager.Current.CurrentLayout, hit.LayoutName, StringComparison.Ordinal))
@@ -238,7 +244,8 @@ public sealed class Commands
         }
     }
 
-    // 两类图框：①块名含任一关键字的属性块 ②图层名含任一关键字的闭合多段线。
+    // Two kinds of frames: (1) block references whose name contains any keyword,
+    // (2) closed polylines whose layer name contains any keyword.
     private static IEnumerable<TitleHit> FindFrames(Transaction tr, Database db, List<string> blockKeywords, List<string> layerKeywords)
     {
         var layouts = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
@@ -251,7 +258,7 @@ public sealed class Commands
                 DBObject obj = tr.GetObject(id, OpenMode.ForRead);
                 if (obj is BlockReference br)
                 {
-                    // 不要求属性块：普通块也算图框，属性只影响 PDF 命名
+                    // Attributes are not required: plain blocks count as frames; attributes only affect PDF naming.
                     if (blockKeywords.Count == 0) continue;
                     if (!MatchesAny(EffectiveName(tr, br), blockKeywords)) continue;
                     var (tuhao, tuming) = ReadTitleName(tr, br);
@@ -270,7 +277,7 @@ public sealed class Commands
                     if (!MatchesAny(ent.Layer, layerKeywords)) continue;
                     Extents3d window;
                     try { window = ent.GeometricExtents; }
-                    catch (System.Exception) { continue; } // 退化多段线无包围盒，跳过
+                    catch (System.Exception) { continue; } // degenerate polyline without extents; skip
                     yield return new TitleHit
                     {
                         LayoutId = entry.Value,
@@ -293,10 +300,11 @@ public sealed class Commands
     private static bool MatchesAny(string name, List<string> keywords)
         => keywords.Any(k => name.IndexOf(k, StringComparison.OrdinalIgnoreCase) >= 0);
 
-    // 出图前兜底：把每个 TTF 文字样式的字体描述符原样重设一遍，标记样式已改，
-    // 触发 accoreconsole 无头出图对 TTF typeface 的重解析——这一步交互式前台会隐含做，
-    // 无头不做，导致“字发浅/样式不对”（根因见 踩坑.md 与 _memory feedback-dwg-plot-acc-font-datalevel）。
-    // 只强制重解析、不改设计字体；typeface 本身填错（如 -黑体 实为 SimSun）的仍需上游字体工具在数据层修。
+    // Pre-plot safety net: re-assign every TrueType text style's font descriptor unchanged. That marks
+    // the style as modified and forces accoreconsole to re-resolve the typeface, a step the interactive
+    // front end does implicitly and headless plotting skips (symptom: faint text / wrong style).
+    // Only forces re-resolution; never changes the designed font. A wrong typeface stored in the DWG
+    // must still be fixed upstream at the data level.
     private static int RefreshTextStyles(Database db)
     {
         int touched = 0;
@@ -308,7 +316,7 @@ public sealed class Commands
             Autodesk.AutoCAD.GraphicsInterface.FontDescriptor f;
             try { f = rec.Font; }
             catch { continue; }
-            if (string.IsNullOrEmpty(f.TypeFace)) continue; // SHX 走 FileName，不受此坑影响
+            if (string.IsNullOrEmpty(f.TypeFace)) continue; // SHX styles use FileName and are unaffected
             try
             {
                 rec.UpgradeOpen();
@@ -316,7 +324,7 @@ public sealed class Commands
                     f.TypeFace, f.Bold, f.Italic, f.CharacterSet, f.PitchAndFamily);
                 touched++;
             }
-            catch { /* 单个样式失败不影响出图 */ }
+            catch { /* one failing style must not block the plot */ }
         }
         tr.Commit();
         return touched;
@@ -367,7 +375,7 @@ public sealed class Commands
         psv.SetStdScaleType(ps, StdScaleType.ScaleToFit);
         psv.SetPlotCentered(ps, true);
         psv.SetPlotPaperUnits(ps, PlotPaperUnit.Millimeters);
-        // 横图转 90 度贴合竖纸
+        // Landscape windows are rotated 90 degrees to fit the portrait media.
         double w = plotWindow.MaxPoint.X - plotWindow.MinPoint.X;
         double h = plotWindow.MaxPoint.Y - plotWindow.MinPoint.Y;
         psv.SetPlotRotation(ps, w >= h ? PlotRotation.Degrees090 : PlotRotation.Degrees000);
@@ -380,13 +388,13 @@ public sealed class Commands
         {
             ps.PlotPlotStyles = false;
         }
-        ps.PrintLineweights = printLineweights; // 打印对象/图层线宽（治 hairline 细字淡显）
+        ps.PrintLineweights = printLineweights; // plot object/layer lineweights (cures faint hairline text)
         ps.ScaleLineweights = false;
         ps.PlotTransparency = plotTransparency;
 
         var pi = new PlotInfo { Layout = layoutId, OverrideSettings = ps };
-        // PlotInfoValidator 在侧数据库上仍需开启介质匹配；关闭会抛
-        // eNoMatchingMedia。前面已显式选定 canonical media，这里只让验证器完成匹配。
+        // PlotInfoValidator still needs media matching enabled on a side database; disabling it throws
+        // eNoMatchingMedia. The canonical media was chosen explicitly above; the validator only confirms it.
         var piv = new PlotInfoValidator { MediaMatchingPolicy = MatchingPolicy.MatchEnabled };
         piv.Validate(pi);
 
@@ -425,7 +433,7 @@ public sealed class Commands
 
     private static (string tuhao, string tuming) ReadTitleName(Transaction tr, BlockReference br)
     {
-        var tags = new Dictionary<string, string>(StringComparer.Ordinal);
+        var tags = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (ObjectId id in br.AttributeCollection)
         {
             if (tr.GetObject(id, OpenMode.ForRead) is not AttributeReference att) continue;
@@ -488,10 +496,10 @@ public sealed class BatchPlotPayload
     public string OutputDir { get; set; } = string.Empty;
     public string Paper { get; set; } = "A3";
     public bool Monochrome { get; set; } = true;
-    public string Ctb { get; set; } = "";   // 明确的样式表名；空 = 回退到 Monochrome
-    public bool PlotTransparency { get; set; } = false;  // 打印透明度；默认关（透明对象出实心）
-    public bool PrintLineweights { get; set; } = false;  // 打印线宽；默认关（历史默认，细字打成 hairline）
-    public int LwDefault { get; set; } = 0;              // >0 时设 LWDEFAULT（百分之毫米，如 30=0.30mm）；0=不动
+    public string Ctb { get; set; } = "";   // explicit style sheet name; empty = fall back to Monochrome
+    public bool PlotTransparency { get; set; } = false;  // plot transparency; default off (transparent objects print solid)
+    public bool PrintLineweights { get; set; } = false;  // plot lineweights; default off (legacy default, thin text prints as hairline)
+    public int LwDefault { get; set; } = 0;              // > 0 sets LWDEFAULT (hundredths of mm, e.g. 30 = 0.30 mm); 0 = leave unchanged
     public List<BatchPlotJob> Jobs { get; set; } = new();
 }
 
@@ -500,7 +508,7 @@ public sealed class BatchPlotJob
     public string Id { get; set; } = string.Empty;
     public string Path { get; set; } = string.Empty;
     public string Stem { get; set; } = string.Empty;
-    /// <summary>原图所在目录：临时英文副本里还原相对外参路径要用它。</summary>
+    /// <summary>Folder of the original DWG; used to rebuild relative xref paths from the temporary copy.</summary>
     public string OriginDir { get; set; } = string.Empty;
 }
 

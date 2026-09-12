@@ -2,35 +2,35 @@
   "node": "fix_self_intersections",
   "version": 1,
   "executor": "engine",
-  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
-  "prerequisite": "进 TIN 建面、offset_cone_contours 偏移、算面积、打 Hatch 之前先跑一遍；自交线会让这些操作失败或悄悄给错数",
+  "fixture": "examples/channel-demo.dwg",
+  "prerequisite": "Run once before building TINs, offsetting with offset_cone_contours, computing areas or hatching; self-intersecting lines make those operations fail or quietly give wrong numbers",
   "fixture_requirements": [
-    "一条闭合边界带小回环（蝴蝶结状，回环面积远小于主体）——验去小环保大环",
-    "一条开放线带套索回环——验开放线一律丢回环保主干",
-    "一条 8 字形（两瓣面积相当）——验 max_drop_ratio 拦下并进 needs_manual，图不被改",
-    "一条含弧段且弧段参与自交的线——验 CurveCurveIntersector2d 路径与 bulge 劈分",
-    "一条带相邻重合顶点的线——验去重不产生假阳性",
-    "一条本来就干净的线——验不改动、不计入 self_intersecting"
+    "A closed boundary with a small loop (bow-tie shape, loop area far smaller than the body) -- verifies dropping the small loop and keeping the large one",
+    "An open line with a lasso loop -- verifies open lines always drop the loop and keep the trunk",
+    "A figure-8 (two lobes of similar area) -- verifies max_drop_ratio blocks it, it goes to needs_manual and the drawing is unchanged",
+    "A line with arc segments where an arc takes part in the self-intersection -- verifies the CurveCurveIntersector2d path and bulge splitting",
+    "A line with adjacent coincident vertices -- verifies deduplication does not produce false positives",
+    "A line that is already clean -- verifies it is untouched and not counted in self_intersecting"
   ],
   "task": {
-    "layer": "0-岛屿",
+    "layer": "0-ISLAND",
     "max_drop_ratio": 0.25
   },
   "assertions": [
-    "内存改动不落盘：要留成果必须显式 save_dwg",
-    "handles 与 layer 至少给一个，都没有抛错；图层上没有多段线抛错点名图层",
-    "max_drop_ratio 不在 (0,1] 抛错",
-    "report_only=true 时一条线都不改，只报交点坐标（可拿去画标记）",
-    "修完的线不再自交：Detect 返回空（per_polyline.clean == true）",
-    "闭合线保面积大的环：修后面积 == 原面积 − 各被丢回环面积（含弧段弓形修正）",
-    "开放线保主干：回环一律丢，修后长度 < 原长度",
-    "被丢回环累计超过 max_drop_ratio × 原面积/长度时进 needs_manual，该线一点不改（原图元还在、句柄不变）",
-    "修复是替换：旧线 Erase、新线入库，图层/颜色/线型/高程/法向随 SetPropertiesFrom 保留",
-    "相邻重合顶点先清（duplicate_vertices_removed 报数），不因零长段误判自交",
-    "捕捉画闭（Closed=false 但首末重合）按闭合处理，收口段参与检测",
-    "本来就干净的线不进 per_polyline、不计入 repaired",
-    "幂等性：修完再跑一次，self_intersecting == 0、repaired == 0",
-    "与 products\\waterbox 的 C3DF-FixSelfIntersect(ZJ) 同图同参结果一致（同一份 SelfIntersectionCore）"
+    "In-memory change only: results must be kept with an explicit save_dwg",
+    "At least one of handles and layer must be given, otherwise throw; a layer with no polylines throws and names the layer",
+    "max_drop_ratio outside (0,1] throws",
+    "with report_only=true no line is changed; only the intersection coordinates are reported (usable for drawing markers)",
+    "repaired lines no longer self-intersect: Detect returns empty (per_polyline.clean == true)",
+    "closed lines keep the ring with the larger area: repaired area == original area - the dropped loop areas (with arc-segment circular-segment correction)",
+    "open lines keep the trunk: loops are always dropped, repaired length < original length",
+    "when the dropped loops exceed max_drop_ratio x original area/length the line goes to needs_manual and is not touched at all (original entity and handle remain)",
+    "repair is a replacement: the old line is Erased and a new one added; layer/colour/linetype/elevation/normal are kept via SetPropertiesFrom",
+    "adjacent coincident vertices are removed first (duplicate_vertices_removed reports the count) so zero-length segments do not cause false self-intersections",
+    "snap-closed lines (Closed=false but first and last points coincide) are treated as closed and the closing segment takes part in detection",
+    "already-clean lines do not enter per_polyline and are not counted in repaired",
+    "Idempotent: running again after a repair gives self_intersecting == 0 and repaired == 0",
+    "Results match the products\\waterbox command C3DF-FixSelfIntersect(ZJ) on the same drawing and parameters (same SelfIntersectionCore)"
   ],
   "status": "draft_assertions_pending_real_drawing_regression"
 }

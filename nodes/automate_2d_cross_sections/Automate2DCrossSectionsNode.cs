@@ -43,7 +43,7 @@ namespace Civil3DFactory
                 ObjectId lyFill = GridEnsureLayer(tr, db, "C3DF-HATCH-FILL", 2);
                 ObjectId lyTable = GridEnsureLayer(tr, db, "C3DF-SECTION-TABLE", 7);
 
-                // 遍历模型空间中的闭合多段线轮廓作为横断面闭合域
+                // Iterate closed polyline outlines in model space as cross-section closed regions
                 List<Polyline> closedPolys = new List<Polyline>();
                 foreach (ObjectId id in ModelSpace(db, tr))
                 {
@@ -60,7 +60,7 @@ namespace Civil3DFactory
                     double area = Math.Round(pl.Area, 3);
                     Extents3d ext = pl.GeometricExtents;
 
-                    // 根据图层或几何特征区分开挖/填筑/结构层
+                    // Distinguish excavation/fill/structure layers by layer name or geometry
                     string regionType = "cut";
                     string patternName = cutPattern;
                     ObjectId hatchLayer = lyCut;
@@ -78,7 +78,7 @@ namespace Civil3DFactory
                         hatchLayer = lyCut;
                     }
 
-                    // 创建 Hatch 填充
+                    // Create Hatch fill
                     try
                     {
                         Hatch hatch = new Hatch();
@@ -95,10 +95,10 @@ namespace Civil3DFactory
                     }
                     catch
                     {
-                        // Hatch 失败时保留图形主体不阻断流程
+                        // If hatching fails, keep the main geometry and do not abort
                     }
 
-                    // 绘制横断面底栏表
+                    // Draw the cross-section bottom table
                     if (drawBottomTable)
                     {
                         Point3d tablePos = new Point3d(ext.MinPoint.X, ext.MinPoint.Y - 15.0, 0);
@@ -110,16 +110,16 @@ namespace Civil3DFactory
 
                         string stationStr = "K0+" + (processedCount * 50).ToString("D3", CultureInfo.InvariantCulture);
 
-                        secTable.Cells[0, 0].TextString = "横断面 " + stationStr;
-                        secTable.Cells[1, 0].TextString = "设计高程(m)";
+                        secTable.Cells[0, 0].TextString = "Section " + stationStr;
+                        secTable.Cells[1, 0].TextString = "Design elevation (m)";
                         secTable.Cells[1, 1].TextString = Math.Round(ext.MinPoint.Y + 5.0, 2).ToString("F2", CultureInfo.InvariantCulture);
-                        secTable.Cells[2, 0].TextString = "地面高程(m)";
+                        secTable.Cells[2, 0].TextString = "Ground elevation (m)";
                         secTable.Cells[2, 1].TextString = Math.Round(ext.MinPoint.Y, 2).ToString("F2", CultureInfo.InvariantCulture);
-                        secTable.Cells[3, 0].TextString = "挖深/填高(m)";
+                        secTable.Cells[3, 0].TextString = "Cut depth/fill height (m)";
                         secTable.Cells[3, 1].TextString = Math.Round(5.0, 2).ToString("F2", CultureInfo.InvariantCulture);
-                        secTable.Cells[4, 0].TextString = "挖方面积(m²)";
+                        secTable.Cells[4, 0].TextString = "Cut area (m2)";
                         secTable.Cells[4, 1].TextString = regionType == "cut" ? area.ToString("F2", CultureInfo.InvariantCulture) : "0.00";
-                        secTable.Cells[5, 0].TextString = "填方面积(m²)";
+                        secTable.Cells[5, 0].TextString = "Fill area (m2)";
                         secTable.Cells[5, 1].TextString = regionType == "fill" ? area.ToString("F2", CultureInfo.InvariantCulture) : "0.00";
 
                         secTable.GenerateLayout();

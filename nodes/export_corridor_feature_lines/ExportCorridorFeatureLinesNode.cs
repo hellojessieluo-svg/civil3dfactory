@@ -16,18 +16,18 @@ using CivilDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// export_corridor_feature_lines：把走廊要素线（按点码）抽成三维多段线，
-    /// 写进一张**全新的空白 DWG**——逐点保留高程，产出文件里没有任何 Civil 3D 对象。
+    /// export_corridor_feature_lines: extract corridor feature lines (by point code) as 3D polylines and
+    /// write them into a brand-new empty DWG -- elevations kept per point, no Civil 3D objects in the output file.
     ///
-    /// 用途：疏浚走廊的设计边界线（daylight 开口线、toe 坡脚线等）是断面法模型的
-    /// 三维骨架，交付/汇总时按点码整层导出。点码沿用厂里 PKT 码表
-    /// （origin / controlpoint / daylight / mp / toe + -left/-right，见业务总纲 §3）。
+    /// Purpose: the design boundary lines of a dredge corridor (daylight lines, toe lines, ...) are the 3D
+    /// skeleton of the section-method model; on delivery / summary they are exported per code as whole layers.
+    /// Codes follow the factory PKT code table (origin / controlpoint / daylight / mp / toe + -left/-right, see business master doc section 3).
     ///
-    /// 要素线在区域断开处（FeatureLinePoint.IsBreak，如交叉口段换工况）按段拆成多条
-    /// 多段线，不硬连。图层名是这份输出文件的契约，用模板参数控制：
-    ///   layer 默认 "FL-{corridor}-{code}"，占位符 {corridor} 走廊名、
-    ///   {baseline} 基准线路线名、{code} 点码。
-    /// 只导主基准线要素线（偏移基准线本项目未用，遇到记入 skipped）。
+    /// Where a feature line breaks between regions (FeatureLinePoint.IsBreak, e.g. a condition change at an intersection)
+    /// it is split into several polylines rather than force-joined. Layer names are the contract of this output file, controlled by template:
+    ///   layer default "FL-{corridor}-{code}", placeholders {corridor} corridor name,
+    ///   {baseline} baseline alignment name, {code} point code.
+    /// Only main-baseline feature lines are exported (offset baselines are unused in this project; when met they go into skipped).
     /// </summary>
     public static partial class Ops
     {
@@ -38,13 +38,13 @@ namespace Civil3DFactory
         {
             string outPath = Need(a, "out");
             if (!Path.IsPathRooted(outPath))
-                throw new InvalidOperationException("out 必须是绝对路径：" + outPath);
+                throw new InvalidOperationException("out must be an absolute path: " + outPath);
             bool overwrite = GetBool(a, "overwrite", false);
             if (File.Exists(outPath) && !overwrite)
-                throw new InvalidOperationException("文件已存在，拒绝覆盖：" + outPath + "（确需覆盖传 overwrite:true）");
+                throw new InvalidOperationException("File already exists, refusing to overwrite: " + outPath + " (pass overwrite:true to overwrite)");
 
             string layerTpl = GetString(a, "layer", "FL-{corridor}-{code}");
-            short color = (short)GetDouble(a, "color", 2);          // 黄
+            short color = (short)GetDouble(a, "color", 2);          // yellow
             int minPoints = (int)GetDouble(a, "min_points", 2);
 
             var wantCorridors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -97,7 +97,7 @@ namespace Civil3DFactory
                                     .Replace("{baseline}", blName)
                                     .Replace("{code}", code);
 
-                                // 按 IsBreak 分段：断开处（换工况/区域间隙）不硬连
+                                // Split by IsBreak: breaks (condition change / region gap) are not force-joined
                                 var segs = new List<List<Point3d>>();
                                 var cur = new List<Point3d>();
                                 try
@@ -113,7 +113,7 @@ namespace Civil3DFactory
                                 }
                                 catch (System.Exception ex)
                                 {
-                                    skipped.Add(cor.Name + "/" + code + "#" + idx + "（取点失败：" + ex.GetType().Name + "）");
+                                    skipped.Add(cor.Name + "/" + code + "#" + idx + " (failed to get points: " + ex.GetType().Name + ")");
                                     continue;
                                 }
                                 if (cur.Count > 0) segs.Add(cur);
@@ -124,7 +124,7 @@ namespace Civil3DFactory
                                     seg++;
                                     if (pts.Count < minPoints)
                                     {
-                                        skipped.Add(cor.Name + "/" + code + "#" + idx + "." + seg + "（点数不足 " + minPoints + "）");
+                                        skipped.Add(cor.Name + "/" + code + "#" + idx + "." + seg + " (fewer than " + minPoints + " points)");
                                         continue;
                                     }
                                     lines.Add(new KeyValuePair<string, List<Point3d>>(layer, pts));
@@ -152,11 +152,11 @@ namespace Civil3DFactory
                                 }
                             }
                         }
-                        // 偏移基准线不处理，如实报告
+                        // Offset baselines are not handled; report them as-is
                         try
                         {
                             if (bl.OffsetBaselineFeatureLinesCol != null && bl.OffsetBaselineFeatureLinesCol.Count > 0)
-                                skipped.Add(cor.Name + "（含 " + bl.OffsetBaselineFeatureLinesCol.Count + " 组偏移基准线要素线，未导出）");
+                                skipped.Add(cor.Name + " (has " + bl.OffsetBaselineFeatureLinesCol.Count + " offset-baseline feature line groups, not exported)");
                         }
                         catch (System.Exception) { }
                     }
@@ -165,9 +165,9 @@ namespace Civil3DFactory
             }
 
             if (lines.Count == 0)
-                throw new InvalidOperationException("没有可导出的走廊要素线（走廊 " + corridorsSeen + " 个；核对 corridors/codes 过滤条件）。");
+                throw new InvalidOperationException("No corridor feature lines to export (" + corridorsSeen + " corridors; check the corridors/codes filters).");
 
-            // ---- 写进全新空白图 ----
+            // ---- Write into a brand-new empty drawing ----
             using (var nd = new Database(true, false))
             {
                 nd.Insunits = UnitsValue.Meters;
@@ -182,7 +182,7 @@ namespace Civil3DFactory
                     {
                         ObjectId layerId = EadEnsureLayer(tr, nd, kv.Key, color, ltId);
                         var pl = new Polyline3d();
-                        pl.SetDatabaseDefaults(nd);   // 见 ExportAlignmentsToDwgNode：必须显式传 nd
+                        pl.SetDatabaseDefaults(nd);   // see ExportAlignmentsToDwgNode: nd must be passed explicitly
                         ms.AppendEntity(pl);
                         tr.AddNewlyCreatedDBObject(pl, true);
                         foreach (Point3d p in kv.Value)

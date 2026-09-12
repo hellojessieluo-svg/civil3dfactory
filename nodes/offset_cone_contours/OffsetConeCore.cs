@@ -1,4 +1,4 @@
-#nullable disable   // 本文件被 Civil3DFactory（可空关）与 WaterBox（可空开）两个工程共同编译，按关处理
+#nullable disable   // This file is compiled by both Civil3DFactory (nullable off) and WaterBox (nullable on); treat as off
 
 using System;
 using System.Collections.Generic;
@@ -8,34 +8,34 @@ using Autodesk.AutoCAD.Geometry;
 namespace Civil3DFactory.Geometry
 {
     /// <summary>
-    /// 偏移圆台 + 线形工具链的算法核心（纯几何/DB，不含任何交互与 Editor 依赖）。
-    /// 唯一真源：Civil3DFactory（节点 offset_cone_contours）与 products\waterbox（YT/NH/GY/GZ 命令）
-    /// 共同编译本文件，改算法只改这里。算法沿自 Civil3D-007-DLL-初步偏移圆台 v0.7（2026-07）。
+    /// Algorithm core of the offset cone + line-shaping toolchain (pure geometry/DB, no interaction or Editor dependencies).
+    /// Single source of truth: Civil3DFactory (node offset_cone_contours) and products\waterbox (YT/NH/GY/GZ commands)
+    /// both compile this file; algorithm changes go here only. Derived from Civil3D-007-DLL preliminary offset cone v0.7 (2026-07).
     /// </summary>
     public static class OffsetConeCore
     {
         const double Tol = 1e-9;
-        const double MinRingArea = 1e-6;        // 偏移结果总面积小于此视为塌缩
-        const double MinDeflectionDeg = 8.0;    // 顶点偏转角小于此不归圆（与共线剔除阈值一致）
-        const double CollinearDeg = 8.0;        // 预简化：偏转角小于此的直线顶点视为共线噪点
-        const double LMinFactor = 0.5;          // 预简化：短于 半径×此系数 的直线段视为碎段
+        const double MinRingArea = 1e-6;        // total offset area below this counts as collapsed
+        const double MinDeflectionDeg = 8.0;    // vertices deflecting less than this are not rounded (same as the collinear-removal threshold)
+        const double CollinearDeg = 8.0;        // pre-simplification: straight vertices deflecting less than this are collinear noise
+        const double LMinFactor = 0.5;          // pre-simplification: straight segments shorter than radius x this factor are fragments
 
-        /// <summary>GenerateCone 单条边界的结果。</summary>
+        /// <summary>GenerateCone result for one boundary.</summary>
         public sealed class ConeResult
         {
-            public double Z0;            // 边界原高程
-            public double Reached;       // 实际偏到的高程
-            public int Rings;            // 生成圈数
-            public bool Collapsed;       // 未达目标即塌缩
-            public bool SameElevation;   // 目标高程 = 边界高程，什么都没做
-            public int SteppedRings;     // 走了「从上一圈再偏一步」退路的圈数（含累积误差）
+            public double Z0;            // original boundary elevation
+            public double Reached;       // elevation actually reached
+            public int Rings;            // rings generated
+            public bool Collapsed;       // collapsed before reaching the target
+            public bool SameElevation;   // target elevation = boundary elevation, nothing done
+            public int SteppedRings;     // rings that took the "offset one more step from the previous ring" fallback (accumulated error)
         }
 
         // ============================================================
-        //  偏移圆台：闭合边界批量内偏生成等高线
-        //  管线：边界平滑副本(Smooth) → 逐圈偏移 → 圈级补圆 → 赋高程
-        //  emit：每生成一圈回调一次（Elevation/Layer 已设好），由调用方入库。
-        //  调用方保证 src 闭合（或 IsSnapClosed）。
+        //  Offset cone: batch inward offsets of a closed boundary to generate contours
+        //  Pipeline: smoothed copy of the boundary (Smooth) -> offset ring by ring -> per-ring re-rounding -> assign elevation
+        //  emit: called once per generated ring (Elevation/Layer already set); the caller appends it to the database.
+        //  The caller guarantees src is closed (or IsSnapClosed).
         // ============================================================
         public static ConeResult GenerateCone(Polyline src, double z1, double n, double dz,
             double rFillet, Action<Polyline> emit, bool outward = false)
@@ -43,36 +43,36 @@ namespace Civil3DFactory.Geometry
             double z0 = src.Elevation;
             var result = new ConeResult { Z0 = z0, Reached = z0 };
             if (Math.Abs(z1 - z0) < Tol) { result.SameElevation = true; return result; }
-            // 向上=岛收顶，向下=坑收底；默认偏移向内。
-            // outward=true 改为向外：边界当顶高程线，往外摊到 z1（岛屿外放坡到水底就是这个）。
+            // Upward = island closing to a top, downward = pit closing to a bottom; offset inward by default.
+            // outward=true offsets outward: the boundary is the top contour, spread outward down to z1 (island side slope down to the water bed).
             int dir = z1 > z0 ? 1 : -1;
 
-            // 先在内存里做一份平滑副本作为偏移基准（源边界一根线不动）
-            // r=0 时也要做闭合规范化副本，处理"捕捉画闭"的假开放线
+            // First make an in-memory smoothed copy as the offset base (the source boundary itself is untouched)
+            // Even with r=0 make a closure-normalised copy, to handle snap-closed fake-open lines
             Polyline work = rFillet > Tol ? Smooth(src, rFillet)
                           : src.Closed ? src
                           : NormalizeClosedCopy(src);
 
-            // 高程序列：间隔格点 + 目标高程（必含）
+            // Elevation sequence: interval grid + target elevation (always included)
             var zList = new List<double>();
             for (double z = z0 + dir * dz; dir * (z1 - z) > Tol; z += dir * dz) zList.Add(z);
             zList.Add(z1);
 
-            double sign = 0;      // 偏移方向的符号，第一圈判定后沿用
-            var prev = new List<Polyline>();   // 上一圈的副本，只在基准偏移失败时当退路基准
+            double sign = 0;      // sign of the offset direction, decided on the first ring and reused
+            var prev = new List<Polyline>();   // copies of the previous ring; only used as the fallback base when offsetting from the base fails
             foreach (double z in zList)
             {
-                double d = Math.Abs(z - z0) * n;   // 每圈都从平滑基准起算总距离
+                double d = Math.Abs(z - z0) * n;   // every ring measures the total distance from the smoothed base
                 DBObjectCollection ring;
 
                 if (sign == 0)
                 {
-                    // 方向判定：两侧都偏 d，面积小的那侧是向内、大的那侧是向外
+                    // Direction test: offset d on both sides; the side with the smaller area is inward, the larger is outward
                     var plus = TryOffset(work, d);
                     var minus = TryOffset(work, -d);
                     double aPlus = TotalArea(plus), aMinus = TotalArea(minus);
 
-                    // 向外时不会塌，塌了说明两侧都偏不出来（源线有问题）
+                    // Outward never collapses; a collapse means neither side could be offset (source line is broken)
                     if ((!outward && (aPlus < MinRingArea || aMinus < MinRingArea)) ||
                         (outward && aPlus < MinRingArea && aMinus < MinRingArea))
                     {
@@ -88,8 +88,8 @@ namespace Civil3DFactory.Geometry
                     ring = TryOffset(work, sign * d);
                     if (TotalArea(ring) < MinRingArea)
                     {
-                        // 从基准一次性偏总距离失败：凹弧半径小于 d 时 GetOffsetCurves 直接抛。
-                        // 退路是从上一圈再偏一个增量——累积误差换能不能出得来。
+                        // Offsetting the total distance from the base in one go failed: GetOffsetCurves throws when a concave arc radius is below d.
+                        // Fallback: offset one more increment from the previous ring -- trading accumulated error for getting a result at all.
                         DisposeAll(ring);
                         ring = StepFromPrevious(prev, sign * n * dz);
                         if (TotalArea(ring) < MinRingArea)
@@ -101,7 +101,7 @@ namespace Civil3DFactory.Geometry
                     }
                 }
 
-                // 凹边界偏移可能分裂成多环：全部保留，赋同一高程
+                // A concave boundary may split into several rings when offset: keep them all, same elevation
                 DisposeAll2(prev); prev.Clear();
                 foreach (DBObject o in ring)
                 {
@@ -109,13 +109,13 @@ namespace Civil3DFactory.Geometry
                     Polyline final = p;
                     if (rFillet > Tol)
                     {
-                        // 圈级补圆：内偏导致弧收缩消失后重新出现的尖角
+                        // Per-ring re-rounding: sharp corners reappear where inward offset shrank arcs away
                         final = Smooth(p, rFillet);
                         p.Dispose();
                     }
                     final.Elevation = z;
                     final.Layer = src.Layer;
-                    prev.Add((Polyline)final.Clone());   // 留一份给退路当基准
+                    prev.Add((Polyline)final.Clone());   // keep a copy as the fallback base
                     emit(final);
                 }
                 result.Rings++;
@@ -128,10 +128,10 @@ namespace Civil3DFactory.Geometry
         }
 
         // ============================================================
-        //  Smooth（线归圆内核）：碎段合并 → 共线剔除 → 全角相切圆角
-        //  始终返回新 Polyline，不修改入参。
-        //  圆角为弧感知——直线-直线 / 直线-弧 / 弧-弧交接统一
-        //  用相切小弧过渡；原弧段只被裁短，圆心、半径、方向不变。
+        //  Smooth (line rounding kernel): merge fragments -> remove collinear vertices -> tangent fillets at every corner
+        //  Always returns a new Polyline; the input is not modified.
+        //  Fillets are arc-aware -- line-line / line-arc / arc-arc joints are all handled
+        //  with a small tangent transition arc; original arcs are only trimmed, centre / radius / direction unchanged.
         // ============================================================
         public static Polyline Smooth(Polyline src, double r)
         {
@@ -142,10 +142,10 @@ namespace Civil3DFactory.Geometry
         }
 
         // ============================================================
-        //  FitArcs（弧拟合简化）：碎直线段描线 → 少量直段+弧段
-        //  贪心容差拟合：直线和圆弧竞争延伸，谁覆盖的顶点多用谁；
-        //  弧 = 首/中/末三点定圆，窗口内所有顶点偏差 ≤ 容差且沿弧单调。
-        //  只处理纯直线段多段线（含弧的先归直）。退化（顶点过少）返回 null。
+        //  FitArcs (arc-fitting simplification): traced dense straight segments -> a few straight + arc segments
+        //  Greedy tolerance fit: line and arc compete to extend; whichever covers more vertices wins;
+        //  arc = circle through first / middle / last point, all vertices in the window within tolerance and monotonic along the arc.
+        //  Only handles straight-only polylines (un-arc ones with arcs first). Degenerate (too few vertices) returns null.
         // ============================================================
         public static Polyline FitArcs(Polyline src, double tol)
         {
@@ -172,17 +172,17 @@ namespace Civil3DFactory.Geometry
             return res;
         }
 
-        // 贪心拟合：把点列切成若干段，每段用直线或圆弧覆盖尽量多的点
+        // Greedy fit: cut the point list into runs, each covered by a line or an arc with as many points as possible
         static List<(Point2d pt, double bulge)> FitSequence(List<Point2d> p, double tol, bool loop)
         {
             var seq = new List<Point2d>(p);
-            if (loop) seq.Add(p[0]);           // 闭合：末尾补回起点走完全程
+            if (loop) seq.Add(p[0]);           // closed: append the start point so the full loop is walked
             var res = new List<(Point2d pt, double bulge)>();
             int last = seq.Count - 1;
             int i = 0;
             while (i < last)
             {
-                // 闭合线第一段不许一口吞完，保证至少两个输出顶点
+                // The first run of a closed line may not swallow everything, so at least two output vertices remain
                 int cap = (loop && i == 0) ? last - 1 : last;
                 if (cap <= i) cap = i + 1;
                 int endLine = ExtendLine(seq, i, tol, cap);
@@ -233,7 +233,7 @@ namespace Civil3DFactory.Geometry
             return best < 0 ? Math.Min(i + 1, cap) : best;
         }
 
-        // 窗口 [i..j] 能否用一段圆弧覆盖：三点定圆 + 全点偏差 + 沿弧单调
+        // Can window [i..j] be covered by one arc: three-point circle + all-point deviation + monotonic along the arc
         static bool ArcWindowOk(List<Point2d> s, int i, int j, double tol, out double bulge)
         {
             bulge = 0;
@@ -265,7 +265,7 @@ namespace Civil3DFactory.Geometry
         {
             o = default; r = 0;
             double d = 2 * (a.X * (b.Y - c.Y) + b.X * (c.Y - a.Y) + c.X * (a.Y - b.Y));
-            if (Math.Abs(d) < 1e-12) return false;   // 三点共线
+            if (Math.Abs(d) < 1e-12) return false;   // three points collinear
             double a2 = a.X * a.X + a.Y * a.Y;
             double b2 = b.X * b.X + b.Y * b.Y;
             double c2 = c.X * c.X + c.Y * c.Y;
@@ -277,10 +277,10 @@ namespace Civil3DFactory.Geometry
         }
 
         // ============================================================
-        //  UnSmooth（线归直）：弧段还原为尖角直线段
-        //  Smooth 的逆操作：圆心角 ≤150° 的弧换成两端切线交点（原始尖角）；
-        //  更大的弧还原尖角会出长刺，改用"弧中点 + 两段弦"保形。
-        //  切点等共线残留顶点自动消失。始终返回新 Polyline。
+        //  UnSmooth (line un-rounding): arcs restored to sharp straight corners
+        //  Inverse of Smooth: arcs with sweep <= 150 deg are replaced by the intersection of the end tangents (original sharp corner);
+        //  restoring larger arcs would produce long spikes, so "arc midpoint + two chords" keeps the shape instead.
+        //  Leftover collinear vertices such as tangent points disappear automatically. Always returns a new Polyline.
         // ============================================================
         public static Polyline UnSmooth(Polyline src)
         {
@@ -291,7 +291,7 @@ namespace Civil3DFactory.Geometry
             NormalizeClosure(pts, ref closed);
 
             int n = pts.Count;
-            double maxBulge = Math.Tan(150.0 / 4 * Math.PI / 180.0);   // 圆心角 150° 对应 bulge≈0.767
+            double maxBulge = Math.Tan(150.0 / 4 * Math.PI / 180.0);   // sweep 150 deg corresponds to bulge ~ 0.767
             var outPts = new List<Point2d>();
 
             for (int k = 0; k < n; k++)
@@ -301,7 +301,7 @@ namespace Civil3DFactory.Geometry
                 double bo = hasOut ? pts[k].bulge : 0;
                 bool endVertex = !closed && (k == 0 || k == n - 1);
 
-                // 普通直线顶点保留；弧的端点被吸收；开放线首末端点必须保留
+                // Ordinary straight vertices are kept; arc endpoints are absorbed; the ends of an open line must be kept
                 if ((Math.Abs(bo) < Tol && Math.Abs(bi) < Tol) || endVertex)
                     outPts.Add(pts[k].pt);
 
@@ -313,16 +313,16 @@ namespace Civil3DFactory.Geometry
 
                     if (Math.Abs(bo) <= maxBulge)
                     {
-                        // 正 bulge = 逆时针（左转）弧：起点切向 = 弦向转 −θ/2（与 FilletCorners 的
-                        // bulge 符号约定互为逆运算，已用圆角输出反推核对）
-                        double half = 2 * Math.Atan(bo);               // 圆心角的一半（带符号）
-                        Vector2d u = c.GetNormal().RotateBy(-half);    // 弧起点切向
-                        double t = c.Length / (2 * Math.Cos(half));    // 端点到切线交点的距离
-                        outPts.Add(p1 + u * t);                        // 还原的尖角
+                        // Positive bulge = counter-clockwise (left-turning) arc: start tangent = chord direction rotated by -theta/2 (inverse of
+                        // the bulge sign convention in FilletCorners, verified by back-computing fillet output)
+                        double half = 2 * Math.Atan(bo);               // half the sweep (signed)
+                        Vector2d u = c.GetNormal().RotateBy(-half);    // tangent at the arc start
+                        double t = c.Length / (2 * Math.Cos(half));    // distance from endpoint to the tangent intersection
+                        outPts.Add(p1 + u * t);                        // restored sharp corner
                     }
                     else
                     {
-                        outPts.Add(ArcMidpoint(p1, p2, bo));           // 大弧：弦+弧中点保形
+                        outPts.Add(ArcMidpoint(p1, p2, bo));           // large arc: chord + arc midpoint keeps the shape
                     }
                 }
             }
@@ -341,13 +341,13 @@ namespace Civil3DFactory.Geometry
         {
             Vector2d c = p2 - p1;
             var mid = new Point2d((p1.X + p2.X) / 2, (p1.Y + p2.Y) / 2);
-            // 矢高 h = bulge × 弦长 / 2，方向为弦的右法向（正 bulge=左转弧，弧鼓向行进方向右侧）
+            // sagitta h = bulge x chord / 2, along the chord's right normal (positive bulge = left-turning arc bulging to the right of travel)
             return mid + c.GetNormal().RotateBy(-Math.PI / 2) * (bulge * c.Length / 2);
         }
 
-        // ---- 预简化：把碎顶点清掉，让分摊掉的转角重新集中 ----
-        // 碎直边收拢（SimplifyVertices 第 1 步的独立版，阈值由调用方给）：
-        // 短于 lMin 的直线段收拢成一个顶点；弧段端点与开放线端点不动。
+        // ---- Pre-simplification: clear fragment vertices so that the spread-out corner angle concentrates again ----
+        // Fragment-edge collapse (standalone version of SimplifyVertices step 1, threshold supplied by the caller):
+        // straight segments shorter than lMin collapse into one vertex; arc endpoints and open-line ends stay.
         static void CollapseShortStraights(List<(Point2d pt, double bulge)> pts, bool closed, double lMin)
         {
             int minKeep = closed ? 4 : 3;
@@ -361,17 +361,17 @@ namespace Civil3DFactory.Geometry
                 for (int i = 0; i < segCount; i++)
                 {
                     int j = (i + 1) % nv2;
-                    if (Math.Abs(pts[i].bulge) > Tol) continue;                 // 本段是弧
-                    if (pts[i].pt.GetDistanceTo(pts[j].pt) >= lMin) continue;   // 不碎
+                    if (Math.Abs(pts[i].bulge) > Tol) continue;                 // this segment is an arc
+                    if (pts[i].pt.GetDistanceTo(pts[j].pt) >= lMin) continue;   // not a fragment
                     bool aFixed = (!closed && i == 0) || Math.Abs(pts[(i + nv2 - 1) % nv2].bulge) > Tol;
                     bool bFixed = (!closed && j == nv2 - 1) || Math.Abs(pts[j].bulge) > Tol;
                     if (aFixed && bFixed) continue;
                     Point2d np = aFixed ? pts[i].pt
                                : bFixed ? pts[j].pt
                                : new Point2d((pts[i].pt.X + pts[j].pt.X) / 2, (pts[i].pt.Y + pts[j].pt.Y) / 2);
-                    // 位移护栏（2026-08-24 项目B）：碎边夹角大时（如圈的折点旁一小截真实边），
-                    // 收拢会把顶点横向顶走 1~2m、长边整体倾斜。被合掉的两个原顶点到
-                    // 新几何（prev→np / np→next）的垂距超 5cm 就不收——共线碎屑才收得动。
+                    // Displacement guard (project B, 2026-08-24): when the fragment edge meets at a large angle (e.g. a short real edge next to a ring kink),
+                    // collapsing pushes the vertex 1~2 m sideways and tilts the whole long edge. If either merged original vertex is more than
+                    // 5 cm off the new geometry (prev->np / np->next), do not collapse -- only collinear crumbs may be collapsed.
                     {
                         Point2d prevPt = pts[(i + nv2 - 1) % nv2].pt;
                         Point2d nextPt = pts[(j + 1) % nv2].pt;
@@ -392,9 +392,9 @@ namespace Civil3DFactory.Geometry
             }
         }
 
-        // ---- 角区清障：真角（偏转 ≥ minDefl）两侧 1.3×R·tan(δ/2)+2（封顶 3R）范围内，
-        // 删掉 <minDefl 的小折角顶点、把扫角 ≤15° 的弧摊成弦；碰到别的真角或大弧就停。
-        // 累计转角超 8° 也停（防止一串小折角其实是条缓弯被拉直）。基于弦向判角，够用。
+        // ---- Corner-zone clearing: within 1.3 x R*tan(delta/2)+2 (capped at 3R) on both sides of a true corner (deflection >= minDefl),
+        // delete small kink vertices (< minDefl) and flatten arcs with sweep <= 15 deg into chords; stop at another true corner or a large arc.
+        // Also stop when the accumulated turn exceeds 8 deg (so a string of small kinks that is really a gentle bend is not straightened). Chord-based angles suffice.
         static void ClearCornerZones(List<(Point2d pt, double bulge)> pts, bool closed, double r, double minDeflRad)
         {
             double sweepMax = 15.0 * Math.PI / 180;
@@ -418,7 +418,7 @@ namespace Civil3DFactory.Geometry
             double SegSweep(int s) => 4 * Math.Atan(Math.Abs(pts[s % N()].bulge));
             double SegLen(int s) => pts[s % N()].pt.GetDistanceTo(pts[(s + 1) % N()].pt);
 
-            // 每个真角向两侧扫描，标记要摊平的弧段与要删的顶点
+            // From every true corner scan both sides, marking arcs to flatten and vertices to delete
             var flatten = new HashSet<int>();
             var remove = new HashSet<int>();
             int n0 = N();
@@ -432,23 +432,23 @@ namespace Civil3DFactory.Geometry
                 foreach (int dir in new[] { +1, -1 })
                 {
                     double acc = 0, cum = 0;
-                    int seg = dir > 0 ? v : (v + n0 - 1) % n0;   // 起步段
+                    int seg = dir > 0 ? v : (v + n0 - 1) % n0;   // starting segment
                     for (int step = 0; step < n0; step++)
                     {
-                        // 矢高=弦长×|bulge|/2。"扫角≤15°"判不出弧的大小——大半径缓弧扫角 9°
-                        // 却有米级矢高（项目B圈弧 316m 被摊成弦、台田贴圈边整段漂移 1.5m 的元凶）。
-                        // 真枝节矢高必然厘米级：矢高超 5cm 的按大弧对待，不动、停。
+                        // sagitta = chord x |bulge| / 2. "sweep <= 15 deg" cannot tell the arc size -- a large-radius gentle arc sweeping 9 deg
+                        // still has a metre-level sagitta (the culprit when a 316 m ring arc on project B was flattened into a chord and the terrace edge drifted 1.5 m).
+                        // A real stub has a centimetre-level sagitta: anything above 5 cm is treated as a large arc -- leave it and stop.
                         double sag = SegLen(seg) * Math.Abs(pts[seg % N()].bulge) / 2;
-                        if (SegSweep(seg) > sweepMax || sag > 0.05) break;   // 大弧/长缓弧：不动，停
+                        if (SegSweep(seg) > sweepMax || sag > 0.05) break;   // large arc / long gentle arc: leave it, stop
                         if (SegSweep(seg) > Tol) flatten.Add(seg % n0);
                         acc += SegLen(seg);
                         if (acc >= zone) break;
-                        int nxtV = dir > 0 ? (seg + 1) % n0 : seg;             // 走到的顶点
-                        if (!closed && (nxtV == 0 || nxtV == n0 - 1)) break;   // 开放线端点
+                        int nxtV = dir > 0 ? (seg + 1) % n0 : seg;             // vertex reached
+                        if (!closed && (nxtV == 0 || nxtV == n0 - 1)) break;   // end of an open line
                         double dv = Defl(nxtV);
-                        if (dv >= minDeflRad) break;              // 别的真角：它自己倒角
+                        if (dv >= minDeflRad) break;              // another true corner: it gets its own fillet
                         cum += dv;
-                        if (cum > cumMax) break;                  // 缓弯保护
+                        if (cum > cumMax) break;                  // gentle-bend protection
                         remove.Add(nxtV);
                         seg = dir > 0 ? (seg + 1) % n0 : (seg + n0 - 1) % n0;
                     }
@@ -460,10 +460,10 @@ namespace Civil3DFactory.Geometry
             var keep = new List<(Point2d pt, double bulge)>(pts.Count);
             for (int i = 0; i < pts.Count; i++)
             {
-                // 只删两侧皆直段的（摊平后基本都直了；仍挨着弧的不删，保切点）；
-                // 位移护栏（2026-08-24 项目B）：<minDefl 的折点夹在两条长边之间时是真实缓弯，
-                // 删它=两长边并弦、几何抬走米级（圈边 2°折点×13m/333m 实测漂 1.6m）。
-                // 顶点到两邻点连线垂距 >5cm 的不删——真枝节垂距必然厘米级。
+                // Delete only vertices with straight segments on both sides (mostly straight after flattening; those still next to an arc stay, keeping tangent points);
+                // displacement guard (project B, 2026-08-24): a kink < minDefl between two long edges is a real gentle bend;
+                // deleting it merges both long edges into a chord and lifts the geometry by metres (a 2 deg kink x 13 m / 333 m on a ring edge drifted 1.6 m).
+                // A vertex more than 5 cm off the line joining its neighbours is not deleted -- a real stub is always centimetre-level.
                 if (remove.Contains(i) &&
                     Math.Abs(pts[i].bulge) <= Tol &&
                     Math.Abs(pts[(i + pts.Count - 1) % pts.Count].bulge) <= Tol)
@@ -480,8 +480,8 @@ namespace Civil3DFactory.Geometry
             if (keep.Count >= (closed ? 4 : 3)) { pts.Clear(); pts.AddRange(keep); }
         }
 
-        // 共线顶点剔除（SimplifyVertices 第 2 步的独立版，阈值由调用方给）：
-        // 两侧皆直线且偏转角 < 阈值的顶点删掉。开放线端点不动。
+        // Collinear vertex removal (standalone version of SimplifyVertices step 2, threshold supplied by the caller):
+        // vertices with straight segments on both sides and deflection < threshold are deleted. Open-line ends stay.
         static void RemoveCollinearVertices(List<(Point2d pt, double bulge)> pts, bool closed, double maxDeflDeg)
         {
             double colTol = maxDeflDeg * Math.PI / 180.0;
@@ -502,8 +502,8 @@ namespace Civil3DFactory.Geometry
                     double dot = Math.Max(-1.0, Math.Min(1.0, vin.GetNormal().DotProduct(vout.GetNormal())));
                     if (Math.Acos(dot) < colTol)
                     {
-                        // 位移护栏（2026-08-24 项目B）：角度阈值不看尺度——0.4° 折点两边各两百米，
-                        // 删掉=1.4m 位移。顶点到两邻点连线垂距 >5cm 不删。
+                        // Displacement guard (project B, 2026-08-24): the angle threshold ignores scale -- a 0.4 deg kink with 200 m on each side
+                        // means 1.4 m displacement when deleted. A vertex more than 5 cm off the line joining its neighbours is not deleted.
                         var abg = pts[next].pt - pts[prev].pt;
                         double devg = abg.Length < Tol ? 0
                             : Math.Abs((pts[k].pt.X - pts[prev].pt.X) * (-abg.Y)
@@ -524,15 +524,15 @@ namespace Civil3DFactory.Geometry
             for (int i = 0; i < src.NumberOfVertices; i++)
                 pts.Add((src.GetPoint2dAt(i), src.GetBulgeAt(i)));
 
-            // 闭合规范化：捕捉画闭的线 Closed=false 但首末点重合——按闭合处理并去掉重复点，
-            // 否则首末顶点被当开放线端点保护，收口角永远不会被归圆
+            // Closure normalisation: a snap-closed line has Closed=false but coincident ends -- treat as closed and drop the duplicate point,
+            // otherwise the first/last vertices are protected as open-line ends and the closing corner never gets rounded
             NormalizeClosure(pts, ref closed);
 
             double lMin = r * LMinFactor;
             double colTol = CollinearDeg * Math.PI / 180.0;
             int minKeep = closed ? 4 : 3;
 
-            // 1) 碎段合并：短于 lMin 的直线段收拢成一个顶点（弧段和开放线端点不动）
+            // 1) Merge fragments: straight segments shorter than lMin collapse into one vertex (arcs and open-line ends stay)
             int guard = 0;
             bool changed = true;
             while (changed && pts.Count > minKeep && guard++ < 5000)
@@ -543,24 +543,24 @@ namespace Civil3DFactory.Geometry
                 for (int i = 0; i < segCount; i++)
                 {
                     int j = (i + 1) % nv;
-                    if (Math.Abs(pts[i].bulge) > Tol) continue;                 // 本段是弧
-                    if (pts[i].pt.GetDistanceTo(pts[j].pt) >= lMin) continue;   // 不碎
+                    if (Math.Abs(pts[i].bulge) > Tol) continue;                 // this segment is an arc
+                    if (pts[i].pt.GetDistanceTo(pts[j].pt) >= lMin) continue;   // not a fragment
 
                     bool aFixed = (!closed && i == 0) || Math.Abs(pts[(i + nv - 1) % nv].bulge) > Tol;
                     bool bFixed = (!closed && j == nv - 1) || Math.Abs(pts[j].bulge) > Tol;
-                    if (aFixed && bFixed) continue;                             // 两端都动不得
+                    if (aFixed && bFixed) continue;                             // neither end may move
 
                     Point2d np = aFixed ? pts[i].pt
                                : bFixed ? pts[j].pt
                                : new Point2d((pts[i].pt.X + pts[j].pt.X) / 2, (pts[i].pt.Y + pts[j].pt.Y) / 2);
-                    pts[i] = (np, pts[j].bulge);   // 合并顶点接管 j 的出边 bulge
+                    pts[i] = (np, pts[j].bulge);   // the merged vertex takes over j's outgoing bulge
                     pts.RemoveAt(j);
                     changed = true;
                     break;
                 }
             }
 
-            // 2) 共线剔除：两侧皆直线、偏转角 < 阈值的顶点是噪点
+            // 2) Collinear removal: vertices with straight segments on both sides and deflection < threshold are noise
             guard = 0;
             changed = true;
             while (changed && pts.Count > minKeep && guard++ < 5000)
@@ -577,8 +577,8 @@ namespace Civil3DFactory.Geometry
                     double dot = Math.Max(-1.0, Math.Min(1.0, vin.GetNormal().DotProduct(vout.GetNormal())));
                     if (Math.Acos(dot) < colTol)
                     {
-                        // 位移护栏（2026-08-24 项目B）：角度阈值不看尺度——0.4° 折点两边各两百米，
-                        // 删掉=1.4m 位移。顶点到两邻点连线垂距 >5cm 不删。
+                        // Displacement guard (project B, 2026-08-24): the angle threshold ignores scale -- a 0.4 deg kink with 200 m on each side
+                        // means 1.4 m displacement when deleted. A vertex more than 5 cm off the line joining its neighbours is not deleted.
                         var abg = pts[next].pt - pts[prev].pt;
                         double devg = abg.Length < Tol ? 0
                             : Math.Abs((pts[k].pt.X - pts[prev].pt.X) * (-abg.Y)
@@ -601,10 +601,10 @@ namespace Civil3DFactory.Geometry
             return res;
         }
 
-        // ---- 尖角归圆（弧感知）：直线-直线 / 直线-弧 / 弧-弧交接统一处理 ----
-        // 固定半径 r = 恒定曲率；过渡小弧与两侧曲线相切，原弧段只裁短不改形。
-        // 半径放不下时自动折半重试（最多 6 次），仍不行保留原折角。
-        // 每个交接从相邻段消耗的长度 ≤ 该段的 45%。开放线首末顶点不处理。
+        // ---- Sharp-corner rounding (arc-aware): line-line / line-arc / arc-arc joints handled uniformly ----
+        // Fixed radius r = constant curvature; the transition arc is tangent to both sides, original arcs are only trimmed, not reshaped.
+        // When the radius does not fit, halve and retry automatically (up to 6 times); if still not, keep the original corner.
+        // Each joint consumes <= 45% of the length of each adjacent segment. The first/last vertices of an open line are not handled.
         static Polyline FilletCorners(Polyline src, double r)
         {
             int nv = src.NumberOfVertices;
@@ -624,7 +624,7 @@ namespace Civil3DFactory.Geometry
             for (int k = 0; k < segCount; k++)
                 segs[k] = BuildSeg(pts[k].pt, pts[(k + 1) % n].pt, pts[k].bulge);
 
-            // 逐顶点求过渡弧（顶点 i 连接 segs[i-1] 与 segs[i]）
+            // Solve the transition arc per vertex (vertex i joins segs[i-1] and segs[i])
             var junc = new Junction?[n];
             int vStart = closed ? 0 : 1, vEnd = closed ? n : n - 1;
             for (int i = vStart; i < vEnd; i++)
@@ -636,7 +636,7 @@ namespace Civil3DFactory.Geometry
                 Point2d v = pts[i].pt;
                 Vector2d t1 = TangentAt(s1, v), t2 = TangentAt(s2, v);
                 double dot = Math.Max(-1.0, Math.Min(1.0, t1.DotProduct(t2)));
-                double delta = Math.Acos(dot);            // 切向偏转角
+                double delta = Math.Acos(dot);            // tangent deflection angle
                 if (delta < minDefl || delta > Math.PI - 0.01) continue;
 
                 double rr = r;
@@ -644,7 +644,7 @@ namespace Civil3DFactory.Geometry
                     if (TrySolveJunction(s1, s2, v, rr, out var jj)) { junc[i] = jj; break; }
             }
 
-            // 重建：每段输出（可能被裁短的）起点，交接处插入过渡弧顶点
+            // Rebuild: output the (possibly trimmed) start point of each segment, inserting transition-arc vertices at the joints
             var outPts = new List<(Point2d pt, double bulge)>(n * 2);
             for (int k = 0; k < segCount; k++)
             {
@@ -669,20 +669,20 @@ namespace Civil3DFactory.Geometry
         }
 
         // ============================================================
-        //  RoundSharpCorners（尖角甄别归圆，台田边角用）：
-        //  与 FilletCorners 的区别——①不做任何预简化，源线的自然缓弯、
-        //  密集小折角原样保留；②只对偏转角 ≥ 阈值的"真尖角"倒圆；
-        //  ③半径放不下折半重试 6 次，仍放不下保留尖角并计数。
-        //  始终返回新 Polyline，不修改入参。
+        //  RoundSharpCorners (sharp-corner detection and rounding, for terrace corners):
+        //  Differences from FilletCorners -- (1) no pre-simplification at all; the source line's natural gentle bends and
+        //  dense small kinks are kept as-is; (2) only "true sharp corners" with deflection >= threshold are rounded;
+        //  (3) when the radius does not fit, halve and retry 6 times; if still not, keep the sharp corner and count it.
+        //  Always returns a new Polyline; the input is not modified.
         // ============================================================
         public sealed class RoundStats
         {
-            public int Rounded;      // 归圆的尖角数
-            public int KeptGentle;   // 明显折角（≥8°）但小于阈值，判为自然弯保留
-            public int CantFit;      // 该归圆但半径折半 6 次仍放不下，保留尖角
-            public int Downgraded;   // 标准半径放不下、按现场塞得下的最大半径倒（二分上探）
-            public double MinUsedR;  // 降级角里用到的最小半径（没降级=0）
-            public int Spanned;      // 跨边吞角：短边撑不下标准半径，一段 R 弧跨过短边连角一并吞掉
+            public int Rounded;      // sharp corners rounded
+            public int KeptGentle;   // clear kinks (>= 8 deg) below the threshold, judged natural bends and kept
+            public int CantFit;      // should be rounded but the radius did not fit after 6 halvings; sharp corner kept
+            public int Downgraded;   // standard radius did not fit; rounded with the largest radius that fits locally (binary search upward)
+            public double MinUsedR;  // smallest radius used among downgraded corners (0 if none downgraded)
+            public int Spanned;      // spanned corners: a short edge cannot hold the standard radius, so one R arc spans the short edge and swallows the adjacent corner
         }
 
         public static Polyline RoundSharpCorners(Polyline src, double r, double minDeflDeg, RoundStats stats)
@@ -691,30 +691,30 @@ namespace Civil3DFactory.Geometry
             if (nv < 3) return (Polyline)src.Clone();
             bool closed = src.Closed;
             double minDefl = minDeflDeg * Math.PI / 180.0;
-            double noiseDefl = 8.0 * Math.PI / 180.0;   // 小于 8° 视为线形噪声，不计入"保留"统计
+            double noiseDefl = 8.0 * Math.PI / 180.0;   // below 8 deg counts as line-shape noise, not counted as "kept"
 
             var pts = new List<(Point2d pt, double bulge)>(nv);
             for (int i = 0; i < nv; i++)
                 pts.Add((src.GetPoint2dAt(i), src.GetBulgeAt(i)));
             NormalizeClosure(pts, ref closed);
 
-            // 微碎边收拢（阈值 r/4 封顶 5m，仍远小于 Smooth 的 r/2）：布尔求差常在
-            // 交叉口和斜插端头留下米级碎直边，把相邻角的圆角空间顶死（每段只让 45%）。
-            // 只收直边，弧端不动。
+            // Micro-fragment collapse (threshold r/4 capped at 5 m, still far below Smooth's r/2): boolean subtraction often leaves
+            // metre-level straight fragments at intersections and skewed ends that squeeze out the fillet room of adjacent corners (each segment yields only 45%).
+            // Only straight edges are collapsed; arc ends stay.
             CollapseShortStraights(pts, closed, Math.Max(0.05, Math.Min(r / 4, 5.0)));
 
-            // 共线碎节合并（0.5°，比 Smooth 的 8° 严得多，范围线自然弯不受影响）：
-            // 布尔会把笔直长边切成多段共线短节，求圆角只看紧邻一节，节短就被迫
-            // 折半降级——先并回完整长边，大角才吃得到足额半径。
+            // Collinear fragment merge (0.5 deg, far stricter than Smooth's 8 deg; natural bends of the extent line are unaffected):
+            // the boolean cuts long straight edges into several collinear short pieces; the fillet solver only looks at the adjacent piece, and a short piece
+            // forces a halving downgrade -- merge the full long edge back first so large corners get the full radius.
             RemoveCollinearVertices(pts, closed, 0.5);
 
-            // 角区清障：真角两侧一个切线长范围内的微枝节（<8°小折角顶点、扫角≤15°的
-            // 短弧）拉直摊平——人倒角时就是把两侧当完整直边看的。范围外几何一概不动，
-            // 与水道边界的贴合只在本来就要变成圆角的区域内让步。
+            // Corner-zone clearing: micro stubs within one tangent length on both sides of a true corner (small kinks < 8 deg, short arcs
+            // with sweep <= 15 deg) are straightened and flattened -- a person filleting treats both sides as full straight edges. Geometry outside
+            // that zone is untouched; fit to the channel boundary yields only inside the zone that becomes the fillet anyway.
             ClearCornerZones(pts, closed, r, minDefl);
 
-            // 跨边吞角：边短到撑不起两头切距时，用一段足额 R 弧跨过短边直切两侧
-            // 长边，把中间的小边小角一并吞掉（人工倒角遇到角簇也是这么并的）。
+            // Spanned corners: when an edge is too short to hold both tangent distances, one full-R arc spans the short edge and is tangent to
+            // the long edges on both sides, swallowing the small edge and corners in between (manual filleting merges corner clusters the same way).
             SwallowShortEdges(pts, closed, r, minDefl, stats);
 
             int n = pts.Count;
@@ -725,7 +725,7 @@ namespace Civil3DFactory.Geometry
             for (int k = 0; k < segCount; k++)
                 segs[k] = BuildSeg(pts[k].pt, pts[(k + 1) % n].pt, pts[k].bulge);
 
-            // 第一遍：算每个顶点的切向偏转角
+            // First pass: tangent deflection angle at every vertex
             var deltaArr = new double[n];
             int vStart = closed ? 0 : 1, vEnd = closed ? n : n - 1;
             for (int i = vStart; i < vEnd; i++)
@@ -738,12 +738,12 @@ namespace Civil3DFactory.Geometry
                 deltaArr[i] = Math.Acos(dot);
             }
 
-            // 第二遍：求过渡弧。邻段另一头没有竞争圆角（不是真角）时消耗上限放到 0.9
+            // Second pass: solve transition arcs. When the far end of the adjacent segment has no competing fillet (not a true corner), the consumption cap rises to 0.9
             var junc = new Junction?[n];
             for (int i = vStart; i < vEnd; i++)
             {
                 double delta = deltaArr[i];
-                if (delta <= 0 || delta > Math.PI - 0.01) continue;  // 折返角/退化不处理
+                if (delta <= 0 || delta > Math.PI - 0.01) continue;  // fold-back / degenerate corners are not handled
                 if (delta < minDefl)
                 { if (delta >= noiseDefl) stats.KeptGentle++; continue; }
 
@@ -760,8 +760,8 @@ namespace Civil3DFactory.Geometry
                     if (TrySolveJunction(s1, s2, v, rr, cap1, cap2, out var jj)) { junc[i] = jj; solved = true; break; }
                 if (solved && rr < r)
                 {
-                    // 折半只给 R/2 台阶——能吃 R18 的角不该只拿 R10。
-                    // 在 [rr, min(R, 2rr)) 二分上探，取现场塞得下的最大半径。
+                    // Halving only offers R/2 steps -- a corner that can take R18 should not get just R10.
+                    // Binary search upward within [rr, min(R, 2rr)) for the largest radius that fits locally.
                     double lo = rr, hi = Math.Min(r, rr * 2);
                     for (int a = 0; a < 6; a++)
                     {
@@ -799,12 +799,12 @@ namespace Civil3DFactory.Geometry
         }
 
         // ============================================================
-        //  SwallowShortEdges（跨边吞角）：角在全额 R 下解不出＝相邻边太短撑不起
-        //  切距。此时不缩半径，而是选一个包含该角的顶点窗口（2~3 个同向转弯的
-        //  顶点），求一段半径 R 的弧同时切到窗口两侧的外边上，把窗口里的短边
-        //  短角整体替换成这段弧。护栏：S 形反弯不吞（单弧无解）；被吞边总长
-        //  ≤1.6R；被吞顶点必须都在弧外侧且到弧的退距 ≤R（防出鬼解）。
-        //  每吞一处重扫全环，吞到没得吞为止。
+        //  SwallowShortEdges (spanned corners): a corner unsolvable at full R = the adjacent edge is too short for the
+        //  tangent distance. Instead of shrinking the radius, pick a vertex window containing the corner (2~3 vertices turning
+        //  the same way), solve one arc of radius R tangent to the outer edges on both sides of the window, and replace the short
+        //  edges and corners inside the window with that arc. Guards: S-shaped reverse bends are not swallowed (no single-arc solution);
+        //  swallowed edge total <= 1.6R; swallowed vertices must all lie outside the arc within R of it (against ghost solutions).
+        //  After each swallow the whole ring is rescanned until nothing is left to swallow.
         // ============================================================
         static void SwallowShortEdges(List<(Point2d pt, double bulge)> pts, bool closed,
             double r, double minDefl, RoundStats stats)
@@ -839,13 +839,13 @@ namespace Civil3DFactory.Geometry
             double CapAt(int far)
             {
                 if (closed) far = (far + n) % n;
-                else if (far < 1 || far > n - 2) return 0.9;   // 开放线端头无竞争
+                else if (far < 1 || far > n - 2) return 0.9;   // open-line end has no competition
                 return delta[far] >= minDefl ? 0.45 : 0.9;
             }
 
             Rebuild();
 
-            // 闭合环把起点转到最平直的顶点上，吞角窗口就不用跨列表接缝
+            // Rotate a closed ring so it starts at the straightest vertex; swallow windows then never straddle the list seam
             if (closed)
             {
                 int flat = 0; double best = double.MaxValue;
@@ -865,11 +865,11 @@ namespace Civil3DFactory.Geometry
                 for (int i = 1; i < n - 1 && !changed; i++)
                 {
                     if (delta[i] < minDefl || delta[i] > Math.PI - 0.01) continue;
-                    // 全额半径放得下的角轮不到吞
+                    // Corners that fit the full radius are never swallowed
                     if (TrySolveJunction(segs[i - 1], segs[i], pts[i].pt, r, CapAt(i - 1), CapAt(i + 1), out _))
                         continue;
 
-                    // 候选窗口按被吞边总长从短到长试
+                    // Try candidate windows from the shortest swallowed edge total to the longest
                     var wins = new List<(int a, int b, double len)>();
                     foreach (var (a, b) in new[] { (i, i + 1), (i - 1, i), (i, i + 2), (i - 1, i + 1), (i - 2, i) })
                     {
@@ -877,8 +877,8 @@ namespace Civil3DFactory.Geometry
                         bool ok = true; double swLen = 0;
                         for (int k = a; k <= b && ok; k++)
                         {
-                            if (delta[k] > Math.PI - 0.01) ok = false;                       // 折返角不碰
-                            else if (delta[k] >= noiseDefl && side[k] != side[i]) ok = false; // S 形反弯无单弧解
+                            if (delta[k] > Math.PI - 0.01) ok = false;                       // fold-back corners are not touched
+                            else if (delta[k] >= noiseDefl && side[k] != side[i]) ok = false; // S-shaped reverse bend has no single-arc solution
                         }
                         for (int k = a; k < b && ok; k++)
                         { swLen += LenOf(segs[k]); if (swLen > 1.6 * r) ok = false; }
@@ -897,7 +897,7 @@ namespace Civil3DFactory.Geometry
                         if (!TrySolveJunctionAcross(so1, so2, vref, sd, r, CapAt(a - 1), CapAt(b + 1), out var jj))
                             continue;
 
-                        // 鬼解拒收：被吞顶点须都在弧外侧、退距 ≤R
+                        // Reject ghost solutions: swallowed vertices must all lie outside the arc within R of it
                         Point2d C = jj.Tp1 + TangentAt(so1, jj.Tp1).RotateBy(sd * Math.PI / 2) * r;
                         bool sane = true;
                         for (int k = a; k <= b && sane; k++)
@@ -924,11 +924,11 @@ namespace Civil3DFactory.Geometry
         }
 
         // ============================================================
-        //  Refillet（重倒角）：手拉修改过的台田边界，拆掉旧圆角弧、按新半径重倒。
-        //  甄别口径：半径 ≤ unroundRMax 的弧视为旧圆角，还原成尖角（UnSmooth 同款
-        //  切线交点公式，只依赖弧自身端点切向，邻段不动）；更大的弧是设计弧
-        //  （通道弯、范围线弧），原样保留。之后走 RoundSharpCorners 全流程重倒。
-        //  始终返回新 Polyline，不修改入参。unrounded 报拆掉的旧圆角数。
+        //  Refillet: for a hand-edited terrace boundary, strip the old fillet arcs and re-fillet with a new radius.
+        //  Criterion: arcs with radius <= unroundRMax are old fillets and are restored to sharp corners (same tangent-intersection
+        //  formula as UnSmooth, depending only on the arc's own end tangents; neighbours untouched); larger arcs are design arcs
+        //  (channel bends, extent-line arcs) and are kept as-is. Then the full RoundSharpCorners pipeline re-fillets.
+        //  Always returns a new Polyline; the input is not modified. unrounded reports the number of old fillets removed.
         // ============================================================
         public static Polyline Refillet(Polyline src, double r, double minDeflDeg,
             double unroundRMax, RoundStats stats, out int unrounded)
@@ -940,7 +940,7 @@ namespace Civil3DFactory.Geometry
                 pts.Add((src.GetPoint2dAt(i), src.GetBulgeAt(i)));
             NormalizeClosure(pts, ref closed);
             int n = pts.Count;
-            double maxBulge = Math.Tan(150.0 / 4 * Math.PI / 180.0);   // 超过 150° 的弧不敢拆
+            double maxBulge = Math.Tan(150.0 / 4 * Math.PI / 180.0);   // arcs over 150 deg are not stripped
 
             bool SmallArc(int s)
             {
@@ -955,12 +955,12 @@ namespace Civil3DFactory.Geometry
             var outPts = new List<(Point2d pt, double bulge)>(n);
             var absorbed = new bool[n];
             int segCount = closed ? n : n - 1;
-            // 闭合环回绕：末段是小弧时它吸收的是顶点 0，得在循环前标掉
+            // Closed-ring wrap-around: when the last segment is a small arc it absorbs vertex 0, which must be marked before the loop
             if (closed && SmallArc(n - 1) && !SmallArc(0)) absorbed[0] = true;
             for (int k = 0; k < n; k++)
             {
                 if (absorbed[k]) continue;
-                // 相邻两段都是小弧时只拆第一段（第二段当保留弧），避免连锁吸收
+                // When two adjacent segments are both small arcs, strip only the first (the second counts as a kept arc), avoiding chain absorption
                 if (k < segCount && SmallArc(k) && !SmallArc((k + 1) % n))
                 {
                     Point2d p1 = pts[k].pt, p2 = pts[(k + 1) % n].pt;
@@ -969,7 +969,7 @@ namespace Civil3DFactory.Geometry
                     double half = 2 * Math.Atan(bo);
                     Vector2d u = c.GetNormal().RotateBy(-half);
                     double t = c.Length / (2 * Math.Cos(half));
-                    outPts.Add((p1 + u * t, pts[(k + 1) % n].bulge));   // 尖角接管旧弧终点的出边
+                    outPts.Add((p1 + u * t, pts[(k + 1) % n].bulge));   // the sharp corner takes over the outgoing edge of the old arc's end point
                     if (closed || k + 1 < n) absorbed[(k + 1) % n] = true;
                     unrounded++;
                 }
@@ -989,28 +989,28 @@ namespace Civil3DFactory.Geometry
             return result;
         }
 
-        // ---- 交接求解：与 seg1 末端、seg2 首端同时相切、半径 rr 的过渡弧 ----
+        // ---- Joint solver: transition arc of radius rr tangent to both the end of seg1 and the start of seg2 ----
         struct Junction
         {
-            public Point2d Tp1, Tp2;   // seg1 上的切点、seg2 上的切点
-            public double Bulge;       // 过渡弧 bulge
+            public Point2d Tp1, Tp2;   // tangent point on seg1, tangent point on seg2
+            public double Bulge;       // transition arc bulge
         }
 
         static bool TrySolveJunction(Seg s1, Seg s2, Point2d v, double rr, out Junction j)
             => TrySolveJunction(s1, s2, v, rr, 0.45, 0.45, out j);
 
-        // cap1/cap2：允许从 seg1 尾部 / seg2 头部消耗的比例上限。
-        // 默认 0.45（两头都可能有圆角，各让一半留余量）；调用方确认该段另一头
-        // 没有竞争圆角时可放宽（RoundSharpCorners 放到 0.9）。
+        // cap1/cap2: upper bound on the share that may be consumed from the tail of seg1 / head of seg2.
+        // Default 0.45 (both ends may carry a fillet, each yields half with margin); the caller may relax it when
+        // the segment's far end has no competing fillet (RoundSharpCorners uses 0.9).
         static bool TrySolveJunction(Seg s1, Seg s2, Point2d v, double rr, double cap1, double cap2, out Junction j)
         {
             Vector2d t1 = TangentAt(s1, v), t2 = TangentAt(s2, v);
-            int side = (t1.X * t2.Y - t1.Y * t2.X) >= 0 ? 1 : -1;   // 转弯侧：+1 左转
+            int side = (t1.X * t2.Y - t1.Y * t2.X) >= 0 ? 1 : -1;   // turning side: +1 left turn
             return SolveJunctionCore(s1, s2, v, side, rr, cap1, cap2, out j);
         }
 
-        // 跨边吞角版：s1、s2 不共享顶点（中间隔着被吞的短边），转弯侧按 s1 末端
-        // 与 s2 首端的切向定；vref（被吞区中点）只用于多解取近。
+        // Spanned-corner variant: s1 and s2 do not share a vertex (swallowed short edges lie between); the turning side is taken from
+        // s1's end tangent and s2's start tangent; vref (midpoint of the swallowed zone) only picks the nearest of multiple solutions.
         static bool TrySolveJunctionAcross(Seg s1, Seg s2, Point2d vref, int side,
             double rr, double cap1, double cap2, out Junction j)
             => SolveJunctionCore(s1, s2, vref, side, rr, cap1, cap2, out j);
@@ -1020,7 +1020,7 @@ namespace Civil3DFactory.Geometry
         {
             j = default;
 
-            // 过渡弧圆心轨迹：直线→向转弯侧平移 rr；圆弧→同心圆 R − side·W·rr
+            // Locus of the transition arc centre: line -> shifted rr toward the turning side; arc -> concentric circle R - side*W*rr
             if (!LocusOf(s1, side, rr, out bool c1, out Point2d p1, out Vector2d d1, out Point2d o1, out double r1)) return false;
             if (!LocusOf(s2, side, rr, out bool c2, out Point2d p2, out Vector2d d2, out Point2d o2, out double r2)) return false;
 
@@ -1036,11 +1036,11 @@ namespace Civil3DFactory.Geometry
             {
                 Point2d tp1 = FootOn(s1, C), tp2 = FootOn(s2, C);
                 double u1 = ParamOf(s1, tp1), u2 = ParamOf(s2, tp2);
-                if (u1 < 1 - cap1 || u1 > 1 - 1e-9) continue;   // seg1 尾部消耗 ≤cap1 且切点在段内
-                if (u2 > cap2 || u2 < 1e-9) continue;           // seg2 头部消耗 ≤cap2
+                if (u1 < 1 - cap1 || u1 > 1 - 1e-9) continue;   // seg1 tail consumption <= cap1 and tangent point inside the segment
+                if (u2 > cap2 || u2 < 1e-9) continue;           // seg2 head consumption <= cap2
 
                 double sweep = SweepBetween(tp1 - C, tp2 - C, side);
-                if (sweep > Math.PI + 0.01) continue;        // 过渡弧不该绕大圈
+                if (sweep > Math.PI + 0.01) continue;        // the transition arc must not loop the long way round
 
                 j = new Junction { Tp1 = tp1, Tp2 = tp2, Bulge = side * Math.Tan(sweep / 4) };
                 return true;
@@ -1055,31 +1055,31 @@ namespace Civil3DFactory.Geometry
             if (!s.IsArc)
             {
                 ld = (s.B - s.A).GetNormal();
-                lp = s.A + ld.RotateBy(Math.PI / 2) * (side * rr);   // 向转弯侧平移
+                lp = s.A + ld.RotateBy(Math.PI / 2) * (side * rr);   // shift toward the turning side
                 return true;
             }
             lo = s.O;
-            lr = s.R - side * s.W * rr;   // 转弯侧朝圆心则收半径，背圆心则放半径
+            lr = s.R - side * s.W * rr;   // turning toward the centre shrinks the radius, away from it grows it
             return lr > Tol;
         }
 
-        // ---- 段几何（直线或圆弧，由 bulge 决定） ----
+        // ---- Segment geometry (line or arc, decided by bulge) ----
         struct Seg
         {
             public bool IsArc;
-            public Point2d A, B;    // 起终点（按行进方向）
-            public Point2d O;       // 圆心
-            public double R;        // 半径
-            public int W;           // 行进方向：+1 逆时针 / -1 顺时针
-            public double Sweep;    // 圆心角（带符号 = 4·atan(bulge)）
+            public Point2d A, B;    // start / end (in travel direction)
+            public Point2d O;       // centre
+            public double R;        // radius
+            public int W;           // travel direction: +1 counter-clockwise / -1 clockwise
+            public double Sweep;    // sweep angle (signed = 4*atan(bulge))
         }
 
         static Seg BuildSeg(Point2d a, Point2d b, double bulge)
         {
             var s = new Seg { A = a, B = b };
             Vector2d c = b - a;
-            if (Math.Abs(bulge) < Tol || c.Length < Tol) return s;   // 直线
-            double d = c.Length * (1 + bulge * bulge) / (4 * bulge); // 圆心带符号距离
+            if (Math.Abs(bulge) < Tol || c.Length < Tol) return s;   // straight
+            double d = c.Length * (1 + bulge * bulge) / (4 * bulge); // signed distance of the centre
             s.IsArc = true;
             s.O = a + c.GetNormal().RotateBy(Math.PI / 2 - 2 * Math.Atan(bulge)) * d;
             s.R = Math.Abs(d);
@@ -1088,12 +1088,12 @@ namespace Civil3DFactory.Geometry
             return s;
         }
 
-        // 行进方向上点 P 处的单位切向
+        // Unit tangent at point P in the travel direction
         static Vector2d TangentAt(Seg s, Point2d p)
             => s.IsArc ? (p - s.O).GetNormal().RotateBy(s.W * Math.PI / 2)
                        : (s.B - s.A).GetNormal();
 
-        // 点在段上的行进参数 0..1（越界返回超出 [0,1] 的值，供校验拒绝）
+        // Travel parameter 0..1 of a point on the segment (out of range returns a value outside [0,1] for validation to reject)
         static double ParamOf(Seg s, Point2d p)
         {
             if (!s.IsArc)
@@ -1106,7 +1106,7 @@ namespace Civil3DFactory.Geometry
             return SweepBetween(s.A - s.O, p - s.O, s.W) / full;
         }
 
-        // 从 from 转到 to 沿 dir(+1 逆/-1 顺)扫过的角度，[0, 2π)
+        // Angle swept from from to to along dir (+1 ccw / -1 cw), [0, 2pi)
         static double SweepBetween(Vector2d from, Vector2d to, int dir)
         {
             double a = (Math.Atan2(to.Y, to.X) - Math.Atan2(from.Y, from.X)) * dir;
@@ -1115,27 +1115,27 @@ namespace Civil3DFactory.Geometry
             return a;
         }
 
-        // 段裁剪到新端点 p→q 后的 bulge
+        // Bulge of the segment after trimming to new endpoints p->q
         static double BulgeOf(Seg s, Point2d p, Point2d q)
         {
             if (!s.IsArc) return 0;
             return s.W * Math.Tan(SweepBetween(p - s.O, q - s.O, s.W) / 4);
         }
 
-        // 圆心 C 在段上的相切垂足
+        // Tangent foot of centre C on the segment
         static Point2d FootOn(Seg s, Point2d c)
         {
             if (s.IsArc)
             {
                 Vector2d w = c - s.O;
-                if (w.Length < Tol) return s.A;   // 退化：交由参数校验拒绝
+                if (w.Length < Tol) return s.A;   // degenerate: left for the parameter validation to reject
                 return s.O + w.GetNormal() * s.R;
             }
             Vector2d d = (s.B - s.A).GetNormal();
             return s.A + d * (c - s.A).DotProduct(d);
         }
 
-        // ---- 轨迹交点 ----
+        // ---- Locus intersections ----
         static void IntersectLL(Point2d p1, Vector2d d1, Point2d p2, Vector2d d2, List<Point2d> outPts)
         {
             double den = d1.X * d2.Y - d1.Y * d2.X;
@@ -1170,25 +1170,25 @@ namespace Civil3DFactory.Geometry
             if (h > Tol) outPts.Add(m + nrm * (-h));
         }
 
-        // ---- 闭合规范化 ----
-        const double SnapTol = 1e-6;   // 首末点视为重合的距离
+        // ---- Closure normalisation ----
+        const double SnapTol = 1e-6;   // distance below which first and last points count as coincident
 
         static void NormalizeClosure(List<(Point2d pt, double bulge)> pts, ref bool closed)
         {
             if (!closed && pts.Count >= 4 &&
                 pts[0].pt.GetDistanceTo(pts[pts.Count - 1].pt) < SnapTol)
             {
-                pts.RemoveAt(pts.Count - 1);   // 假开放：去重复末点，转闭合
+                pts.RemoveAt(pts.Count - 1);   // fake open: drop the duplicate last point, make closed
                 closed = true;
             }
             else if (closed && pts.Count >= 2 &&
                      pts[0].pt.GetDistanceTo(pts[pts.Count - 1].pt) < SnapTol)
             {
-                pts.RemoveAt(pts.Count - 1);   // 真闭合但带重复末点：零长收口段，去重
+                pts.RemoveAt(pts.Count - 1);   // truly closed but with a duplicate last point: zero-length closing segment, drop it
             }
         }
 
-        /// <summary>捕捉画闭的假开放线：Closed=false 但首末点重合。</summary>
+        /// <summary>Snap-closed fake-open line: Closed=false but first and last points coincide.</summary>
         public static bool IsSnapClosed(Polyline pl)
         {
             int nv = pl.NumberOfVertices;
@@ -1214,8 +1214,8 @@ namespace Civil3DFactory.Geometry
             return res;
         }
 
-        // ---- 小工具 ----
-        /// <summary>退路：从上一圈的每条线各偏一个增量，汇成新一圈。</summary>
+        // ---- Small helpers ----
+        /// <summary>Fallback: offset each line of the previous ring by one increment and gather them into the new ring.</summary>
         static DBObjectCollection StepFromPrevious(List<Polyline> prev, double step)
         {
             var acc = new DBObjectCollection();
@@ -1252,17 +1252,17 @@ namespace Civil3DFactory.Geometry
         }
 
         // ============================================================
-        //  ChainSegments（散线串链）：一把散直线段 → 有序开链/闭环多段线
-        //  端点按容差聚类成节点；度=2 节点串链通过，度=1（自由端）与
-        //  度≥3（三岔口）处断链。接头处两端点不重合时优先取两线延长
-        //  交点（同时吃掉搭不齐与画过头两种手抖），近平行退回两端点中点。
-        //  输出纯直段多段线，归圆由 Smooth 接手。
+        //  ChainSegments (chaining loose segments): a pile of loose straight segments -> ordered open-chain / closed-ring polylines
+        //  Endpoints are clustered into nodes by tolerance; degree-2 nodes pass the chain through, degree-1 (free end) and
+        //  degree>=3 (junction) nodes break it. Where the two endpoints of a joint do not coincide, the intersection of the two
+        //  extended lines is preferred (fixing both under- and over-shoot), falling back to the endpoint midpoint when nearly parallel.
+        //  Outputs straight-only polylines; rounding is left to Smooth.
         // ============================================================
         public sealed class SegChain
         {
-            public Polyline Pl;           // 串好的多段线（纯直段，未归圆）
-            public List<int> SegIndices;  // 参与的输入线段下标（按链序）
-            public int FittedJoints;      // 端点不重合、按交点/中点续上的接头数
+            public Polyline Pl;           // chained polyline (straight only, not rounded)
+            public List<int> SegIndices;  // indices of the input segments used (in chain order)
+            public int FittedJoints;      // joints whose endpoints did not coincide and were continued via intersection / midpoint
             public bool Closed;
         }
 
@@ -1275,7 +1275,7 @@ namespace Civil3DFactory.Geometry
             if (ns == 0) return chains;
             if (tol < Tol) tol = Tol;
 
-            // 1) 端点聚类成节点（代表点取成员均值；段数少，O(n²) 足够）
+            // 1) Cluster endpoints into nodes (representative = mean of members; few segments, O(n²) is fine)
             var nodePts = new List<Point2d>();
             var nodeCnt = new List<int>();
             int[,] nodeOf = new int[ns, 2];
@@ -1297,7 +1297,7 @@ namespace Civil3DFactory.Geometry
                     nodeOf[s, e] = hit;
                 }
 
-            // 2) 邻接表（零长/自环段丢弃）
+            // 2) Adjacency (zero-length / self-loop segments dropped)
             int nn = nodePts.Count;
             var adj = new List<(int seg, int other)>[nn];
             for (int k = 0; k < nn; k++) adj[k] = new List<(int, int)>();
@@ -1312,11 +1312,11 @@ namespace Civil3DFactory.Geometry
 
             var used = new bool[ns];
 
-            // 段的行进端点：rev=false 段沿 A→B 走
+            // Travel endpoints of a segment: rev=false walks A->B
             Point2d Head(int s, bool rev) => rev ? segs[s].B : segs[s].A;
             Point2d Tail(int s, bool rev) => rev ? segs[s].A : segs[s].B;
 
-            // 接头点：前段行进终点 e1 与后段行进起点 p2
+            // Joint point: travel end e1 of the previous segment and travel start p2 of the next
             (Point2d pt, bool fitted) Joint(int s1, bool rev1, int s2, bool rev2, int node)
             {
                 Point2d e1 = Tail(s1, rev1), p2 = Head(s2, rev2);
@@ -1328,7 +1328,7 @@ namespace Civil3DFactory.Geometry
                 if (Math.Abs(cross) < Tol * Math.Max(d1.Length * d2.Length, 1.0)) return (mid, true);
                 double t = ((p2.X - a1.X) * d2.Y - (p2.Y - a1.Y) * d2.X) / cross;
                 var ix = new Point2d(a1.X + d1.X * t, a1.Y + d1.Y * t);
-                // 近平行时交点会飞远——离节点太远就退回中点
+                // When nearly parallel the intersection flies away -- fall back to the midpoint if too far from the node
                 return ix.GetDistanceTo(nodePts[node]) <= tol * 3 ? (ix, true) : (mid, true);
             }
 
@@ -1390,7 +1390,7 @@ namespace Civil3DFactory.Geometry
                 return new SegChain { Pl = pl, SegIndices = idxs, FittedJoints = fitted, Closed = closed };
             }
 
-            // 3) 先从度≠2 的节点出发扫开链，剩下没用过的段必属纯闭环
+            // 3) Scan open chains starting from nodes with degree != 2; the unused segments left over must be pure closed rings
             for (int k = 0; k < nn; k++)
             {
                 if (adj[k].Count == 2) continue;
@@ -1406,7 +1406,7 @@ namespace Civil3DFactory.Geometry
             return chains;
         }
 
-        /// <summary>多段线里 bulge 非零的段数。</summary>
+        /// <summary>Number of segments with non-zero bulge in a polyline.</summary>
         public static int CountArcs(Polyline pl)
         {
             int c = 0;

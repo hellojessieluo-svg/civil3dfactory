@@ -19,9 +19,10 @@ $root = Split-Path -Parent $PSScriptRoot
 $nodes = Get-Content (Join-Path $root 'nodes\node.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($Node) { $nodes = @($nodes | Where-Object { $_.id -eq $Node }) }
 
+# Only reads from the top-level argument object (a / args) count; reads from rows of an array parameter are not contract keys.
 $patterns = @(
-  'Need\(\s*\w+\s*,\s*"([^"]+)"',
-  'Get(?:String|Double|Bool|Int|Num)\w*\(\s*\w+\s*,\s*"([^"]+)"',
+  'Need\(\s*(?:a|args)\s*,\s*\"([^\"]+)\"',
+  'Get(?:String|Double|Bool|Int|Num)\w*\(\s*(?:a|args)\s*,\s*\"([^\"]+)\"',
   '\b(?:a|args)\["([^"]+)"\]'
 )
 
@@ -60,13 +61,15 @@ foreach ($n in $nodes) {
   }
   $undeclared = @($used | Where-Object { $declared -notcontains $_ } | Sort-Object)
   $unused = @($declared | Where-Object { -not $used.Contains($_) } | Sort-Object)
-  if ($undeclared.Count -eq 0 -and $unused.Count -eq 0) {
-    Write-Host ("[aligned] {0}" -f $n.id) -ForegroundColor Green
+  # Drift = the implementation reads a key the contract does not declare (-Help would lie).
+  # Declared-but-not-read keys are informational: shared helpers (drawing input, outdir, alignment lookups) consume them.
+  if ($undeclared.Count -eq 0) {
+    if ($unused.Count -eq 0) { Write-Host ("[aligned] {0}" -f $n.id) -ForegroundColor Green }
+    else { Write-Host ("[aligned] {0}   (declared, read by shared code: {1})" -f $n.id, ($unused -join ', ')) -ForegroundColor DarkGreen }
   } else {
     $flagged++
     Write-Host ("[drift]   {0}" -f $n.id) -ForegroundColor Yellow
-    if ($undeclared.Count -gt 0) { Write-Host ("          read by the implementation but not declared: {0}" -f ($undeclared -join ', ')) -ForegroundColor Yellow }
-    if ($unused.Count -gt 0) { Write-Host ("          declared but not read here (may be consumed by shared code): {0}" -f ($unused -join ', ')) }
+    Write-Host ("          read by the implementation but not declared: {0}" -f ($undeclared -join ', ')) -ForegroundColor Yellow
   }
 }
 Write-Host ""

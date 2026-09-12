@@ -1,7 +1,7 @@
 {
   "node": "create_profile_view",
   "version": 1,
-  "fixture": "tests/dwg/road-to-section-drawings-base.dwg",
+  "fixture": "examples/channel-demo.dwg",
   "prerequisite": "existing alignment with ground and design profiles",
   "assertions": [
     "data.profile_view is not empty",

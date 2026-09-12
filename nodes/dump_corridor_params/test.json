@@ -1,19 +1,19 @@
 {
   "node": "dump_corridor_params",
   "version": 1,
-  "fixture": "",
+  "fixture": "examples/channel-demo.dwg",
   "prerequisite": null,
   "fixture_requirements": [
-    "图中至少一个走廊（含基准线和区域）和一个装配（含子装配参数）",
-    "走廊基准线的路线带设计纵断面"
+    "At least one corridor (with baseline and regions) and one assembly (with subassembly parameters) in the drawing",
+    "The corridor baseline alignment carries a design profile"
   ],
   "assertions": [
     "data.corridor_count >= 1",
     "data.assembly_count >= 1",
     "data.corridors[0].baselines[0].regions length > 0",
-    "data.assemblies[0].subassemblies[*].params 数值参数带 value 与 readonly",
-    "corridors=false 时不返回走廊、assemblies=false 时不返回装配",
-    "assembly 参数过滤后只返回同名装配"
+    "data.assemblies[0].subassemblies[*].params numeric parameters carry value and readonly",
+    "with corridors=false no corridors are returned; with assemblies=false no assemblies are returned",
+    "with the assembly filter only the assembly of that name is returned"
   ],
   "status": "draft_assertions_pending_owner_review"
 }

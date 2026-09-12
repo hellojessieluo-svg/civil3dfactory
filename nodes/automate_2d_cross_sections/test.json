@@ -1,10 +1,10 @@
 {
   "node": "automate_2d_cross_sections",
   "version": 1,
-  "fixture": "tests/dwg/2d-cross-sections-sample.dwg",
+  "fixture": "examples/title-block-demo.dwg",
   "prerequisite": null,
   "fixture_requirements": [
-    "模型空间包含二维横断面图块组或多段线轮廓"
+    "Model space contains 2D cross-section block groups or polyline outlines"
   ],
   "assertions": [
     "data.processed_count >= 0",

@@ -10,26 +10,26 @@ using CivSurface = Autodesk.Civil.DatabaseServices.Surface;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 网格角点高程标注节点。
+    /// Grid-node elevation annotation node.
     ///
-    /// 参数化输入边界图层，图层上**全部闭合多段线**逐个执行：在边界内打方格网(Line)，
-    /// 每个落在边界内的交叉点周围放 3 个已填好值的单行文字：
-    ///     左上 = 差值(设计−现有)   右上 = 设计高程   右下 = 现有高程   左下 = 空
+    /// Takes a boundary layer as parameter and processes **every closed polyline** on it: draws a square grid (Lines) inside the boundary,
+    /// and around every grid intersection inside the boundary places 3 single-line texts with values already filled in:
+    ///     top-left = difference (design - existing)   top-right = design elevation   bottom-right = existing elevation   bottom-left = empty
     ///
-    /// 与既有交互插件 GridElev(C3DF-GridGen) 同一算法、同一 XData 约定（AppName C3DF_GRIDELEV），
-    /// 因此本节点的产物仍可用 C3DF-ElevFromSurface / C3DF-CalcDiff 手工维护。
-    /// 区别：交互版一次选一条边界，本节点按图层批量；曲面按名字取，全程不碰
-    /// CivilApplication.ActiveDocument（accoreconsole 里不可用）。
+    /// Same algorithm and XData convention (AppName C3DF_GRIDELEV) as the existing interactive plugin GridElev (C3DF-GridGen),
+    /// so this node's output can still be maintained manually with C3DF-ElevFromSurface / C3DF-CalcDiff.
+    /// Difference: the interactive version picks one boundary at a time, this node batches by layer; surfaces are fetched by name and
+    /// CivilApplication.ActiveDocument is never touched (unavailable in accoreconsole).
     /// </summary>
     public static partial class Ops
     {
         const string GridAppName = "C3DF_GRIDELEV";
-        const string GridTypeDesign = "DESIGN";   // 设计高程(右上)
-        const string GridTypeExist = "EXIST";     // 现有高程(右下)
-        const string GridTypeDiff = "DIFF";       // 差值   (左上)
-        const string GridTypeLine = "GRID";       // 网格线
-        const string GridNaText = "—";            // 点在曲面外/无值
-        const double GridNodeTol = 1e-3;          // 节点去重容差(米)
+        const string GridTypeDesign = "DESIGN";   // design elevation (top-right)
+        const string GridTypeExist = "EXIST";     // existing elevation (bottom-right)
+        const string GridTypeDiff = "DIFF";       // difference (top-left)
+        const string GridTypeLine = "GRID";       // grid line
+        const string GridNaText = "—";            // point outside surface / no value
+        const double GridNodeTol = 1e-3;          // node dedupe tolerance (m)
 
         static JsonNode RunNodeAnnotateGridElevations(JsonObject a, Document doc)
         {
@@ -38,9 +38,9 @@ namespace Civil3DFactory
             string existName = Need(a, "existing_surface");
 
             double spacing = GetDouble(a, "spacing", 50.0);
-            if (spacing <= 1e-6) throw new InvalidOperationException("spacing 必须大于 0。");
+            if (spacing <= 1e-6) throw new InvalidOperationException("spacing must be greater than 0.");
             double h = GetDouble(a, "text_height", 2.5);
-            if (h <= 1e-6) throw new InvalidOperationException("text_height 必须大于 0。");
+            if (h <= 1e-6) throw new InvalidOperationException("text_height must be greater than 0.");
             int decimals = (int)GetDouble(a, "decimals", 2);
             if (decimals < 0 || decimals > 6) decimals = 2;
             double offsetFactor = GetDouble(a, "offset_factor", 0.4);
@@ -48,10 +48,10 @@ namespace Civil3DFactory
             bool drawGrid = GetBool(a, "draw_grid", true);
             bool clearExisting = GetBool(a, "clear_existing", true);
 
-            string lyGridName = GetString(a, "grid_layer", "C3DF-网格");
-            string lyDesignName = GetString(a, "design_layer", "C3DF-DesignElevation");
-            string lyExistName = GetString(a, "exist_layer", "C3DF-现有高程");
-            string lyDiffName = GetString(a, "diff_layer", "C3DF-差值");
+            string lyGridName = GetString(a, "grid_layer", "C3DF-GRID");
+            string lyDesignName = GetString(a, "design_layer", "C3DF-DESIGN-ELEV");
+            string lyExistName = GetString(a, "exist_layer", "C3DF-EXISTING-ELEV");
+            string lyDiffName = GetString(a, "diff_layer", "C3DF-DIFFERENCE");
 
             string fmt = "F" + decimals.ToString(CultureInfo.InvariantCulture);
             double m = offsetFactor * h;
@@ -62,21 +62,21 @@ namespace Civil3DFactory
             var perBoundary = new JsonArray();
             int cleared = 0, boundaries = 0, skippedOpen = 0;
             int nodesTotal = 0, segsTotal = 0, dOutTotal = 0, eOutTotal = 0, dupNodes = 0;
-            JsonObject sample = null;   // 首个节点实际写出的三个值，供验收核对
+            JsonObject sample = null;   // the three values actually written at the first node, for acceptance checks
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 ObjectId dId = FindSurfaceId(tr, civ, designName);
-                if (dId.IsNull) throw new InvalidOperationException("找不到设计曲面 '" + designName + "'。");
+                if (dId.IsNull) throw new InvalidOperationException("Design surface '" + designName + "' not found.");
                 ObjectId eId = FindSurfaceId(tr, civ, existName);
-                if (eId.IsNull) throw new InvalidOperationException("找不到原地形曲面 '" + existName + "'。");
+                if (eId.IsNull) throw new InvalidOperationException("Existing ground surface '" + existName + "' not found.");
                 var dSurf = (CivSurface)tr.GetObject(dId, OpenMode.ForRead);
                 var eSurf = (CivSurface)tr.GetObject(eId, OpenMode.ForRead);
 
-                // 上次产物清理：只动带本节点 XData 的对象，用户自画的一律不碰
+                // Clean previous output: only objects carrying this node's XData; user-drawn objects are never touched
                 if (clearExisting) cleared = EraseTaggedEntities(tr, db, GridAppName);
 
-                // 收集边界图层上的多段线
+                // Collect polylines on the boundary layer
                 var bndIds = new List<ObjectId>();
                 foreach (ObjectId id in ModelSpace(db, tr))
                 {
@@ -88,7 +88,7 @@ namespace Civil3DFactory
                 }
                 if (bndIds.Count == 0)
                     throw new InvalidOperationException(
-                        "图层 '" + bndLayer + "' 上没有可用的" + (closedOnly ? "闭合" : "") + "多段线（LWPOLYLINE）。");
+                        "No usable " + (closedOnly ? "closed " : "") + "polyline (LWPOLYLINE) on layer '" + bndLayer + "'.");
 
                 EnsureRegApp(tr, db, GridAppName);
                 ObjectId lyGrid = GridEnsureLayer(tr, db, lyGridName, 4);
@@ -97,7 +97,7 @@ namespace Civil3DFactory
                 ObjectId lyF = GridEnsureLayer(tr, db, lyDiffName, 1);
                 var btr = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
 
-                // 多个地块共用边界时，同一节点只标一次（全局按坐标去重）
+                // When several parcels share a boundary, each node is labelled once (global dedupe by coordinate)
                 var seen = new HashSet<string>();
 
                 foreach (ObjectId bid in bndIds)
@@ -215,10 +215,10 @@ namespace Civil3DFactory
             }
         }
 
-        // ---------- 清理上次产物：只删带 C3DF_GRIDELEV XData 的对象 ----------
-        // ---------- 网格坐标 / 裁剪 / 内部判断（与 GridElev 同算法） ----------
+        // ---------- Clean previous output: delete only objects with C3DF_GRIDELEV XData ----------
+        // ---------- Grid coordinates / clipping / inside test (same algorithm as GridElev) ----------
 
-        /// <summary>lo..hi 之间对齐到 step 整数倍的坐标序列，相邻地块网格能对齐。</summary>
+        /// <summary>Coordinate sequence between lo..hi aligned to integer multiples of step, so grids of adjacent parcels line up.</summary>
         static List<double> GridCoords(double lo, double hi, double step)
         {
             var res = new List<double>();
@@ -227,7 +227,7 @@ namespace Civil3DFactory
             return res;
         }
 
-        /// <summary>一条直线用边界裁剪，只画落在边界内的分段；返回画出的段数。</summary>
+        /// <summary>Clip a line by the boundary and draw only the pieces inside; returns the number of pieces drawn.</summary>
         static int GridDrawClipped(Transaction tr, BlockTableRecord btr, ObjectId layer,
             Entity boundary, List<Point2d> poly, Point3d a, Point3d b)
         {
@@ -256,7 +256,7 @@ namespace Civil3DFactory
             return drawn;
         }
 
-        /// <summary>沿边界按步长采样成点环（弧段也能采到），供点在多边形内判断。</summary>
+        /// <summary>Sample the boundary by step into a point ring (arcs included) for the point-in-polygon test.</summary>
         static List<Point2d> GridSamplePolygon(Curve c, double step)
         {
             var pts = new List<Point2d>();
@@ -293,7 +293,7 @@ namespace Civil3DFactory
             catch (System.Exception) { z = 0; return false; }
         }
 
-        // ---------- XData / 实体 / 图层 ----------
+        // ---------- XData / entities / layers ----------
 
         static string GridNodeKey(Point3d p)
         {

@@ -9,17 +9,17 @@ using Autodesk.Aec.PropertyData.DatabaseServices;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 特性集（AEC Property Set）无头读写。API 惯用法抄自实战验证的
-    /// WaterBox/Commands/ChannelProps.cs（C3DF-ChannelProps，特性集〈半宽〉挂主线）。
-    /// 设计口径：特性集只放「身份+设计意图」，不放会过期的计算结果；
-    /// 面积/周长用 "@area"/"@length" 让 op 从几何现算，重跑即刷新。
+    /// Headless read/write of AEC Property Sets. API idioms copied from the field-proven
+    /// WaterBox/Commands/ChannelProps.cs (C3DF-ChannelProps, the <HalfWidth> property set attached to main lines).
+    /// Design rule: property sets hold only "identity + design intent", never computed results that go stale;
+    /// area/perimeter use "@area"/"@length" so the op computes them live from geometry and a re-run refreshes them.
     /// </summary>
     public static partial class Ops
     {
         static JsonNode PropertySets(JsonObject a, Document doc)
         {
-            // define / assign / dump 各开各的事务：往定义里补的新字段要等事务提交后
-            // 才会在已挂对象的特性集上长出来，同事务里紧接着 SetAt 会 eKeyNotFound。
+            // define / assign / dump each open their own transaction: fields added to a definition only appear
+            // on already-attached objects after the transaction commits; a SetAt in the same transaction gives eKeyNotFound.
             Database db = doc.Database;
             var res = new JsonObject();
             string defName = null;
@@ -28,13 +28,13 @@ namespace Civil3DFactory
             {
                 var dict = new DictionaryPropertySetDefinitions(db);
 
-                // ---------- define：建/补特性集定义（幂等） ----------
+                // ---------- define: create/extend the property set definition (idempotent) ----------
                 var def = a["define"] as JsonObject;
                 if (def != null)
                 {
                     defName = GetString(def, "name", null);
                     if (string.IsNullOrEmpty(defName))
-                        throw new InvalidOperationException("define.name 必需。");
+                        throw new InvalidOperationException("define.name is required.");
                     ObjectId psdId;
                     bool created = false;
                     if (dict.Has(defName, tr)) psdId = dict.GetAt(defName);
@@ -48,7 +48,7 @@ namespace Civil3DFactory
                         {
                             var sc = new System.Collections.Specialized.StringCollection();
                             foreach (JsonNode n in appliesArr) sc.Add(n.GetValue<string>());
-                            // 过滤设不上就退化为不过滤（ChannelProps 同款兜底）
+                            // if the filter cannot be applied, fall back to no filter (same fallback as ChannelProps)
                             try { psd0.SetAppliesToFilter(sc, false); } catch { }
                         }
                         dict.AddNewRecord(defName, psd0);
@@ -92,13 +92,13 @@ namespace Civil3DFactory
             {
                 var dict = new DictionaryPropertySetDefinitions(db);
 
-                // ---------- assign：挂对象+赋值（幂等，重跑=刷新值） ----------
+                // ---------- assign: attach to objects + set values (idempotent; re-run = refresh values) ----------
                 var assign = a["assign"] as JsonArray;
                 if (assign != null)
                 {
                     string setName = GetString(a, "set", defName);
                     if (string.IsNullOrEmpty(setName) || !dict.Has(setName, tr))
-                        throw new InvalidOperationException("assign 需要已存在的特性集名（set 参数或 define.name）。");
+                        throw new InvalidOperationException("assign needs an existing property set name (set parameter or define.name).");
                     ObjectId psdId2 = dict.GetAt(setName);
                     var arr = new JsonArray();
                     foreach (JsonNode itn in assign)
@@ -130,11 +130,11 @@ namespace Civil3DFactory
                                 {
                                     var cur = obj as Curve;
                                     if (cur == null)
-                                        throw new InvalidOperationException(h + " 不是曲线，算不了 " + sval);
+                                        throw new InvalidOperationException(h + " is not a curve; cannot compute " + sval);
                                     if (sval == "@area") v = Math.Round(cur.Area, 2);
                                     else if (sval == "@length")
                                         v = Math.Round(cur.GetDistanceAtParameter(cur.EndParam), 2);
-                                    else throw new InvalidOperationException("未知几何取值 " + sval + "（支持 @area/@length）");
+                                    else throw new InvalidOperationException("Unknown geometry value " + sval + " (supported: @area/@length)");
                                 }
                                 else if (jv != null && jv.TryGetValue(out dval) && !(jv.TryGetValue(out sval) && sval != null))
                                     v = dval;
@@ -153,7 +153,7 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // ---------- dump：读回核对 ----------
+                // ---------- dump: read back for verification ----------
                 var dmp = a["dump"] as JsonObject;
                 if (dmp != null)
                 {
@@ -169,7 +169,7 @@ namespace Civil3DFactory
                             var ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
                             if (ent != null && ent.Layer == lay) targets.Add(ent);
                         }
-                    else throw new InvalidOperationException("dump 需要 handles 或 layer。");
+                    else throw new InvalidOperationException("dump needs handles or layer.");
 
                     var arr = new JsonArray();
                     foreach (var obj in targets)
@@ -190,7 +190,7 @@ namespace Civil3DFactory
                                 {
                                     object v;
                                     try { v = ps.GetAt(ps.PropertyNameToId(d0.Name)); }
-                                    catch (System.Exception ex) { vo[d0.Name] = "(读取失败:" + ex.GetType().Name + ")"; continue; }
+                                    catch (System.Exception ex) { vo[d0.Name] = "(read failed: " + ex.GetType().Name + ")"; continue; }
                                     if (v is double) vo[d0.Name] = (double)v;
                                     else if (v is int) vo[d0.Name] = (int)v;
                                     else vo[d0.Name] = v == null ? null : (JsonNode)v.ToString();
@@ -206,7 +206,7 @@ namespace Civil3DFactory
                 tr.Commit();
             }
             if (res.Count == 0)
-                throw new InvalidOperationException("至少给 define / assign / dump 之一。");
+                throw new InvalidOperationException("Give at least one of define / assign / dump.");
             return res;
         }
     }

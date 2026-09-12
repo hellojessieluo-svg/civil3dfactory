@@ -10,8 +10,8 @@ namespace Civil3DFactory
     public static partial class Ops
     {
         /// <summary>
-        /// 在 Civil 3D 宿主内按已确认工单的选择规则解析对象。
-        /// 解析发生在执行时；历史工单保留选择规则，不提前固化对象名称。
+        /// Resolves objects inside the Civil 3D host by the selection rules of a confirmed work order.
+        /// Resolution happens at run time; historical work orders keep the selection rules instead of freezing object names early.
         /// </summary>
         public static JsonObject ResolveFactoryTask(JsonObject task, Document doc)
         {
@@ -31,7 +31,7 @@ namespace Civil3DFactory
                     ? selector["name_contains"].GetValue<string>()
                     : null;
                 if (string.IsNullOrWhiteSpace(contains))
-                    throw new InvalidOperationException("ground_surface.selector.name_contains 不能为空。");
+                    throw new InvalidOperationException("ground_surface.selector.name_contains must not be empty.");
 
                 var matches = new List<string>();
                 JsonArray surfaces = ListSurfaces(new JsonObject(), doc) as JsonArray;
@@ -46,8 +46,8 @@ namespace Civil3DFactory
                 }
                 if (matches.Count != 1)
                     throw new InvalidOperationException(
-                        "原地形选择器要求唯一匹配，实际匹配 " + matches.Count +
-                        " 个: " + string.Join(", ", matches));
+                        "Ground surface selector requires a unique match; matched " + matches.Count +
+                        " surfaces: " + string.Join(", ", matches));
                 bindings["$ground_surface"] = matches[0];
                 report["ground_surface"] = matches[0];
             }
@@ -58,13 +58,13 @@ namespace Civil3DFactory
                 JsonObject env = CivilEnv(new JsonObject(), doc) as JsonObject;
                 JsonArray assemblies = env != null ? env["assemblies"] as JsonArray : null;
                 if (assemblies == null || assemblies.Count == 0)
-                    throw new InvalidOperationException("装配列表为空，无法选择第一项。");
+                    throw new InvalidOperationException("Assembly list is empty; cannot pick the first item.");
                 JsonObject first = assemblies[0] as JsonObject;
                 string name = first != null && first["name"] != null
                     ? first["name"].GetValue<string>()
                     : null;
                 if (string.IsNullOrWhiteSpace(name))
-                    throw new InvalidOperationException("装配列表第一项缺少名称。");
+                    throw new InvalidOperationException("First assembly in the list has no name.");
                 bindings["$assembly"] = name;
                 report["assembly"] = name;
             }
@@ -84,7 +84,7 @@ namespace Civil3DFactory
                     }
                 }
                 if (string.IsNullOrWhiteSpace(firstName))
-                    throw new InvalidOperationException("工程量准则列表为空，无法选择第一项。");
+                    throw new InvalidOperationException("Quantity takeoff criteria list is empty; cannot pick the first item.");
                 bindings["$quantity_criteria"] = firstName;
                 report["quantity_criteria"] = firstName;
             }

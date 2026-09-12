@@ -1,7 +1,7 @@
 {
   "node": "check_sac_paths",
   "version": 1,
-  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "fixture": "examples/channel-demo.dwg",
   "parameters": {
     "assembly": "C3DF-Channel",
     "paths": [

@@ -1,0 +1,16 @@
+{
+  "_comment": "Build a section view style from scratch: 5 m grid (offset and elevation), station title on top, 1:1 exaggeration; make cut hatch red and fill hatch blue; thin continuous ground line. Runs on any drawing that has the @C3DF-Cut / @C3DF-Fill / @C3DF-GroundLine styles (channel-demo.dwg and everything derived from it). Saves tmp/styles.dwg.",
+  "ops": [
+    { "op": "section_view_style", "name": "@C3DF-Section-5m", "create": true,
+      "grid": { "major_h": 5, "minor_h": 1, "major_v": 5, "minor_v": 1 },
+      "title": { "text": "<[Section View Station]>", "location": "Top", "text_height": 4 },
+      "graph": { "vertical_exaggeration": 1 },
+      "axes": { "left": { "show": true, "title": { "text": "Elevation (m)" } }, "bottom": { "show": true, "title": { "text": "Offset (m)" } } } },
+    { "op": "shape_style", "name": "@C3DF-Cut", "hatch": { "type": "Pattern", "pattern": "ANSI31", "angle": 45, "scale": 2 },
+      "display": [ { "component": "AreaFill", "view": "Section", "set": { "color": 1, "visible": true } }, { "component": "Border", "view": "Section", "set": { "color": 1 } } ] },
+    { "op": "shape_style", "name": "@C3DF-Fill", "hatch": { "type": "Pattern", "pattern": "ANSI31", "angle": 135, "scale": 2 },
+      "display": [ { "component": "AreaFill", "view": "Section", "set": { "color": 5, "visible": true } }, { "component": "Border", "view": "Section", "set": { "color": 5 } } ] },
+    { "op": "style_display", "cat": "SectionStyles", "name": "@C3DF-GroundLine", "view": "Section", "component": "Segments", "set": { "linetype": "Continuous", "lineweight": 18, "color": 8 }, "dry_run": false },
+    { "op": "save_dwg", "out": "{{C3DF_ROOT}}/tmp/styles.dwg", "overwrite": true }
+  ]
+}

@@ -29,14 +29,14 @@ namespace Civil3DFactory
             double m2 = GetDouble(args, "m2", 1.75);
             double thickness = GetDouble(args, "lining_thickness", 0.15);
 
-            string alName = GetString(args, "alignment", "中心线");
+            string alName = GetString(args, "alignment", "Centerline");
             string sfName = GetString(args, "target_surface", GetString(args, "surface", "EG"));
             string leftPkt = Need(args, "left_pkt");
             string rightPkt = Need(args, "right_pkt");
             string asmName = GetString(args, "assembly", "TwoTierBench_Assembly");
-            string corridorName = GetString(args, "corridor", alName + "_走廊");
-            string baselineName = GetString(args, "baseline", "基准线");
-            string regionName = GetString(args, "region", "区域1");
+            string corridorName = GetString(args, "corridor", alName + "_Corridor");
+            string baselineName = GetString(args, "baseline", "Baseline");
+            string regionName = GetString(args, "region", "Region1");
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
@@ -50,7 +50,7 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 CivAlignment al = FindAlignment(tr, civ, alName);
-                if (al == null) throw new InvalidOperationException("找不到路线 '" + alName + "'。");
+                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "' not found.");
 
                 ObjectId fgId = ObjectId.Null;
                 foreach (ObjectId pid in al.GetProfileIds())
@@ -59,10 +59,10 @@ namespace Civil3DFactory
                     if (p.ProfileType == CivProfileType.FG) { fgId = pid; break; }
                 }
                 if (fgId.IsNull)
-                    throw new InvalidOperationException("路线 '" + alName + "' 没有设计纵断面，请先创建纵断面。");
+                    throw new InvalidOperationException("Alignment '" + alName + "' has no design profile; create the profile first.");
 
                 ObjectId sfId = FindSurfaceId(tr, civ, sfName);
-                if (sfId.IsNull) throw new InvalidOperationException("找不到曲面 '" + sfName + "'。");
+                if (sfId.IsNull) throw new InvalidOperationException("Surface '" + sfName + "' not found.");
 
                 // Find or create Assembly
                 CivAssembly asm = FindAssembly(db, tr, asmName);

@@ -1,18 +1,18 @@
 {
   "node": "export_corridor_feature_lines",
   "version": 1,
-  "fixture": "",
+  "fixture": "examples/channel-demo.dwg",
   "prerequisite": null,
   "fixture_requirements": [
-    "图中至少一个走廊，装配用厂内 PKT（点码含 daylight-left/right、toe-left/right）",
-    "走廊道路曲面能评估出 z 范围（保证要素线点带真实高程）"
+    "At least one corridor whose assembly uses the shop PKT (point codes include daylight-left/right, toe-left/right)",
+    "The corridor surface can be evaluated to a z range (guarantees feature line points carry real elevations)"
   ],
   "assertions": [
-    "data.exported >= 1 且 data.skipped 说明了被跳过的原因",
-    "data.bytes > 0 且 out 路径生成了可打开的 DWG，内含 Polyline3d、无任何 Civil 对象",
-    "items[*].z_min/z_max 与走廊道路曲面高程范围一致（daylight 随地形、toe 平坡=设计底高程）",
-    "codes 过滤生效：只出现被点名的点码图层",
-    "overwrite=false 时目标已存在应拒绝覆盖",
+    "data.exported >= 1 and data.skipped explains why entries were skipped",
+    "data.bytes > 0 and the out path is an openable DWG containing Polyline3d and no Civil objects",
+    "items[*].z_min/z_max match the corridor surface elevation range (daylight follows terrain, toe is flat at the design bottom elevation)",
+    "the codes filter applies: only the named point-code layers appear",
+    "with overwrite=false an existing target must be refused",
     "items[*].points >= min_points"
   ],
   "status": "draft_assertions_pending_owner_review"

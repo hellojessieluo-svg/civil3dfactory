@@ -1,0 +1,14 @@
+{
+  "_comment": "Import the ChannelBench PKT pair (bottom half-width 10 m, side slope 1:3, 2 m bench 1.5 m above the bottom, slope 1:3 to ground) as assembly C3DF-Bench with the PKT embedded, then prove it builds: profiles, corridor, code lists. The PKTs were generated with: tools/pkt-forge/bin/out/PktForge.exe channel --name ChannelBench --bottom-half-width 10 --slope1-h 3 --bench-height 1.5 --bench-width 2 --slope2-h 3 --lining 0.3 --out examples/pkt",
+  "ops": [
+    { "op": "create_assembly", "name": "C3DF-Bench",
+      "left_pkt": "{{C3DF_ROOT}}/examples/pkt/ChannelBench_LEFT.pkt",
+      "right_pkt": "{{C3DF_ROOT}}/examples/pkt/ChannelBench_RIGHT.pkt",
+      "params": { "BottomHalfWidth": 10, "Slope1H": 3, "BenchHeight": 1.5, "BenchWidth": 2, "Slope2H": 3 },
+      "x": 0, "y": -250 },
+    { "op": "create_profiles", "alignment": "C1", "surface": "EG", "design_elev": 3.0 },
+    { "op": "create_corridor", "alignment": "C1", "assembly": "C3DF-Bench", "surface": "EG", "name": "C1_Bench" },
+    { "op": "corridor_stats", "name": "C1_Bench" },
+    { "op": "save_dwg", "out": "{{C3DF_ROOT}}/tmp/bench.dwg", "overwrite": true }
+  ]
+}

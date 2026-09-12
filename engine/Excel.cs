@@ -8,20 +8,20 @@ using System.Text;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 最小化 xlsx / csv 写出：只用 .NET 自带 zip，无第三方依赖。
-    /// 单元格用 inlineStr，不建 sharedStrings/styles，Excel 与 openpyxl 均可正常打开。
+    /// Minimal xlsx / csv writer: only the built-in .NET zip, no third-party dependency.
+    /// Cells use inlineStr, no sharedStrings/styles; opens fine in both Excel and openpyxl.
     /// </summary>
     public static class Excel
     {
-        /// <summary>按 format(xlsx|csv|both) 写出，返回实际生成的文件路径。
-        /// 归一化在这里做（大小写/空白），不认识就报错——以前是两个分支都落空、
-        /// 一个文件不写还 ok=true 的安静失败（2026-08-20 收口，调用方别再各自防御）。</summary>
+        /// <summary>Writes according to format (xlsx|csv|both) and returns the paths actually produced.
+        /// Normalisation (case/whitespace) happens here; unknown values throw. Previously both branches could miss,
+        /// writing no file yet reporting ok=true (closed 2026-08-20; callers no longer need their own guards).</summary>
         public static List<string> Write(string dir, string baseName, string[] headers,
                                          List<object[]> rows, string format)
         {
             format = string.IsNullOrWhiteSpace(format) ? "xlsx" : format.Trim().ToLowerInvariant();
             if (format != "xlsx" && format != "csv" && format != "both")
-                throw new InvalidOperationException("excel_format 只认 xlsx|csv|both，收到 '" + format + "'。");
+                throw new InvalidOperationException("excel_format accepts only xlsx|csv|both, got '" + format + "'.");
             var made = new List<string>();
             bool wantCsv = format == "both" || format == "csv";
             bool wantXlsx = format == "both" || format == "xlsx";
@@ -54,7 +54,7 @@ namespace Civil3DFactory
                 }
                 sb.Append("\r\n");
             }
-            File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true)); // BOM: Excel 认中文
+            File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true)); // BOM so Excel decodes non-ASCII text correctly
         }
 
         static string Field(object o)
@@ -109,7 +109,7 @@ namespace Civil3DFactory
             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
             "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" " +
             "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">" +
-            "<sheets><sheet name=\"数据\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>";
+            "<sheets><sheet name=\"Data\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>";
 
         const string WorkbookRels =
             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
@@ -157,7 +157,7 @@ namespace Civil3DFactory
                 {
                     string cref = Col(c) + ri.ToString(CultureInfo.InvariantCulture);
                     object v = row[c];
-                    if (v == null) continue;                      // 空单元格直接省略
+                    if (v == null) continue;                      // empty cells are simply omitted
                     if (v is double)
                         sb.Append("<c r=\"").Append(cref).Append("\" s=\"")
                           .Append(c >= 2 ? "2" : "0").Append("\"><v>")
@@ -178,12 +178,12 @@ namespace Civil3DFactory
             return sb.ToString();
         }
 
-        /// <summary>多工作表 xlsx：一本工作簿多个 sheet。表名自动清洗（去 []:*?/\、截 31 字、去重）。</summary>
+        /// <summary>Multi-sheet xlsx: one workbook, several sheets. Sheet names are sanitised automatically (strip []:*?/\, cut to 31 chars, de-duplicate).</summary>
         public static string WriteWorkbook(string path,
             List<(string Name, string[] Headers, List<object[]> Rows)> sheets)
         {
             if (sheets == null || sheets.Count == 0)
-                throw new InvalidOperationException("没有可写的工作表。");
+                throw new InvalidOperationException("No worksheet to write.");
             if (File.Exists(path)) File.Delete(path);
 
             List<string> names = CleanSheetNames(sheets);

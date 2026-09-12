@@ -11,9 +11,9 @@ namespace Civil3DFactory
         static JsonNode RunNodeListSiteParcels(JsonObject args, Document doc)
             => ListSiteParcels(args, doc);
 
-        // 宗地清点（只读）：逐站点报宗地数+逐宗名称/面积，供台田成环与 polygonize 基准对账。
-        // 注：路线挪站点托管 API 没有（MoveToSite 只在 FeatureLine 上）——路线进站点
-        // 走 Prospector 多选右键"移动到站点"，是人的动作；本 op 负责之后的对账。
+        // Parcel inventory (read-only): per site, report the parcel count plus each parcel's name/area, for reconciling terrace ring-closure and polygonize baselines.
+        // Note: there is no API to move an alignment into a site (MoveToSite exists only on FeatureLine) -- moving alignments into a site
+        // is done by hand in Prospector (multi-select, right-click "Move to Site"); this op handles the reconciliation afterwards.
         static JsonNode ListSiteParcels(JsonObject a, Document doc)
         {
             string only = GetString(a, "site", null);

@@ -2,26 +2,26 @@
   "node": "export_material_volumes",
   "version": 1,
   "executor": "engine",
-  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
-  "prerequisite": "各路线先跑 compute_quantities 挂上材质列表；本节点只读汇总，不算量",
+  "fixture": "examples/channel-demo.dwg",
+  "prerequisite": "Run compute_quantities on each alignment first so material lists are attached; this node only reads and summarises, it computes nothing",
   "fixture_requirements": [
-    "≥2 条带材质列表的路线（验多 sheet 与汇总合计）",
-    "≥1 条没有材质列表的路线（验跳过与 skipped 名单）",
-    "路线名含 Excel 表名非法字符（如 [ ] / ）的实例（验 sheet 名清洗）"
+    ">= 2 alignments with material lists (verifies multiple sheets and the summary total)",
+    ">= 1 alignment without a material list (verifies skipping and the skipped list)",
+    "An alignment whose name contains characters illegal in Excel sheet names (such as [ ] /) (verifies sheet-name sanitising)"
   ],
   "task": {},
   "assertions": [
-    "只读操作：不改图，不需要 save_dwg",
-    "sheet1 是「汇总」：序号/道路中线名称/长度(m)/总体积(m³)，末行合计=各行之和",
-    "总体积 = 该路线材质列表的累计挖方终值（与 export_quantities 的 total_cut_m3 一致）",
-    "汇总长度 = Alignment.Length，与图对得上",
-    "每条带材质列表的路线一个 sheet，行 = 逐桩号（序号/桩号/累计挖/累计填/增量挖/增量填），末行合计",
-    "sheet 顺序与汇总行顺序一致（堤埝编号排序 X-2 在 X-10 前）",
-    "sheet 名 = 路线名清洗后（[]:*?/\\ 换 _、截 31 字、重名加 -2 后缀），不因非法字符炸 Excel",
-    "没有材质列表的路线跳过并列入 skipped，不静默丢",
-    "一条带材质列表的路线都没有时抛错并给 skipped 数（不写空工作簿）",
-    "out 缺省写 outdir\\材质体积表汇总.xlsx；给了 out 就写指定路径，目录不存在自动建",
-    "重跑直接覆盖同名文件（现行成果唯一真值，不留副本）"
+    "Read-only operation: the drawing is not modified and no save_dwg is needed",
+    "sheet1 is 'Summary': No. / alignment name / length (m) / total volume (m3); the last row is the total of the rows above",
+    "total volume = the alignment's cumulative cut end value from its material list (matches total_cut_m3 from export_quantities)",
+    "summary length = Alignment.Length, matching the drawing",
+    "one sheet per alignment with a material list, one row per station (No. / station / cumulative cut / cumulative fill / incremental cut / incremental fill), last row total",
+    "sheet order matches the summary row order (dike numbers sort naturally: X-2 before X-10)",
+    "sheet name = sanitised alignment name ([]:*?/\\ replaced by _, truncated to 31 characters, duplicates get a -2 suffix) so illegal characters do not break Excel",
+    "alignments without a material list are skipped and listed in skipped, never dropped silently",
+    "when no alignment has a material list, throw and report the skipped count (do not write an empty workbook)",
+    "out defaults to outdir\\MaterialVolumes.xlsx; when out is given, write there and create the directory if needed",
+    "reruns overwrite the same file (the current deliverable is the single source of truth; no copies)"
   ],
   "status": "draft_assertions_pending_real_drawing_regression"
 }

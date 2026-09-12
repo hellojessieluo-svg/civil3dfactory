@@ -1,12 +1,12 @@
 {
   "node": "export_design_lines",
   "version": 1,
-  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
-  "fixture_note": "设计线在 试验区/项目A水流通道/图纸/水流通道-设计线.dwg；2026-08-13 11:30 实跑 7 条通道 62/62 步、合计 743,917 m³（+0.09%）",
+  "fixture": "examples/channel-demo.dwg",
+  "fixture_note": "Design lines come from a channel design-lines drawing; a real run on 2026-08-13 11:30 processed 7 channels, 62/62 steps, 743,917 m3 in total (+0.09%)",
   "assertions": [
     "data.total > 0",
     "output file exists and bytes > 0",
-    "every items[] length_delta ≈ 0 (多段线长度≈路线长度)"
+    "every items[] length_delta is approximately 0 (polyline length matches alignment length)"
   ],
   "status": "awaiting_real_dwg_regression"
 }

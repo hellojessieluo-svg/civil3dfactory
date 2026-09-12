@@ -1,3 +1,4 @@
+# Targets a Chinese font convention: text style "-<hei ti>" (name built from U+9ED1 U+4F53, TrueType SimHei) and "txt1" (gbenor.shx + gbcbig.shx big font). Style names and fonts are the node's purpose and stay literal.
 param(
   [Parameter(Mandatory=$true)][string]$Dwg,
   [Parameter(Mandatory=$true)][string]$Out,
@@ -115,8 +116,8 @@ try {
   Invoke-ComRetry -Action { $doc.Save() } -TimeoutSeconds $TimeoutSec
   Wait-AcadIdle -Application $acad -TimeoutSeconds $TimeoutSec
 
-  # 某些 AutoCAD COM 会话关闭唯一文档后会让 Documents 集合失效。
-  # 先保留一个空白文档，确保目标图可以关闭并按要求重开校验。
+  # Some AutoCAD COM sessions invalidate the Documents collection once the only document is closed.
+  # Keep a blank document alive so the target drawing can be closed and reopened for verification.
   $keepAliveDoc = Invoke-ComRetry -Action { $acad.Documents.Add() } -TimeoutSeconds $TimeoutSec
   Invoke-ComRetry -Action { $doc.Close($false) }
   $doc = $null

@@ -2,40 +2,40 @@
   "node": "set_polyline_elevation",
   "version": 1,
   "executor": "engine",
-  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
-  "prerequisite": "平面设计线整层躺 0 高程时，进 TIN / 放坡前先抬到设计高程",
+  "fixture": "examples/channel-demo.dwg",
+  "prerequisite": "When a whole layer of plan design lines sits at elevation 0, lift them to the design elevation before building TINs or grading",
   "fixture_requirements": [
-    "一图层多条 0 高程多段线（验 layer + elevation 一刀切）",
-    "若干句柄逐条给不同高程（验 elevation_by_handle 覆盖全局值）",
-    "点名的句柄图上不存在的实例（验 missing 名单不静默）"
+    "Several polylines at elevation 0 on one layer (verifies the layer + elevation blanket mode)",
+    "A few handles given different elevations individually (verifies elevation_by_handle overrides the global value)",
+    "A named handle that does not exist in the drawing (verifies the missing list is not silent)"
   ],
   "task": {
-    "layer": "01-设计线",
+    "layer": "01-DESIGN",
     "elevation": 3.0
   },
   "assertions": [
-    "内存改动不落盘：要留成果必须显式 save_dwg",
-    "elevation 与 elevation_by_handle 至少给一个，否则抛错",
-    "layer / handles / elevation_by_handle 至少给一个圈定对象，否则抛错",
-    "只改 Elevation：几何、图层、其余属性不动",
-    "elevation_by_handle 的逐条值覆盖全局 elevation",
-    "高程本来就相等的计入 same 不重复写",
-    "点名句柄不存在时列入 missing，不静默丢",
-    "一条都没改到时应报错或明确报零（不安静成功）"
+    "In-memory change only: results must be kept with an explicit save_dwg",
+    "At least one of elevation and elevation_by_handle must be given, otherwise throw",
+    "At least one of layer / handles / elevation_by_handle must select objects, otherwise throw",
+    "Only Elevation changes: geometry, layer and other properties are untouched",
+    "Per-handle values in elevation_by_handle override the global elevation",
+    "Lines already at the target elevation count toward same and are not rewritten",
+    "Named handles that do not exist go to missing, never dropped silently",
+    "When nothing was changed, throw or report zero explicitly (no quiet success)"
   ],
   "regression": {
     "date": "2026-08-16",
     "dwg": "examples/channel-demo.dwg",
-    "task_used": { "elevation_by_handle": "{32 个句柄: 8.0 或 8.5}" },
+    "task_used": { "elevation_by_handle": "{32 handles: 8.0 or 8.5}" },
     "observed": [
-      "32 条岛顶线按 elevation_by_handle 抬到 8.0(28 条) / 8.5(4 条)，DXF 复核高程分布 {8.5:4, 8.0:28, 0:1}",
-      "同层第 33 条（16 m 碎线，句柄 D913）未点名，保持 0 高程不动——逐条模式不误伤",
-      "抬完直接接 offset_cone_contours 外偏，圈的高程序列从各自 z0 正确起算（8.5 的出 6 圈、8.0 的出 5 圈）"
+      "32 island crest lines lifted by elevation_by_handle to 8.0 (28 lines) / 8.5 (4 lines); DXF check of the elevation distribution {8.5:4, 8.0:28, 0:1}",
+      "the 33rd line on the same layer (a 16 m fragment, handle D913) was not named and stayed at elevation 0 -- per-handle mode does not hit bystanders",
+      "offset_cone_contours ran directly afterwards; each ring sequence started correctly from its own z0 (6 rings for 8.5, 5 rings for 8.0)"
     ],
     "not_yet_covered": [
-      "layer + elevation 一刀切的分支",
-      "missing 名单分支（本轮点名句柄全部命中）",
-      "already_at_elevation 分支"
+      "the layer + elevation blanket branch",
+      "the missing list branch (every named handle matched in this run)",
+      "the already_at_elevation branch"
     ]
   },
   "status": "real_drawing_regression_partial"

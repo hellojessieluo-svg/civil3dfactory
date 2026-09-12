@@ -13,9 +13,9 @@ namespace Civil3DFactory
         static JsonNode RunNodeCreateFilletAlignment(JsonObject args, Document doc)
             => CreateFilletAlignment(args, doc);
 
-        // 约束正确的转角路线：固定直线 + 自由圆弧(按半径、与前后实体相切) + 固定直线。
-        // 与"三点固定弧"的区别：相切是写进对象的约束——几何编辑器里改半径自动重解保切，
-        // 拖固定线时弧也跟着重切。这是 2026-08-23 用户点名的正确内构。
+        // Properly constrained corner alignment: fixed line + free arc (by radius, tangent to both neighbours) + fixed line.
+        // Unlike a "three-point fixed arc", tangency is a constraint stored in the object: changing the radius in the geometry editor re-solves and keeps tangency,
+        // and dragging a fixed line re-tangents the arc. This is the correct internal structure the user asked for on 2026-08-23.
         static JsonNode CreateFilletAlignment(JsonObject a, Document doc)
         {
             string name = Need(a, "name");
@@ -28,7 +28,7 @@ namespace Civil3DFactory
             {
                 var arr = a[key] as JsonArray;
                 if (arr == null || arr.Count < 2)
-                    throw new InvalidOperationException("需要 " + key + ":[[x,y],[x,y]]");
+                    throw new InvalidOperationException(key + ":[[x,y],[x,y]] is required");
                 var p = (JsonArray)arr[idx];
                 return new Point3d(p[0].GetValue<double>(), p[1].GetValue<double>(), 0);
             }
@@ -58,7 +58,7 @@ namespace Civil3DFactory
                 double rBack = arc.Radius;
                 if (len <= 0 || Math.Abs(rBack - radius) > 0.01)
                     throw new InvalidOperationException(
-                        name + " 自由弧解算异常：len=" + Math.Round(len, 2) + " R=" + Math.Round(rBack, 3));
+                        name + " free arc solve anomaly: len=" + Math.Round(len, 2) + " R=" + Math.Round(rBack, 3));
 
                 var res = new JsonObject
                 {
@@ -68,7 +68,7 @@ namespace Civil3DFactory
                     ["entities"] = ents.Count,
                     ["radius"] = Math.Round(rBack, 3),
                     ["arc_length"] = Math.Round(arc.Length, 3),
-                    ["constraint"] = "固定线+自由弧(相切)+固定线"
+                    ["constraint"] = "fixed line + free arc (tangent) + fixed line"
                 };
                 tr.Commit();
                 return res;

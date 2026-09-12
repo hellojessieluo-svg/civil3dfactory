@@ -10,17 +10,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Reference Include="AcCoreMgd">
-      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcCoreMgd.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="AcDbMgd">
-      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcDbMgd.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="AcMgd">
-      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcMgd.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
+    <!-- AutoCAD managed API (AcCoreMgd / AcDbMgd / AcMgd) from NuGet; runtime assets are
+         excluded because accoreconsole supplies the real DLLs at load time. -->
+    <PackageReference Include="Digi-Ants.AutoCAD.API.Core" Version="2025.0.0" ExcludeAssets="runtime" />
   </ItemGroup>
 </Project>

@@ -1,7 +1,7 @@
 {
   "node": "create_alignment",
   "version": 1,
-  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "fixture": "examples/channel-demo.dwg",
   "assertions": [
     "data.alignment equals input name",
     "data.length > 0",

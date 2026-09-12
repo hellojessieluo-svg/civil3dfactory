@@ -10,47 +10,47 @@ using Autodesk.AutoCAD.Geometry;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 测量断面读取引擎——测量单位给的「一张图平铺多个断面」纯 CAD 图纸，
-    /// 靠图层约定 + 刻度文字标定，把每个断面还原成工程坐标(偏距,高程)地面线。
+    /// Measured-section reader: surveyors deliver plain CAD drawings with many sections tiled on one sheet;
+    /// using layer conventions plus tick-text calibration, each section is restored to a ground line in engineering coordinates (offset, elevation).
     ///
-    /// 来源：2026-06 的拆堤插件 V1（Civil3D-002-DLL / C3DFSection，三条交互命令
-    /// C3DF-ExtractSections / C3DF-GenDesignLine / C3DF-CalcVolume）。搬进工厂时把
-    /// 「窗选实体」换成「按图层扫模型空间」，其余标定与几何算法逐行照搬——
-    /// 那套算法在项目B实图上验过，不要凭直觉改。
+    /// Origin: the 2026-06 embankment-demolition plugin V1 (Civil3D-002-DLL / C3DFSection, three interactive commands
+    /// C3DF-ExtractSections / C3DF-GenDesignLine / C3DF-CalcVolume). When moved into the factory,
+    /// "window-select entities" became "scan model space by layer"; calibration and geometry were copied line by line.
+    /// That algorithm was validated on real Project B drawings; do not change it on intuition.
     ///
-    /// 三个节点共用本文件：extract_measured_sections / generate_demolition_design_lines /
-    /// compute_embankment_demolition。本文件只做几何，不读任何参数键（参数在各节点自己读）。
+    /// Three nodes share this file: extract_measured_sections / generate_demolition_design_lines /
+    /// compute_embankment_demolition. This file does geometry only and reads no parameter keys (each node reads its own).
     /// </summary>
     public sealed class MeasuredSectionOptions
     {
-        /// <summary>地面线所在图层，支持 * 通配（测量图惯例 dmx*）。</summary>
+        /// <summary>Layer of the ground lines, * wildcard supported (survey convention dmx*).</summary>
         public string GroundLayer = "dmx*";
-        /// <summary>里程/高程刻度文字所在图层（惯例 zdmt*）。两者靠格式区分：
-        /// 形如 -0+012.5 的是偏距刻度，纯数字的是高程刻度。</summary>
+        /// <summary>Layer of the chainage/elevation tick texts (convention zdmt*). The two are told apart by format:
+        /// -0+012.5 style is an offset tick, a plain number is an elevation tick.</summary>
         public string ColumnLayer = "zdmt*";
-        /// <summary>断面图名文字所在图层（惯例 1-图名*）。</summary>
-        public string TitleLayer = "1-图名*";
-        /// <summary>图名解析式，须含命名组 ln(测线名) km(公里) m(米)。</summary>
-        public string TitleRegex = @"^(?<ln>.+?)-K(?<km>\d+)\+(?<m>\d+(?:\.\d+)?)断面$";
-        /// <summary>偏距标定最大残差(m)，超了判标定不通过。</summary>
+        /// <summary>Layer of the section title texts (convention 1-Title*).</summary>
+        public string TitleLayer = "1-Title*";
+        /// <summary>Title regex; must contain the named groups ln (line name), km (kilometres), m (metres).</summary>
+        public string TitleRegex = @"^(?<ln>.+?)-K(?<km>\d+)\+(?<m>\d+(?:\.\d+)?)Section$";
+        /// <summary>Maximum offset calibration residual (m); above it the calibration fails.</summary>
         public double OffsetTolerance = 0.06;
-        /// <summary>高程标定最大残差(m)，超了判标定不通过。</summary>
+        /// <summary>Maximum elevation calibration residual (m); above it the calibration fails.</summary>
         public double ElevTolerance = 0.02;
-        /// <summary>自地面线包围盒下沿向下找刻度文字的深度（图纸单位）。</summary>
+        /// <summary>How far below the ground-line bounding box to look for tick texts (drawing units).</summary>
         public double TableDepth = 80.0;
-        /// <summary>刻度文字与地面线顶点的 X 配对容差（图纸单位）。</summary>
+        /// <summary>X tolerance for pairing tick texts with ground-line vertices (drawing units).</summary>
         public double PairTolX = 3.0;
     }
 
-    /// <summary>一个断面：标定结果 + 工程坐标地面线。</summary>
+    /// <summary>One section: calibration result + ground line in engineering coordinates.</summary>
     public sealed class MeasuredSection
     {
         public string Title = "";
         public string LineName = "";
         public double StakeM;
-        /// <summary>工程值 = k×图纸坐标 + b（横纵各一组）。</summary>
+        /// <summary>Engineering value = k * drawing coordinate + b (one pair per axis).</summary>
         public double Kx, Bx, Ky, By;
-        /// <summary>(偏距,高程) 升序、已按 1mm 去重。</summary>
+        /// <summary>(offset, elevation) ascending, de-duplicated at 1 mm.</summary>
         public List<Point2d> Ground = new List<Point2d>();
         public bool Valid;
         public string Report = "";
@@ -71,7 +71,7 @@ namespace Civil3DFactory
 
         public double ElevAt(double x) => Sections.Interp(Ground, x);
 
-        /// <summary>桩号串，如 A2-K0+250 的 K0+250.0。</summary>
+        /// <summary>Station string, e.g. K0+250.0 of A2-K0+250.</summary>
         public string Stake
         {
             get
@@ -84,41 +84,41 @@ namespace Civil3DFactory
         }
     }
 
-    /// <summary>断面标定与断面几何（清表/开挖/放坡/面积）算法集合。</summary>
+    /// <summary>Section calibration and section geometry algorithms (stripping / excavation / slopes / areas).</summary>
     public static class Sections
     {
-        // ---------- 参数校验与筛选（三节点共用；参数键各节点自己读，契约才对得上）----------
+        // ---------- Parameter validation and filtering (shared by three nodes; each node reads its own keys so contracts stay aligned) ----------
 
         public static void Check(MeasuredSectionOptions o)
         {
             if (string.IsNullOrWhiteSpace(o.GroundLayer))
-                throw new InvalidOperationException("ground_layer 不能为空。");
+                throw new InvalidOperationException("ground_layer must not be empty.");
             if (o.OffsetTolerance <= 0 || o.ElevTolerance <= 0)
-                throw new InvalidOperationException("offset_tolerance / elev_tolerance 必须大于 0。");
-            if (o.TableDepth <= 0) throw new InvalidOperationException("table_depth 必须大于 0。");
-            if (o.PairTolX <= 0) throw new InvalidOperationException("pair_tol_x 必须大于 0。");
+                throw new InvalidOperationException("offset_tolerance / elev_tolerance must be greater than 0.");
+            if (o.TableDepth <= 0) throw new InvalidOperationException("table_depth must be greater than 0.");
+            if (o.PairTolX <= 0) throw new InvalidOperationException("pair_tol_x must be greater than 0.");
         }
 
-        /// <summary>line_filter → 正则；空则不筛。</summary>
+        /// <summary>line_filter -> regex; empty means no filtering.</summary>
         public static Regex CompileFilter(string pattern)
         {
             if (string.IsNullOrWhiteSpace(pattern)) return null;
             try { return new Regex(pattern); }
             catch (ArgumentException ex)
-            { throw new InvalidOperationException("line_filter 不是合法正则：" + ex.Message); }
+            { throw new InvalidOperationException("line_filter is not a valid regex: " + ex.Message); }
         }
 
         public static bool Matches(MeasuredSection s, Regex filter)
             => filter == null || filter.IsMatch(s.LineName ?? "") || filter.IsMatch(s.Title ?? "");
 
-        /// <summary>NaN/∞ 一律出 null，别把哨兵值当数字写进汇报。</summary>
+        /// <summary>NaN/infinity always become null; never write sentinel values into the report as numbers.</summary>
         public static JsonNode Num(double v, int decimals)
             => double.IsNaN(v) || double.IsInfinity(v) ? null : (JsonNode)Math.Round(v, decimals);
 
         public static string F(double v, int decimals)
             => v.ToString("F" + decimals.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
 
-        // ---------- 读图与标定 ----------
+        // ---------- Reading and calibration ----------
 
         public static bool LayerMatch(string layer, string pattern)
         {
@@ -128,7 +128,7 @@ namespace Civil3DFactory
                 RegexOptions.IgnoreCase);
         }
 
-        /// <summary>扫模型空间，按图层约定还原全部断面（含标定未通过的，交由调用方汇报）。</summary>
+        /// <summary>Scans model space and restores all sections by layer convention (including failed calibrations, which the caller reports).</summary>
         public static List<MeasuredSection> Read(Database db, Transaction tr, MeasuredSectionOptions o)
         {
             var grounds = new List<Polyline>();
@@ -150,14 +150,14 @@ namespace Civil3DFactory
                 var tx = obj as DBText;
                 if (tx == null) continue;
                 if (LayerMatch(tx.Layer, o.ColumnLayer)) colTexts.Add(tx);
-                if (LayerMatch(tx.Layer, o.TitleLayer) && tx.TextString.Contains("断面")) titles.Add(tx);
+                if (LayerMatch(tx.Layer, o.TitleLayer) && tx.TextString.Contains("Section")) titles.Add(tx);
             }
 
             var offsetRe = new Regex(@"^(-?)(\d+)\+(\d+(?:\.\d+)?)$");
             Regex titleRe;
             try { titleRe = new Regex(o.TitleRegex); }
             catch (ArgumentException ex)
-            { throw new InvalidOperationException("title_regex 不是合法正则：" + ex.Message); }
+            { throw new InvalidOperationException("title_regex is not a valid regex: " + ex.Message); }
 
             var list = new List<MeasuredSection>();
             foreach (Polyline g in grounds)
@@ -191,7 +191,7 @@ namespace Civil3DFactory
                 DBText title = titles
                     .Where(t => t.Position.X >= x0 && t.Position.X <= x1 && t.Position.Y < yTop)
                     .OrderByDescending(t => t.Position.Y).FirstOrDefault();
-                s.Title = title == null ? "(无图名)" : title.TextString.Trim();
+                s.Title = title == null ? "(no title)" : title.TextString.Trim();
                 Match tm = titleRe.Match(s.Title);
                 if (tm.Success)
                 {
@@ -204,7 +204,7 @@ namespace Civil3DFactory
                 s.ElevMarks = els.Count;
                 if (offs.Count < 2 || els.Count < 2)
                 {
-                    s.Report = "配对不足（偏距刻度 " + offs.Count + " 个、高程刻度 " + els.Count + " 个，各需 ≥2）";
+                    s.Report = "Not enough pairs (" + offs.Count + " offset ticks, " + els.Count + " elevation ticks; need >=2 of each)";
                     list.Add(s);
                     continue;
                 }
@@ -216,10 +216,10 @@ namespace Civil3DFactory
                 s.ElevResidual = els.Max(t => Math.Abs(s.Ky * t.vy + s.By - t.val));
                 s.Valid = s.OffsetResidual <= o.OffsetTolerance && s.ElevResidual <= o.ElevTolerance;
                 s.Report = string.Format(CultureInfo.InvariantCulture,
-                    "横1:{0:F1} 纵1:{1:F1} 里程残差{2:F3} 高程残差{3:F3}",
+                    "H 1:{0:F1} V 1:{1:F1} offset residual {2:F3} elev residual {3:F3}",
                     s.Kx * 1000, s.Ky * 1000, s.OffsetResidual, s.ElevResidual);
 
-                foreach (Point2d v in verts)   // 转工程坐标，连续重复点按 1mm 去重
+                foreach (Point2d v in verts)   // convert to engineering coordinates; consecutive duplicates removed at 1 mm
                 {
                     var p = new Point2d(s.Kx * v.X + s.Bx, s.Ky * v.Y + s.By);
                     if (s.Ground.Count == 0
@@ -232,7 +232,7 @@ namespace Civil3DFactory
             return list.OrderBy(x => x.LineName).ThenBy(x => x.StakeM).ToList();
         }
 
-        /// <summary>最小二乘直线拟合 y = kx + b。</summary>
+        /// <summary>Least-squares line fit y = kx + b.</summary>
         static (double k, double b) Fit(List<(double x, double y)> p)
         {
             double n = p.Count, sx = p.Sum(t => t.x), sy = p.Sum(t => t.y);
@@ -241,7 +241,7 @@ namespace Civil3DFactory
             return (k, (sy - k * sx) / n);
         }
 
-        // ---------- 折线基础 ----------
+        // ---------- Polyline basics ----------
 
         public static double Interp(List<Point2d> pts, double x)
         {
@@ -257,7 +257,7 @@ namespace Civil3DFactory
             return pts[pts.Count - 1].Y;
         }
 
-        /// <summary>点列上高于 level 的全部极大区间。</summary>
+        /// <summary>All maximal intervals of the point list lying above level.</summary>
         public static List<(double a, double b)> RegionsAbove(List<Point2d> pts, double level)
         {
             var res = new List<(double a, double b)>();
@@ -282,11 +282,11 @@ namespace Civil3DFactory
             return res;
         }
 
-        /// <summary>清表区间：地面高程 > 阈值的偏距段。</summary>
+        /// <summary>Stripping intervals: offset ranges where ground elevation > threshold.</summary>
         public static List<(double a, double b)> StripIntervals(MeasuredSection s, double thr)
             => RegionsAbove(s.Ground, thr).Where(r => r.b - r.a > 0.01).ToList();
 
-        /// <summary>清表线：地面下移 t 的偏移段 + 两端在高程(thr-t)处水平延伸至与地面线相接。</summary>
+        /// <summary>Stripping line: ground offset down by t, plus horizontal extensions at elevation (thr-t) on both ends until they meet the ground line.</summary>
         public static List<Point2d> StripLine(MeasuredSection s, double a, double b, double thr, double t)
         {
             List<Point2d> g = s.Ground;
@@ -294,7 +294,7 @@ namespace Civil3DFactory
             var pts = new List<Point2d>();
 
             double A = FindCross(g, a, -1, lvl, thr);
-            if (double.IsNaN(A))                    // 兜底：接不到地面 → 竖直收口
+            if (double.IsNaN(A))                    // fallback: cannot reach the ground -> close vertically
             {
                 if (a > g[0].X + 1e-9) pts.Add(new Point2d(a, s.ElevAt(a)));
                 pts.Add(new Point2d(a, s.ElevAt(a) - t));
@@ -314,8 +314,8 @@ namespace Civil3DFactory
             return pts;
         }
 
-        /// <summary>从 x0 沿 dir 找地面线与高程 lvl 的第一个交点；
-        /// 途中地面又升回 stopAbove 以上（进入相邻清表区）则返回 NaN。</summary>
+        /// <summary>From x0 along dir, finds the first intersection of the ground line with elevation lvl;
+        /// returns NaN if the ground rises back above stopAbove on the way (entering an adjacent stripping zone).</summary>
         public static double FindCross(List<Point2d> g, double x0, int dir, double lvl, double stopAbove)
         {
             if (dir > 0)
@@ -345,7 +345,7 @@ namespace Civil3DFactory
             return double.NaN;
         }
 
-        /// <summary>从 (sgn·W, H0) 沿 1:m 向外放坡至与清表后表面相交；未接地时 warn 累加提示。</summary>
+        /// <summary>Projects a 1:m slope outward from (sgn*W, H0) until it meets the stripped surface; appends a note to warn if it never touches down.</summary>
         public static List<Point2d> SlopeOut(List<Point2d> S, int sgn, double H0, double W,
                                             double m, ref string warn)
         {
@@ -370,13 +370,13 @@ namespace Civil3DFactory
                     hit = true;
                 }
             }
-            if (!hit) { warn += (sgn > 0 ? "右" : "左") + "坡未接地;"; res.Add(prof[prof.Count - 1]); }
+            if (!hit) { warn += (sgn > 0 ? "right" : "left") + " slope did not reach ground;"; res.Add(prof[prof.Count - 1]); }
             var pts = res.Select(p => new Point2d(sgn * p.X, p.Y)).ToList();
             if (sgn < 0) pts.Reverse();
             return pts;
         }
 
-        /// <summary>去掉清表线两端的竖直收口，只留偏移段。</summary>
+        /// <summary>Removes the vertical closures at both ends of the stripping line, keeping only the offset segment.</summary>
         public static List<Point2d> Trimmed(List<Point2d> pts)
         {
             var r = new List<Point2d>(pts);
@@ -386,7 +386,7 @@ namespace Civil3DFactory
             return r;
         }
 
-        /// <summary>清表后表面 = 地面线，清表段替换为清表线的偏移段（带竖直台阶）。</summary>
+        /// <summary>Stripped surface = ground line with stripping ranges replaced by the offset segment of the stripping line (with vertical steps).</summary>
         public static List<Point2d> ComposeSurface(MeasuredSection s, List<List<Point2d>> strips)
         {
             var segs = (strips ?? new List<List<Point2d>>())
@@ -408,7 +408,7 @@ namespace Civil3DFactory
             return res;
         }
 
-        /// <summary>两条 x 单调折线之间的面积（按 lower 的跨度，梯形精确积分）。</summary>
+        /// <summary>Area between two x-monotone polylines (over the span of lower, exact trapezoidal integration).</summary>
         public static double AreaBetween(List<Point2d> upper, List<Point2d> lower)
         {
             if (lower == null || lower.Count < 2 || upper == null || upper.Count < 2) return 0;
@@ -428,9 +428,9 @@ namespace Civil3DFactory
             return area;
         }
 
-        // ---------- 图纸 ↔ 工程坐标 ----------
+        // ---------- Drawing <-> engineering coordinates ----------
 
-        /// <summary>图纸多段线 → 工程坐标点列（X 升序，去重复点）。</summary>
+        /// <summary>Drawing polyline -> engineering-coordinate points (X ascending, duplicates removed).</summary>
         public static List<Point2d> EngPoints(Polyline pl, MeasuredSection s)
         {
             var res = new List<Point2d>();
@@ -445,7 +445,7 @@ namespace Civil3DFactory
             return res;
         }
 
-        /// <summary>归属判断：线包围盒中心落在该断面地面线图纸包围盒（外扩 margin）内。</summary>
+        /// <summary>Ownership test: the line's bounding-box centre lies inside the section's ground-line drawing bounding box (expanded by margin).</summary>
         public static List<Polyline> OwnedBy(List<Polyline> pls, MeasuredSection s, double margin)
         {
             var pts = s.Ground.Select(p => s.ToPaper(p)).ToList();
@@ -460,7 +460,7 @@ namespace Civil3DFactory
             }).ToList();
         }
 
-        /// <summary>工程坐标点列 → 图纸多段线，画进指定图层。</summary>
+        /// <summary>Engineering-coordinate points -> drawing polyline on the given layer.</summary>
         public static ObjectId Draw(BlockTableRecord space, Transaction tr,
                                     List<Point2d> eng, MeasuredSection s, ObjectId layer)
         {

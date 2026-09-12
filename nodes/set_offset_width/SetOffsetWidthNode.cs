@@ -11,8 +11,8 @@ namespace Civil3DFactory
         static JsonNode RunNodeSetOffsetWidth(JsonObject args, Document doc)
             => SetOffsetWidth(args, doc);
 
-        // 改通道半宽（无头版）：主线全部偏移子线 NominalOffset=±width。
-        // 报账带改后回读值——专防"快照属性赋值不落库"的安静失败。
+        // Set the channel half-width (headless): every offset child of the main alignment gets NominalOffset=+/-width.
+        // The report carries the read-back value -- guards against the silent failure of "snapshot property assignment not persisted".
         static JsonNode SetOffsetWidth(JsonObject a, Document doc)
         {
             string mainName = Need(a, "alignment");
@@ -26,7 +26,7 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 var host = FindAlignment(tr, civ, mainName);
-                if (host == null) throw new InvalidOperationException("找不到主线 " + mainName);
+                if (host == null) throw new InvalidOperationException("Main alignment not found: " + mainName);
 
                 foreach (ObjectId aid in civ.GetAlignmentIds())
                 {
@@ -58,7 +58,7 @@ namespace Civil3DFactory
         static JsonNode RunNodeListOffsetWidths(JsonObject args, Document doc)
             => ListOffsetWidths(doc);
 
-        // 偏移宽度清单（只读）：每条偏移路线的父线名/自名/NominalOffset/区间数。
+        // Offset width list (read-only): parent name / own name / NominalOffset / region count of every offset alignment.
         static JsonNode ListOffsetWidths(Document doc)
         {
             Database db = doc.Database;

@@ -1,12 +1,12 @@
 {
   "node": "set_label_style",
   "version": 1,
-  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "fixture": "examples/channel-demo.dwg",
   "assertions": [
-    "edits_applied 等于命中的组件数（name='*' 时=样式全部组件）",
-    "visible=false 立竿见影（导出件里该样式的字消失，2026-08-26 实测 430→0）",
-    "找不到样式名必须抛错，不静默"
+    "edits_applied equals the number of matched components (with name='*' = all components of the style)",
+    "visible=false takes effect immediately (the style's text disappears from the exported drawing; measured 430 -> 0 on 2026-08-26)",
+    "an unknown style name must throw, never fail silently"
   ],
-  "note": "实测档案（2026-08-26 项目B）：@C3DF-centerline 9 组件关可见性 ok；CL_Elev_WL_Label_1-400 改 y_offset/开可见性 ok。⚠ 已证教训：关样式解决不了双份（同一样式渲染两份，关=两份全没）；样式改了但图上没变化时先查该样式是否真被这张图引用（CL_Elev_WL 开了组件也不渲染——根本没被断面引用）。",
+  "note": "Field record (2026-08-26): turning off visibility on the 9 components of @C3DF-centerline worked; changing y_offset / enabling visibility on CL_Elev_WL_Label_1-400 worked. Proven lesson: hiding a style does not fix doubled labels (the same style rendered twice; hiding removes both); when a style changed but nothing changed in the drawing, first check whether that style is actually referenced by this drawing (CL_Elev_WL did not render even with components enabled -- no section referenced it at all).",
   "status": "draft_assertions_pending_owner_review"
 }

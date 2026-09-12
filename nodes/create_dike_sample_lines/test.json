@@ -1,7 +1,7 @@
 {
   "node": "create_dike_sample_lines",
   "version": 1,
-  "fixture": "",
+  "fixture": "examples/channel-demo.dwg",
   "assertions": [
     "data.dike_count > 0",
     "data.dikes is not empty",
@@ -9,6 +9,6 @@
     "dikes[*].lines > 0",
     "dikes[*].source_handle is not empty"
   ],
-  "note": "断言为 AI 依据实现产出键草拟的结构性检查。夹具待定：需要含堤埝中线/编号/桩号图层的真实工程图。领域验收（路线方向、采样线间距与断面边距是否符合出图要求）待厂长补充。",
+  "note": "Assertions are structural checks drafted by the AI from the implementation's output keys. Fixture still to be decided: needs a real engineering drawing with dike centreline / number / station layers. Domain acceptance (alignment direction, sample line spacing and section margins meeting sheet requirements) is still to be supplied by the owner.",
   "status": "draft_assertions_pending_owner_review"
 }

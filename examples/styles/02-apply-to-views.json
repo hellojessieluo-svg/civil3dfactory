@@ -1,0 +1,40 @@
+{
+  "_comment": "Run on tmp/styles.dwg (01-section-view-style.json applied to tmp/corridor-views.dwg): switch every C1 section view to the new style, point the material (cut) sections at the @C3DF-Cut shape style (that is what renders the hatch), take before/after PNGs of the first view.",
+  "ops": [
+    {
+      "op": "view",
+      "mode": "screenshot",
+      "out": "{{C3DF_ROOT}}/tmp/sections-before.png",
+      "window": {
+        "minx": -50,
+        "miny": -1510,
+        "maxx": 50,
+        "maxy": -1440
+      }
+    },
+    {
+      "op": "restyle_section_views",
+      "alignment": "C1",
+      "style": "@C3DF-Section-5m",
+      "section_style": "@C3DF-GroundLine",
+      "material_style": "@C3DF-Cut",
+      "material_shape_style": "@C3DF-Cut"
+    },
+    {
+      "op": "view",
+      "mode": "screenshot",
+      "out": "{{C3DF_ROOT}}/tmp/sections-after.png",
+      "window": {
+        "minx": -50,
+        "miny": -1510,
+        "maxx": 50,
+        "maxy": -1440
+      }
+    },
+    {
+      "op": "save_dwg",
+      "out": "{{C3DF_ROOT}}/tmp/styled-views.dwg",
+      "overwrite": true
+    }
+  ]
+}

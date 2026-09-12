@@ -14,18 +14,18 @@ using CivilDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// export_alignments_to_dwg：把全部（或指定的）路线抽成纯多段线，写进一张**全新的空白 DWG**。
+    /// export_alignments_to_dwg: extract all (or selected) alignments as plain polylines and write them into a brand-new empty DWG.
     ///
-    /// 用途：把设计意图从 Civil 3D 对象里搬到多段线上——以后中心线/边线多段线是输入参数，
-    /// Civil 模型是下游产物。产出文件里没有任何 Civil 3D 对象、样式或代理图形。
+    /// Purpose: move the design intent from Civil 3D objects onto polylines -- from then on the centerline / edge polylines are the input,
+    /// and the Civil model is a downstream product. The output file contains no Civil 3D objects, styles or proxy graphics.
     ///
-    /// 通道归属不靠名字猜：偏移路线用 OffsetAlignmentInfo.ParentAlignmentId 拿父通道、
-    /// Side 拿左右、NominalOffset 拿半宽（图里那些 "路线(8)-左-35.000" 的名字看不出是 B1）。
+    /// Channel ownership is not guessed from names: offset alignments use OffsetAlignmentInfo.ParentAlignmentId for the parent channel,
+    /// Side for left/right and NominalOffset for the half width (names like "Alignment(8)-L-35.000" do not reveal that it belongs to B1).
     ///
-    /// 图层名是这份输入文件的契约，用模板参数控制：
-    ///   center_layer 默认 "CL-{channel}"
-    ///   edge_layer   默认 "EDGE-{channel}-{side}"
-    /// 占位符：{channel} 通道名、{side} 左/右、{offset} 半宽。
+    /// Layer names are the contract of this input file, controlled by template parameters:
+    ///   center_layer default "CL-{channel}"
+    ///   edge_layer   default "EDGE-{channel}-{side}"
+    /// Placeholders: {channel} channel name, {side} L/R, {offset} half width.
     /// </summary>
     public static partial class Ops
     {
@@ -36,7 +36,7 @@ namespace Civil3DFactory
         {
             public string Name;
             public string Channel;
-            public string Side;          // "" = 中心线
+            public string Side;          // "" = centerline
             public double Offset;
             public double Length;
             public List<Point2d> Verts = new List<Point2d>();
@@ -48,15 +48,15 @@ namespace Civil3DFactory
         {
             string outPath = Need(a, "out");
             if (!Path.IsPathRooted(outPath))
-                throw new InvalidOperationException("out 必须是绝对路径：" + outPath);
+                throw new InvalidOperationException("out must be an absolute path: " + outPath);
             bool overwrite = GetBool(a, "overwrite", false);
             if (File.Exists(outPath) && !overwrite)
-                throw new InvalidOperationException("文件已存在，拒绝覆盖：" + outPath + "（确需覆盖传 overwrite:true）");
+                throw new InvalidOperationException("File already exists, refusing to overwrite: " + outPath + " (pass overwrite:true to overwrite)");
 
             string centerTpl = GetString(a, "center_layer", "CL-{channel}");
             string edgeTpl = GetString(a, "edge_layer", "EDGE-{channel}-{side}");
-            short centerColor = (short)GetDouble(a, "center_color", 3);      // 绿
-            short edgeColor = (short)GetDouble(a, "edge_color", 4);          // 青
+            short centerColor = (short)GetDouble(a, "center_color", 3);      // green
+            short edgeColor = (short)GetDouble(a, "edge_color", 4);          // cyan
             string centerLt = GetString(a, "center_linetype", "CENTER2");
             string edgeLt = GetString(a, "edge_linetype", "Continuous");
             double ltScale = GetDouble(a, "linetype_scale", 5.0);
@@ -76,7 +76,7 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 CivilDoc civ = Civ(db);
-                // 先建 ObjectId → 名字 的表，供偏移路线找父通道
+                // Build the ObjectId -> name table first, so offset alignments can find their parent channel
                 var nameById = new Dictionary<ObjectId, string>();
                 foreach (ObjectId id in civ.GetAlignmentIds())
                 {
@@ -96,26 +96,26 @@ namespace Civil3DFactory
                     try { isOffset = al.IsOffsetAlignment; } catch (System.Exception) { }
                     if (isOffset)
                     {
-                        if (centersOnly) { skipped.Add(al.Name + "（边线，centers_only）"); continue; }
+                        if (centersOnly) { skipped.Add(al.Name + " (edge, centers_only)"); continue; }
                         try
                         {
                             var info = al.OffsetAlignmentInfo;
                             string parent;
                             if (nameById.TryGetValue(info.ParentAlignmentId, out parent)) it.Channel = parent;
                             it.Side = info.Side.ToString().IndexOf("Left", StringComparison.OrdinalIgnoreCase) >= 0
-                                ? "左" : "右";
+                                ? "L" : "R";
                             it.Offset = Math.Abs(info.NominalOffset);
                         }
                         catch (System.Exception ex)
                         {
-                            skipped.Add(al.Name + "（读父路线失败：" + ex.GetType().Name + "）");
+                            skipped.Add(al.Name + " (failed to read parent alignment: " + ex.GetType().Name + ")");
                             continue;
                         }
                     }
 
                     if (!EadExtract(al, spiralStep, it))
                     {
-                        skipped.Add(al.Name + "（没有可转换的几何）");
+                        skipped.Add(al.Name + " (no convertible geometry)");
                         continue;
                     }
                     items.Add(it);
@@ -124,9 +124,9 @@ namespace Civil3DFactory
             }
 
             if (items.Count == 0)
-                throw new InvalidOperationException("没有可导出的路线。");
+                throw new InvalidOperationException("No alignments to export.");
 
-            // ---- 写进全新空白图 ----
+            // ---- Write into a brand-new empty drawing ----
             var layerCounts = new JsonObject();
             using (var nd = new Database(true, false))
             {
@@ -150,12 +150,12 @@ namespace Civil3DFactory
                         ObjectId ltId = A2PResolveLinetype(tr, nd, lt, "acadiso.lin");
                         ObjectId layerId = EadEnsureLayer(tr, nd, layer, color, ltId);
 
-                        // ⚠ 顺序不能反：new Polyline() 默认绑在宿主图的 WorkingDatabase 上，
-                        // 未入库就设 LayerId（取自新图的图层表）会抛 eWrongDatabase。
-                        // 必须先 AppendEntity 让它归属新图，再设一切带 ObjectId 的属性。
+                        // Order matters: new Polyline() is bound to the host drawing's WorkingDatabase by default;
+                        // setting LayerId (taken from the new drawing's layer table) before it is appended throws eWrongDatabase.
+                        // AppendEntity first so it belongs to the new drawing, then set every ObjectId-bearing property.
                         var pl = new Polyline(it.Verts.Count);
-                        // 必须显式传 nd：无参重载用 WorkingDatabase（宿主图），
-                        // 后面赋新库的 LayerId 会抛 eWrongDatabase（2026-08-16 项目C实跑修复）
+                        // nd must be passed explicitly: the parameterless overload uses WorkingDatabase (host drawing),
+                        // and assigning the new database's LayerId afterwards throws eWrongDatabase (fixed 2026-08-16 on a live project run)
                         pl.SetDatabaseDefaults(nd);
                         for (int i = 0; i < it.Verts.Count; i++)
                             pl.AddVertexAt(i, it.Verts[i], it.Bulges[i], 0.0, 0.0);
@@ -169,9 +169,9 @@ namespace Civil3DFactory
                             Autodesk.AutoCAD.Colors.ColorMethod.ByAci, color);
                         if (!ltId.IsNull) pl.LinetypeId = ltId;
                         pl.LinetypeScale = ltScale;
-                        // 冗余身份标记：图层名是人机契约，XData 是机器兜底
-                        // （图层被改名/线被搬图层后仍认得出归属）
-                        EadSetXData(tr, nd, pl, it.Channel, isCenter ? "CENTER" : (it.Side == "左" ? "LEFT" : "RIGHT"),
+                        // Redundant identity marker: the layer name is the human/machine contract, XData is the machine fallback
+                        // (ownership stays recognisable after the layer is renamed or the line is moved to another layer)
+                        EadSetXData(tr, nd, pl, it.Channel, isCenter ? "CENTER" : (it.Side == "L" ? "LEFT" : "RIGHT"),
                                     it.Offset, it.Name);
 
                         double plLen = 0.0;
@@ -180,7 +180,7 @@ namespace Civil3DFactory
                         {
                             ["source_alignment"] = it.Name,
                             ["channel"] = it.Channel,
-                            ["side"] = isCenter ? "中心线" : it.Side,
+                            ["side"] = isCenter ? "CL" : it.Side,
                             ["offset"] = Round(it.Offset, 3),
                             ["alignment_length"] = Round(it.Length, 4),
                             ["polyline_length"] = Round(plLen, 4),
@@ -214,8 +214,8 @@ namespace Civil3DFactory
             };
         }
 
-        /// <summary>路线 → 顶点/bulge 列表。直线与圆弧精确，缓和曲线按步长采样。
-        /// 与 alignment_to_polyline 共用同一份几何逻辑。</summary>
+        /// <summary>Alignment -> vertex/bulge list. Lines and arcs are exact; spirals are sampled by step.
+        /// Shares the geometry logic with alignment_to_polyline.</summary>
         static bool EadExtract(CivAlign al, double spiralStep, EadItem it)
         {
             Point2d tail = new Point2d(0.0, 0.0);
@@ -267,7 +267,7 @@ namespace Civil3DFactory
 
         const string EadAppName = "C3DF_CHANNEL";
 
-        /// <summary>写身份 XData：通道名 / 角色(CENTER|LEFT|RIGHT) / 半宽 / 源路线名。</summary>
+        /// <summary>Write identity XData: channel name / role (CENTER|LEFT|RIGHT) / half width / source alignment name.</summary>
         static void EadSetXData(Transaction tr, Database db, Entity ent,
             string channel, string role, double offset, string source)
         {

@@ -1,9 +1,9 @@
 {
-  "_comment": "只读侦察：列出图里各类 Civil 样式集合的名字。2026-08-26 项目B纵断面修复实跑过（对照两图样式是否同名）。⚠ 实现只走 civ.Styles 两级属性，不递归深爬——深爬摸到 Database/Document 会把 accoreconsole 原生崩掉。",
+  "_comment": "Read-only reconnaissance: lists the names in each Civil style collection of the drawing. Used on 2026-08-26 while repairing profile views (comparing whether two drawings share style names). Warning: the implementation walks only two property levels below civ.Styles and never recurses deeper -- a deep crawl that reaches Database/Document crashes accoreconsole natively.",
   "ops": [
     {
       "op": "list_styles",
-      "contains": "纵断面"
+      "contains": "Profile"
     }
   ]
 }

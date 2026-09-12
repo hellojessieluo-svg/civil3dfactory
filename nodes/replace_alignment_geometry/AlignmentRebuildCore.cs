@@ -1,4 +1,4 @@
-#nullable disable   // 本文件被 Civil3DFactory（可空关）与 WaterBox（可空开）两个工程共同编译，按关处理
+#nullable disable   // This file is compiled by both Civil3DFactory (nullable off) and WaterBox (nullable on); treat as off
 
 using System;
 using Autodesk.AutoCAD.DatabaseServices;
@@ -9,22 +9,22 @@ using CivAlignEnts = Autodesk.Civil.DatabaseServices.AlignmentEntityCollection;
 namespace Civil3DFactory.Geometry
 {
     /// <summary>
-    /// 原位重写路线几何的算法核心：清空实体集，按多段线逐段重建。
-    /// 路线的 ObjectId / 名字 / 样式 / 站号参考都不动，因此走廊、偏移路线、纵断面、
-    /// 采样线组等按 ObjectId 挂接的依赖对象全部保留（动态依赖会按新几何自行重建）。
-    /// 代价：原有 PI/约束布线被替换成全 Fixed 实体（固定直线/固定圆弧）。
+    /// Core for rewriting alignment geometry in place: clear the entity collection and rebuild segment by segment from a polyline.
+    /// The alignment's ObjectId / name / style / station reference are untouched, so corridors, offset alignments, profiles,
+    /// sample line groups and other dependents attached by ObjectId all survive (dynamic ones rebuild themselves on the new geometry).
+    /// Cost: the original PI/constraint layout is replaced by all-Fixed entities (fixed lines / fixed arcs).
     ///
-    /// 唯一真源：Civil3DFactory（节点 replace_alignment_geometry）与 products\waterbox
-    /// （C3DF-ReplaceCenterline/HZX 命令）共同编译本文件，改算法只改这里。
+    /// Single source of truth: compiled by both Civil3DFactory (node replace_alignment_geometry) and products\waterbox
+    /// (command C3DF-ReplaceCenterline/HZX); change the algorithm only here.
     ///
-    /// 几何映射与 alignment_to_polyline 互逆：
-    ///   bulge=0 → AddFixedLine；bulge≠0 → AddFixedCurve(两端点+半径+顺逆)，
-    ///   半径 = 弦长/(2·sin(θ/2))，θ = 4·atan|bulge|，bulge&lt;0 为顺时针。
-    ///   两点+半径只能表达劣弧，θ≥180° 的段先从弧中点劈半再各自成弧。
+    /// Geometry mapping is the inverse of alignment_to_polyline:
+    ///   bulge=0 -> AddFixedLine; bulge!=0 -> AddFixedCurve(both endpoints + radius + direction),
+    ///   radius = chord/(2*sin(theta/2)), theta = 4*atan|bulge|, bulge&lt;0 is clockwise.
+    ///   Two points + radius can only express the minor arc; segments with theta>=180deg are split at the arc midpoint first.
     /// </summary>
     public static class AlignmentRebuildCore
     {
-        /// <summary>重建结果统计。</summary>
+        /// <summary>Rebuild result statistics.</summary>
         public sealed class RebuildResult
         {
             public double OldLength;
@@ -35,26 +35,26 @@ namespace Civil3DFactory.Geometry
             public int Lines;
             public int Arcs;
             public int ArcSplits;
-            /// <summary>多段线画向与原路线桩号方向相反，已自动反向重建。</summary>
+            /// <summary>The polyline was drawn opposite to the original station direction and was rebuilt reversed automatically.</summary>
             public bool Reversed;
         }
 
         /// <summary>
-        /// 用多段线几何原位重写路线。al 必须已 ForWrite 打开；pl 只读。
-        /// 桩号方向跟原路线不跟画线手势：新线哪端贴近原路线起点，哪端就当起点
-        /// （两种取向的端点距离和判定，路线整体挪位也适用），判定要反则顶点倒序、
-        /// bulge 取负后重建，Reversed 置 true。
-        /// 多段线闭合 / 顶点不足 / 全部重合时抛 InvalidOperationException。
+        /// Rewrite the alignment in place from polyline geometry. al must already be open ForWrite; pl is read-only.
+        /// Station direction follows the original alignment, not the drawing gesture: whichever end of the new line is nearer the original start becomes the start
+        /// (decided by the sum of endpoint distances for both orientations, which also works when the alignment moved as a whole); if reversal is needed the vertices are reversed,
+        /// bulges negated, and Reversed set to true.
+        /// Throws InvalidOperationException when the polyline is closed / has too few vertices / all vertices coincide.
         /// </summary>
         public static RebuildResult RebuildFromPolyline(CivAlign al, Polyline pl)
         {
             if (pl.Closed)
-                throw new InvalidOperationException("闭合多段线不能作为路线几何。");
+                throw new InvalidOperationException("A closed polyline cannot be used as alignment geometry.");
             int nv = pl.NumberOfVertices;
             if (nv < 2)
-                throw new InvalidOperationException("多段线顶点少于 2 个。");
+                throw new InvalidOperationException("Polyline has fewer than 2 vertices.");
 
-            // 顶点表先取出来，方向判定后可能整体反向
+            // Read the vertex table first; it may be reversed as a whole after the direction check
             var pts = new Point2d[nv];
             var bulges = new double[nv];
             for (int i = 0; i < nv; i++)
@@ -75,7 +75,7 @@ namespace Civil3DFactory.Geometry
                 var rp = new Point2d[nv];
                 var rb = new double[nv];
                 for (int i = 0; i < nv; i++) rp[i] = pts[nv - 1 - i];
-                for (int j = 0; j < nv - 1; j++) rb[j] = -bulges[nv - 2 - j];   // 段倒走，弧向取负
+                for (int j = 0; j < nv - 1; j++) rb[j] = -bulges[nv - 2 - j];   // segments walked backwards, arc direction negated
                 rb[nv - 1] = 0;
                 pts = rp;
                 bulges = rb;
@@ -87,19 +87,19 @@ namespace Civil3DFactory.Geometry
 
             for (int i = 0; i < nv - 1; i++)
             {
-                if (pts[i].GetDistanceTo(pts[i + 1]) < 1e-6) continue;   // 重合点，跳过
+                if (pts[i].GetDistanceTo(pts[i + 1]) < 1e-6) continue;   // coincident points, skip
                 AddSegment(ents, pts[i], pts[i + 1], bulges[i], r, 0);
             }
             if (ents.Count == 0)
-                throw new InvalidOperationException("多段线没有有效线段（顶点全部重合？）。");
+                throw new InvalidOperationException("Polyline has no valid segment (all vertices coincident?).");
 
             r.NewEntities = ents.Count;
             r.NewLength = al.Length;
             return r;
         }
 
-        /// <summary>新线取向判定：保持取向与反向取向，哪个的（起-起 + 终-终）距离和小用哪个。
-        /// 原路线几何取不到（零长等）时按不反向处理。</summary>
+        /// <summary>Orientation check: keep or flip, whichever gives the smaller (start-start + end-end) distance sum.
+        /// When the original geometry is unavailable (zero length etc.) no reversal is applied.</summary>
         static bool ShouldReverse(CivAlign al, Point2d[] pts)
         {
             try
@@ -132,7 +132,7 @@ namespace Civil3DFactory.Geometry
             double theta = 4.0 * Math.Atan(Math.Abs(bulge));
             if (theta > Math.PI * 0.999 && depth < 8)
             {
-                // 两点+半径的 AddFixedCurve 只能取劣弧，≥180° 的段从弧中点劈半
+                // AddFixedCurve with two points + radius only takes the minor arc; split segments >=180deg at the arc midpoint
                 Point2d mid = BulgeMidPoint(s, e, bulge);
                 double half = Math.Tan(theta / 8.0) * Math.Sign(bulge);
                 r.ArcSplits++;
@@ -147,8 +147,8 @@ namespace Civil3DFactory.Geometry
             r.Arcs++;
         }
 
-        /// <summary>bulge 段的弧中点：弦中点 − 左法向 × (bulge·弦长/2)。
-        /// 验证例：(0,0)→(1,0) bulge=1（半圆，逆时针）中点应为 (0.5,−0.5)。</summary>
+        /// <summary>Arc midpoint of a bulge segment: chord midpoint - left normal * (bulge*chord/2).
+        /// Check: (0,0)->(1,0) bulge=1 (half circle, counter-clockwise) midpoint should be (0.5,-0.5).</summary>
         static Point2d BulgeMidPoint(Point2d s, Point2d e, double b)
         {
             double dx = e.X - s.X, dy = e.Y - s.Y;

@@ -12,13 +12,13 @@ namespace Civil3DFactory
         static JsonNode RunNodeAssignLayers(JsonObject args, Document doc)
             => AssignLayers(args, doc);
 
-        // 批量归层：按分组把路线（按名）或任意实体（按句柄）挪到指定图层，图层不存在就建。
-        // 只动 Layer 一个属性，几何/样式/挂接一概不碰。
+        // Batch layer assignment: per group, move alignments (by name) or any entity (by handle) to the given layer, creating it if missing.
+        // Only the Layer property is touched; geometry/styles/attachments are left alone.
         static JsonNode AssignLayers(JsonObject a, Document doc)
         {
             var groups = a["groups"] as JsonArray;
             if (groups == null || groups.Count == 0)
-                throw new InvalidOperationException("需要 groups:[{layer,color?,alignments?[],handles?[]},...]");
+                throw new InvalidOperationException("groups:[{layer,color?,alignments?[],handles?[]},...] is required");
 
             Database db = doc.Database;
             var civ = Civ(db);

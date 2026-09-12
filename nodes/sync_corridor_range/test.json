@@ -2,26 +2,26 @@
   "node": "sync_corridor_range",
   "version": 1,
   "executor": "engine",
-  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
-  "prerequisite": "先跑 replace_alignment_geometry 换中线（长度变化），走廊区间还停在旧站号范围时用本节点对齐",
+  "fixture": "examples/channel-demo.dwg",
+  "prerequisite": "Run replace_alignment_geometry first to swap the centreline (length changes); use this node when the corridor regions still sit on the old station range",
   "fixture_requirements": [
-    "一个单基线单区间走廊（最常见情形）",
-    "一个多区间基线走廊（验首/末/中间区间三种调整规则）",
-    "路线加长与缩短各一例（验区间外扩与收缩两个方向）"
+    "A single-baseline single-region corridor (the most common case)",
+    "A multi-region baseline corridor (verifies the three adjustment rules for first / last / middle regions)",
+    "One lengthened and one shortened alignment (verifies both extension and contraction)"
   ],
   "task": {
-    "corridor": "Z1_走廊"
+    "corridor": "Z1_Corridor"
   },
   "assertions": [
-    "内存改动不落盘：要留成果必须显式 save_dwg",
-    "同步后首区间 StartStation == 路线 StartingStation，末区间 EndStation == EndingStation",
-    "中间区间边界只收进 [起点,终点] 范围，不外扩",
-    "调整后长度为零的区间不动并进 warnings，不抛错不删区间",
-    "站号写入失败（API 只读等）逐区间进 warnings，其余区间照常处理",
-    "走廊没有基线时抛错点名走廊；Rebuild 失败抛错带原始信息",
-    "幂等性：连跑两次，第二次 regions_adjusted == 0",
-    "找不到走廊名抛错点名",
-    "与 products\\waterbox 的 C3DF-SyncCorridorRange(QZ) 同图同参结果一致（同一份 CorridorRangeCore）"
+    "In-memory change only: results must be kept with an explicit save_dwg",
+    "After syncing, the first region's StartStation == the alignment's StartingStation and the last region's EndStation == EndingStation",
+    "Middle region boundaries are only pulled into [start, end], never extended",
+    "Regions whose adjusted length would be zero are left alone with a warning; no throw and no deletion",
+    "Station write failures (read-only API etc.) go to warnings per region; the other regions are processed normally",
+    "A corridor without baselines throws and names the corridor; a Rebuild failure throws with the original message",
+    "Idempotent: on a second run regions_adjusted == 0",
+    "An unknown corridor name throws and names it",
+    "Results match the products\\waterbox command C3DF-SyncCorridorRange(QZ) on the same drawing and parameters (same CorridorRangeCore)"
   ],
   "status": "draft_assertions_pending_real_drawing_regression"
 }

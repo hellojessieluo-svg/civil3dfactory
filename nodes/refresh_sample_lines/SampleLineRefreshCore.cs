@@ -1,4 +1,4 @@
-#nullable disable   // 本文件被 Civil3DFactory（可空关）与 WaterBox（可空开）两个工程共同编译，按关处理
+#nullable disable   // This file is compiled by both Civil3DFactory (nullable off) and WaterBox (nullable on); treat as off
 
 using System;
 using System.Collections.Generic;
@@ -11,11 +11,11 @@ using CivSampleLineGroup = Autodesk.Civil.DatabaseServices.SampleLineGroup;
 namespace Civil3DFactory.Geometry
 {
     /// <summary>
-    /// 采样线刷新算法核心（换中线后采样线跟新几何走，采样线组不动）。
-    /// 组对象、组名、采样源设置全保留——只把组里的旧采样线删光，沿路线新几何
-    /// 按间距重建垂直采样线；末端不足半米补终点线（与 create_sample_lines 同规则）。
-    /// 唯一真源：Civil3DFactory（节点 refresh_sample_lines）与 products\waterbox
-    /// （C3DF-RefreshSampleLines/CYX）共同编译本文件。
+    /// Sample line refresh core (after a centerline swap the sample lines follow the new geometry; the group stays).
+    /// Group object, group name and section source settings are all kept -- only the old sample lines in the group are erased and
+    /// perpendicular sample lines rebuilt at the interval along the new geometry; an end line is added when the remainder is under half a metre (same rule as create_sample_lines).
+    /// Single source of truth: compiled by both Civil3DFactory (node refresh_sample_lines) and products\waterbox
+    /// (C3DF-RefreshSampleLines/CYX).
     /// </summary>
     public static class SampleLineRefreshCore
     {
@@ -26,18 +26,18 @@ namespace Civil3DFactory.Geometry
             public int NewLines;
         }
 
-        /// <summary>al 只读即可；组会在内部 ForWrite 打开。组数为零抛异常。</summary>
+        /// <summary>al may be read-only; groups are opened ForWrite internally. Throws when there is no group.</summary>
         public static List<GroupRefresh> Refresh(CivAlign al, Transaction tr,
             double interval, double swath)
         {
-            if (interval <= 0) throw new InvalidOperationException("间距必须大于 0。");
-            if (swath <= 0) throw new InvalidOperationException("采样宽度必须大于 0。");
+            if (interval <= 0) throw new InvalidOperationException("interval must be greater than 0.");
+            if (swath <= 0) throw new InvalidOperationException("swath must be greater than 0.");
 
             ObjectIdCollection gids = al.GetSampleLineGroupIds();
             if (gids.Count == 0)
-                throw new InvalidOperationException("路线 '" + al.Name + "' 没有采样线组。");
+                throw new InvalidOperationException("Alignment '" + al.Name + "' has no sample line group.");
 
-            // 站号序列：间距格点 + 终点（末段不足 0.5 并入终点线）
+            // Station sequence: interval grid + end station (a last segment under 0.5 merges into the end line)
             double start = al.StartingStation, end = al.EndingStation;
             var stations = new List<double>();
             for (double st = start; st < end - 0.001; st += interval) stations.Add(st);
@@ -75,8 +75,8 @@ namespace Civil3DFactory.Geometry
         }
 
         /// <summary>
-        /// 从第一组现有采样线反推间距/采样宽度当默认值（只用保底 API：线数与包围盒）。
-        /// 反推不出（组空等）返回 false，调用方用自己的缺省。
+        /// Estimate interval/swath as defaults from the first group's existing sample lines (only safe APIs: line count and bounding box).
+        /// Returns false when it cannot estimate (empty group etc.); the caller uses its own defaults.
         /// </summary>
         public static bool Estimate(CivAlign al, Transaction tr,
             out double interval, out double swath)
@@ -94,7 +94,7 @@ namespace Civil3DFactory.Geometry
                 double len = al.EndingStation - al.StartingStation;
                 interval = Math.Round(len / (sids.Count - 1), 1);
 
-                // 采样宽度 ≈ 首条线包围盒对角线的一半（线垂直于路线，对角线≈全宽）
+                // swath ~= half the diagonal of the first line's bounding box (line is perpendicular to the alignment, diagonal ~= full width)
                 var first = (Entity)tr.GetObject(sids[0], OpenMode.ForRead);
                 Extents3d ext = first.GeometricExtents;
                 double dx = ext.MaxPoint.X - ext.MinPoint.X;

@@ -1,0 +1,7 @@
+{
+  "_comment": "Read-only reconnaissance of the demo drawing: what exists (surfaces, alignments, profiles, corridors, assemblies, sample line groups, views, blocks, layers) and what is broken. Nothing is written. install.ps1 runs this as its self-check.",
+  "ops": [
+    { "op": "view", "mode": "outline" },
+    { "op": "view", "mode": "issues" }
+  ]
+}

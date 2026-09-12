@@ -9,9 +9,9 @@ using Civil3DFactory.Geometry;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 节点 fix_self_intersections：检测并修复自相交多段线（去回环）。
-    /// 算法核心在同目录 SelfIntersectionCore.cs（与 products\waterbox 的
-    /// C3DF-FixSelfIntersect/ZJ 同核）。report_only 只查不改。
+    /// Node fix_self_intersections: detect and repair self-intersecting polylines (loop removal).
+    /// The algorithm core is SelfIntersectionCore.cs in this folder (same core as
+    /// C3DF-FixSelfIntersect/ZJ in products\waterbox). report_only inspects without changing.
     /// </summary>
     public static partial class Ops
     {
@@ -23,11 +23,11 @@ namespace Civil3DFactory
             string layer = GetString(a, "layer", null);
             JsonArray handles = a["handles"] as JsonArray;
             if (string.IsNullOrEmpty(layer) && (handles == null || handles.Count == 0))
-                throw new InvalidOperationException("handles（句柄数组）与 layer（图层名）至少给一个。");
+                throw new InvalidOperationException("Give at least one of handles (handle array) or layer (layer name).");
 
             double maxDrop = GetDouble(a, "max_drop_ratio", 0.25);
             if (maxDrop <= 0 || maxDrop > 1)
-                throw new InvalidOperationException("max_drop_ratio 必须在 (0,1]（0.25 = 最多丢掉四分之一）。");
+                throw new InvalidOperationException("max_drop_ratio must be within (0,1] (0.25 = drop at most a quarter).");
             bool reportOnly = GetBool(a, "report_only", false);
 
             Database db = doc.Database;
@@ -37,7 +37,7 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // 收集目标：句柄优先，否则整图层扫
+                // Collect targets: handles first, otherwise scan the whole layer
                 var targets = new List<Polyline>();
                 if (handles != null && handles.Count > 0)
                 {
@@ -47,7 +47,7 @@ namespace Civil3DFactory
                         ObjectId id = ResolveHandle(db, hs);
                         Polyline pl = id.IsNull ? null : tr.GetObject(id, OpenMode.ForRead) as Polyline;
                         if (pl == null)
-                            throw new InvalidOperationException("句柄 '" + hs + "' 不是多段线或不存在。");
+                            throw new InvalidOperationException("Handle '" + hs + "' is not a polyline or does not exist.");
                         targets.Add(pl);
                     }
                 }
@@ -60,7 +60,7 @@ namespace Civil3DFactory
                             targets.Add(pl);
                     }
                     if (targets.Count == 0)
-                        throw new InvalidOperationException("图层 '" + layer + "' 上没有多段线。");
+                        throw new InvalidOperationException("No polylines on layer '" + layer + "'.");
                 }
 
                 var space = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
@@ -74,7 +74,7 @@ namespace Civil3DFactory
                     {
                         int dupVerts;
                         List<SelfIntersectionCore.Hit> hits = SelfIntersectionCore.Detect(src, out dupVerts);
-                        // 重复顶点（零长段）没有交点但 Civil 加边界照样拒收，也算脏
+                        // Duplicate vertices (zero-length segments) produce no intersection, yet Civil still refuses them as boundaries; count as dirty
                         if (hits.Count == 0 && dupVerts == 0) continue;
                         dirty++;
                         hitsTotal += hits.Count;
@@ -114,7 +114,7 @@ namespace Civil3DFactory
                         });
                         continue;
                     }
-                    if (fixedPl == null) continue;      // 本来就干净
+                    if (fixedPl == null) continue;      // already clean
 
                     src.UpgradeOpen();
                     src.Erase();

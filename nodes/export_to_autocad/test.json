@@ -1,7 +1,7 @@
 {
   "node": "export_to_autocad",
   "version": 1,
-  "fixture": "tests/dwg/civil-objects-for-export.dwg",
+  "fixture": "examples/channel-demo.dwg",
   "task": {
     "out": "${temp}/civil-objects-for-export_pure-cad.dwg",
     "version": "2018",

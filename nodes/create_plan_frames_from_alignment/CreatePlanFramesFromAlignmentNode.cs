@@ -45,14 +45,14 @@ namespace Civil3DFactory
             string layerName = GetString(a, "layer", "C3DF-PLAN-FRAME-NOPLOT");
             bool replaceExisting = GetBool(a, "replace_existing", true);
 
-            if (scale <= 0) throw new InvalidOperationException("scale 必须大于 0。");
+            if (scale <= 0) throw new InvalidOperationException("scale must be greater than 0.");
             if (viewportWidthMm <= 0 || viewportHeightMm <= 0)
-                throw new InvalidOperationException("视口有效宽度和高度必须大于 0。");
+                throw new InvalidOperationException("Effective viewport width and height must be greater than 0.");
             if (edgeMarginMm < 0 || edgeMarginMm * 2 >= Math.Min(viewportWidthMm, viewportHeightMm))
-                throw new InvalidOperationException("edge_margin_mm 过大，已挤占全部有效视口。");
-            if (sampleStep <= 0) throw new InvalidOperationException("sample_step 必须大于 0。");
+                throw new InvalidOperationException("edge_margin_mm is too large; it consumes the whole effective viewport.");
+            if (sampleStep <= 0) throw new InvalidOperationException("sample_step must be greater than 0.");
             if (overlapRatio < 0 || overlapRatio >= 0.50)
-                throw new InvalidOperationException("overlap_ratio 必须在 0（含）到 0.50（不含）之间。");
+                throw new InvalidOperationException("overlap_ratio must be between 0 (inclusive) and 0.50 (exclusive).");
 
             double modelWidth = viewportWidthMm * scale / 1000.0;
             double modelHeight = viewportHeightMm * scale / 1000.0;
@@ -69,7 +69,7 @@ namespace Civil3DFactory
             {
                 Alignment alignment = FindAlignment(tr, civil, alignmentName);
                 if (alignment == null)
-                    throw new InvalidOperationException("找不到路线 '" + alignmentName + "'。");
+                    throw new InvalidOperationException("Alignment '" + alignmentName + "' not found.");
 
                 alignmentStart = alignment.StartingStation;
                 alignmentEnd = alignment.EndingStation;
@@ -78,7 +78,7 @@ namespace Civil3DFactory
                 double current = Math.Max(alignmentStart, requestedStart);
                 double endLimit = Math.Min(alignmentEnd, requestedEnd);
                 if (endLimit <= current)
-                    throw new InvalidOperationException("路线分幅桩号范围无效。");
+                    throw new InvalidOperationException("Invalid station range for alignment sheeting.");
 
                 int index = 1;
                 while (current < endLimit - 1e-7 && (maxFrames == 0 || specs.Count < maxFrames))
@@ -111,7 +111,7 @@ namespace Civil3DFactory
 
                     if (!hasPoint || lastFit <= current + 1e-7)
                         throw new InvalidOperationException(
-                            "当前比例和水平视口无法容纳一个采样步长；请减小 sample_step、降低比例尺分母或增大视口。");
+                            "The current scale and horizontal viewport cannot hold one sample step; reduce sample_step, lower the scale denominator or enlarge the viewport.");
 
                     double centerX = (minX + maxX) / 2.0;
                     double centerY = (minY + maxY) / 2.0;

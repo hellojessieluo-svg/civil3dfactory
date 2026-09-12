@@ -2,51 +2,51 @@
   "node": "bounded_volumes",
   "version": 1,
   "executor": "engine",
-  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
-  "prerequisite": "图上有体积曲面（基准=原地形、对比=设计），和一层闭合边界多段线",
+  "fixture": "examples/channel-demo.dwg",
+  "prerequisite": "The drawing has a volume surface (base = existing ground, comparison = design) and a layer of closed boundary polylines",
   "fixture_requirements": [
-    "一个 TinVolumeSurface，基准与对比曲面都有几何",
-    "边界图层上有 ≥2 条闭合多段线，其中至少一条带弧段",
-    "至少一条边界内既有挖也有填（验 cut / fill 都不为 0）",
-    "至少一条边界整体是净挖（验 net 出负数不被吞成 0）",
-    "一条落在体积曲面范围外的边界（验取不到时进 warnings 且报错带原因）"
+    "One TinVolumeSurface whose base and comparison surfaces both have geometry",
+    ">= 2 closed polylines on the boundary layer, at least one with an arc segment",
+    "At least one boundary containing both cut and fill (verifies cut / fill are both non-zero)",
+    "At least one boundary that is net cut overall (verifies a negative net is not swallowed to 0)",
+    "One boundary outside the volume surface extent (verifies it goes to warnings and the error carries the reason)"
   ],
   "task": {
     "volume_surface": "Surface1",
-    "layer": "0-岛屿-放坡等高线",
+    "layer": "0-ISLAND-SLOPE-CONTOURS",
     "sample_step": 1,
     "cut_factor": 1.06,
     "fill_factor": 1.06,
     "export_excel": true
   },
   "assertions": [
-    "只读节点：不 Commit，跑完图纸 dbmod 与文件字节数不变",
-    "**边界必须显式闭合**：首点补到末尾才行，不补 Civil 直接抛 ArgumentException『Unable to calculate volume, possibly illegal bounding polygon』。close_ring 默认 true 就是为这个",
-    "逐条边界的 cut/fill 必须互不相同——这是与 calculate_surface_volume 的关键分野：那个走 GetVolumeProperties 拿整个曲面的量，N 条边界会返回 N 个一样的数",
-    "net == fill - cut，逐条与合计都成立",
-    "cut_adjusted == cut × cut_factor，fill_adjusted == fill × fill_factor",
-    "inset > 0 时 cut 单调减小（往内缩会丢掉外沿那圈挖方）；inset 只在边界压着曲面外沿取不到数时才用",
-    "sample_step 减半时 cut/fill 变化 < 1%（收敛性）",
-    "边界含弧段时按真实弧长展环（复用 DredgeBuildRing），不是按弦长",
-    "某条边界取体积失败时进 warnings 并继续算别的，不整批中断",
-    "全部边界都失败时抛错，**错误信息里必须带第一条的失败原因**，不能只说『见 warnings』（warnings 在抛错路径上丢了）",
-    "layer 与 handles 都不给时抛错；一条都没匹配上时抛错并回显条数",
-    "volume_surface 不是体积曲面时进 warnings 提醒『取到的不是挖填方』，不静默出数",
-    "同参数连跑两次结果逐字相同（只读幂等）"
+    "Read-only node: no Commit; drawing dbmod and file size are unchanged after the run",
+    "**Boundaries must be explicitly closed**: the first point has to be appended at the end, otherwise Civil throws ArgumentException 'Unable to calculate volume, possibly illegal bounding polygon'. close_ring defaults to true for exactly this reason",
+    "cut/fill must differ per boundary -- this is the key difference from calculate_surface_volume, which goes through GetVolumeProperties for the whole surface and returns N identical numbers for N boundaries",
+    "net == fill - cut, both per boundary and in the total",
+    "cut_adjusted == cut * cut_factor, fill_adjusted == fill * fill_factor",
+    "With inset > 0 the cut decreases monotonically (shrinking inward drops the outer ring of cut); use inset only when a boundary sits on the surface edge and returns nothing",
+    "Halving sample_step changes cut/fill by < 1% (convergence)",
+    "Boundaries with arc segments are expanded by true arc length (reusing DredgeBuildRing), not by chord",
+    "When one boundary fails to return a volume it goes to warnings and the others are still computed; the batch is not aborted",
+    "When every boundary fails, throw; **the error message must carry the first failure reason**, not just 'see warnings' (warnings are lost on the throw path)",
+    "Throw when neither layer nor handles is given; throw and echo the count when nothing matched",
+    "When volume_surface is not a volume surface, add a warning saying 'this is not cut/fill' instead of reporting numbers silently",
+    "Two runs with the same parameters produce byte-identical results (read-only idempotence)"
   ],
   "regression": {
     "date": "2026-08-16",
     "dwg": "examples/channel-demo.dwg",
     "observed": [
-      "32 条坡脚线（5.5 m 等高线）对 Surface1：外边界面积合计 369,350 m²，挖 71,037 / 填 424,240 / 净 353,203 m³，14 秒，0 warning",
-      "close_ring=false 时 32 条全部抛 illegal bounding polygon —— 闭合是硬条件，不是可选项",
-      "同一条边界 inset 0 → 0.5 → 2.0，cut 从 1,243.87 → 1,154.31 → 946.53 单调减，fill 几乎不动（挖方都在外沿）",
-      "I20 net = -144 m³（现状均高 8.65 高过 8.5 的设计顶，净挖），负值正常带出"
+      "32 toe lines (5.5 m contours) against Surface1: outer boundary area 369,350 m2 in total, cut 71,037 / fill 424,240 / net 353,203 m3, 14 seconds, 0 warnings",
+      "With close_ring=false all 32 threw illegal bounding polygon -- closure is a hard requirement, not an option",
+      "Same boundary with inset 0 -> 0.5 -> 2.0: cut fell 1,243.87 -> 1,154.31 -> 946.53 monotonically, fill barely moved (the cut sits on the outer edge)",
+      "I20 net = -144 m3 (existing mean 8.65 above the 8.5 design top, net cut); the negative value comes through correctly"
     ],
     "not_yet_covered": [
-      "base_surface + comparison_surface 现建体积曲面的分支（本轮用的是图上已有的 Surface1）",
-      "datum_elevation 重载",
-      "边界落在体积曲面范围外的分支"
+      "The branch that builds a volume surface from base_surface + comparison_surface (this run used the existing Surface1)",
+      "The datum_elevation overload",
+      "The branch where a boundary lies outside the volume surface extent"
     ]
   },
   "status": "real_drawing_regression_partial"

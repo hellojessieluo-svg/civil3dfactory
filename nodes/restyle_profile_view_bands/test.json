@@ -1,15 +1,15 @@
 {
   "node": "restyle_profile_view_bands",
   "version": 1,
-  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
-  "prerequisite": "图里已有纵断面图，且目标 band 样式已存在于 BandStyles 下",
+  "fixture": "examples/channel-demo.dwg",
+  "prerequisite": "The drawing already has profile views and the target band styles exist under BandStyles",
   "assertions": [
-    "data.views_scanned == 图里纵断面图总数",
-    "data.views_mismatched 为空（band 条数与给定数组长度一致）",
-    "data.bands_changed == views_changed * 数组里非空位置数",
-    "dry_run 的 per_view[].fingerprint 各视图逐位置同构（同一套 band set 生成，位置顺序可信）",
-    "落盘后在 CAD 里开 Profile View Properties → Bands 目视核样式名——BandStyleId 只写不可读，程序无法回读自证"
+    "data.views_scanned == total number of profile views in the drawing",
+    "data.views_mismatched is empty (band count matches the length of the given array)",
+    "data.bands_changed == views_changed * number of non-empty positions in the array",
+    "dry_run per_view[].fingerprint is position-wise identical across views (generated from the same band set, so the position order is trustworthy)",
+    "after saving, open Profile View Properties -> Bands in CAD and check the style names visually -- BandStyleId is write-only, so the program cannot read it back to prove itself"
   ],
-  "note": "实测档案（2026-08-27 项目B初设 2-主通道计算 - Copy.dwg）：21 张视图 × 底部 4 条 band，一次换成 C3DF-GroundElevation/C3DF-DesignElevation/C3DF-CutFillDepth/C3DF-Station，bands_changed=84，mismatched=0；指纹 21 张全同构（ProfileData, gap=0, major=50, minor=10, label_end=true, weeding=100）。两个坑：① BandStyleId 在 Civil 2025 托管 API 里只写不可读（反射 probe 实证），所以只能按位置换、无法按旧名映射、也无法回读校验；② 本图 save_dwg（托管 db.SaveAs）报 eFilerError，改走原生 SAVEAS 存盘成功——scr 里的中文路径会被 ascii 编码打成 ?，输出先落 ASCII 路径再搬回。",
+  "note": "Field record (2026-08-27, a main-channel calculation drawing): 21 views x 4 bottom bands swapped in one pass to C3DF-GroundElevation/C3DF-DesignElevation/C3DF-CutFillDepth/C3DF-Station, bands_changed=84, mismatched=0; fingerprints identical across all 21 views (ProfileData, gap=0, major=50, minor=10, label_end=true, weeding=100). Two traps: (1) BandStyleId is write-only in the Civil 2025 managed API (proven by a reflection probe), so bands can only be swapped by position, never mapped by old name or read back for verification; (2) save_dwg (managed db.SaveAs) threw eFilerError on this drawing; the native SAVEAS command saved fine -- non-ASCII paths in a scr file get mangled to ? by ASCII encoding, so write to an ASCII path first and move the file back.",
   "status": "draft_assertions_pending_owner_review"
 }

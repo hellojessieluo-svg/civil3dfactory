@@ -14,8 +14,8 @@ using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 功能区按钮 / C3DF_ 命令的执行路径：弹参数框 → 在当前图纸里跑同一个 Ops 实现 → 结果落盘 + 命令行回报。
-    /// 与 Dispatcher 的工单执行共用 Ops.Execute，保证界面跑出来的结果和流水线一致。
+    /// Execution path for ribbon buttons / C3DF_ commands: show the parameter form -> run the same Ops implementation in the current drawing -> write the result to disk + report on the command line.
+    /// Shares Ops.Execute with the Dispatcher's work-order execution, so UI results match the pipeline.
     /// </summary>
     public static class NodeRunner
     {
@@ -24,7 +24,7 @@ namespace Civil3DFactory
             Document doc = AcadApp.DocumentManager.MdiActiveDocument;
             if (doc == null)
             {
-                MessageBox.Show("请先打开一张图纸。", "Civil3DFactory", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("Open a drawing first.", "Civil3DFactory", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
             Editor ed = doc.Editor;
@@ -36,18 +36,18 @@ namespace Civil3DFactory
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage("\nCivil3DFactory：读取节点契约失败：" + ex.Message + "\n");
+                ed.WriteMessage("\nCivil3DFactory: failed to read node contracts: " + ex.Message + "\n");
                 return;
             }
 
             if (node == null)
             {
-                ed.WriteMessage("\nCivil3DFactory：nodes/node.json 里没有节点 '" + nodeId + "'。\n");
+                ed.WriteMessage("\nCivil3DFactory: node '" + nodeId + "' is not in nodes/node.json.\n");
                 return;
             }
             if (!node.Runnable)
             {
-                ed.WriteMessage("\nCivil3DFactory：节点 '" + node.Id + "' 尚未在插件内登记执行入口（Ops.Registry）。\n");
+                ed.WriteMessage("\nCivil3DFactory: node '" + node.Id + "' has no execution entry registered in the plugin (Ops.Registry).\n");
                 return;
             }
 
@@ -59,7 +59,7 @@ namespace Civil3DFactory
             }
             if (args == null) return;
 
-            ed.WriteMessage("\n[C3DF] 开始执行节点 " + node.Id + " · " + node.Title + "\n");
+            ed.WriteMessage("\n[C3DF] Running node " + node.Id + " · " + node.Title + "\n");
 
             var sw = Stopwatch.StartNew();
             JsonNode data = null;
@@ -99,20 +99,20 @@ namespace Civil3DFactory
 
             if (failure == null)
             {
-                ed.WriteMessage("[C3DF] ✓ " + node.Id + " 完成，用时 " + sw.ElapsedMilliseconds + " ms\n");
+                ed.WriteMessage("[C3DF] ✓ " + node.Id + " done in " + sw.ElapsedMilliseconds + " ms\n");
                 string summary = Summarize(data);
                 if (!string.IsNullOrEmpty(summary)) ed.WriteMessage("[C3DF] " + summary + "\n");
             }
             else
             {
-                ed.WriteMessage("[C3DF] ✗ " + node.Id + " 失败：" + failure.Message + "\n");
+                ed.WriteMessage("[C3DF] ✗ " + node.Id + " failed: " + failure.Message + "\n");
                 ed.WriteMessage("[C3DF] " + failure.GetType().Name + " @ " + FirstFrames(failure, 3) + "\n");
             }
             if (!string.IsNullOrEmpty(resultPath))
-                ed.WriteMessage("[C3DF] 结果：" + resultPath + "\n");
+                ed.WriteMessage("[C3DF] Result: " + resultPath + "\n");
         }
 
-        /// <summary>结果统一写到用户目录，避免污染工程目录和工厂仓库。</summary>
+        /// <summary>Results always go to the user directory, keeping project folders and the factory repo clean.</summary>
         static string WriteResult(string nodeId, JsonObject result)
         {
             try
@@ -128,7 +128,7 @@ namespace Civil3DFactory
             catch { return null; }
         }
 
-        /// <summary>命令行只回报一行：标量字段直接列，数组列个数。</summary>
+        /// <summary>The command line gets a single summary line: scalar fields listed directly, arrays as counts.</summary>
         static string Summarize(JsonNode data)
         {
             JsonObject o = data as JsonObject;
@@ -140,7 +140,7 @@ namespace Civil3DFactory
             {
                 if (shown >= 8) { sb.Append(" …"); break; }
                 string text;
-                if (kv.Value is JsonArray) text = "[" + ((JsonArray)kv.Value).Count + " 项]";
+                if (kv.Value is JsonArray) text = "[" + ((JsonArray)kv.Value).Count + " items]";
                 else if (kv.Value is JsonObject) text = "{…}";
                 else text = kv.Value == null ? "null" : kv.Value.ToString();
                 if (sb.Length > 0) sb.Append("  ");
@@ -161,7 +161,7 @@ namespace Civil3DFactory
         {
             try
             {
-                if (ex.StackTrace == null) return "(无堆栈)";
+                if (ex.StackTrace == null) return "(no stack)";
                 string[] lines = ex.StackTrace.Split('\n');
                 var sb = new StringBuilder();
                 for (int i = 0; i < lines.Length && i < count; i++)
@@ -171,7 +171,7 @@ namespace Civil3DFactory
                 }
                 return sb.ToString();
             }
-            catch { return "(无堆栈)"; }
+            catch { return "(no stack)"; }
         }
 
         static string SafeDocName(Document doc)

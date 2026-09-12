@@ -22,13 +22,13 @@ namespace Civil3DFactory
         {
             string baseName = Need(a, "base_surface");
             string compName = Need(a, "comparison_surface");
-            // 2026-08-20 裁掉 boundary_polyline：主路径 GetVolumeProperties 无视它（只进报表文字），
-            // 只有 TIN 建面失败的退化采样路径才认——同一参数两条路两个语义，给 N 条边界
-            // 主路径会返回 N 个一样的数。按闭合边界分块算量走 bounded_volumes。
-            if (a["boundary_polyline"] != null)
+            // 2026-08-20 boundary_polyline removed: the main path GetVolumeProperties ignores it (report text only),
+            // only the degraded sampling path (when TIN creation fails) honours it; one parameter, two meanings, and N boundaries
+            // on the main path return N identical numbers. Use bounded_volumes for per-boundary quantities.
+            if (a.ContainsKey("boundary_polyline"))   // removed parameter, rejected on purpose
                 throw new InvalidOperationException(
-                    "boundary_polyline 已裁掉：本节点算两曲面全范围的量，边界在主路径从不参与计算。"
-                    + "按闭合边界分块算量请走 bounded_volumes。");
+                    "boundary_polyline has been removed: this node computes the full-extent volume between two surfaces; the boundary never takes part on the main path."
+                    + "Use bounded_volumes for per-boundary quantities.");
 
             double cutFactor = GetDouble(a, "cut_factor", 1.0);
             double fillFactor = GetDouble(a, "fill_factor", 1.0);
@@ -52,24 +52,24 @@ namespace Civil3DFactory
             double cutVolume = 0.0;
             double fillVolume = 0.0;
             double boundaryArea = 0.0;
-            string boundaryInfo = "无（全图范围）";
+            string boundaryInfo = "None (full extent)";
             string volSurfName = "Vol_" + Sanitize(baseName) + "_" + Sanitize(compName);
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 ObjectId baseId = FindSurfaceId(tr, civ, baseName);
-                if (baseId.IsNull) throw new InvalidOperationException("找不到基准曲面 '" + baseName + "'。");
+                if (baseId.IsNull) throw new InvalidOperationException("Base surface '" + baseName + "' not found.");
                 ObjectId compId = FindSurfaceId(tr, civ, compName);
-                if (compId.IsNull) throw new InvalidOperationException("找不到对比曲面 '" + compName + "'。");
+                if (compId.IsNull) throw new InvalidOperationException("Comparison surface '" + compName + "' not found.");
 
                 var baseSurf = (CivSurface)tr.GetObject(baseId, OpenMode.ForRead);
                 var compSurf = (CivSurface)tr.GetObject(compId, OpenMode.ForRead);
 
-                // 尝试建 TIN Volume Surface
+                // Try to create a TIN Volume Surface
                 ObjectId volId = ObjectId.Null;
                 try
                 {
-                    // 覆盖重建：先清理同名曲面
+                    // Overwrite: remove the surface with the same name first
                     ObjectId oldVol = FindSurfaceId(tr, civ, volSurfName);
                     if (!oldVol.IsNull)
                     {
@@ -81,7 +81,7 @@ namespace Civil3DFactory
                 }
                 catch
                 {
-                    // 若 API 创建异常，降级通过两曲面网格采样近似计算挖填体积
+                    // If API creation fails, degrade to grid sampling of both surfaces to approximate cut/fill
                 }
 
                 if (!volId.IsNull)
@@ -95,7 +95,7 @@ namespace Civil3DFactory
                     }
                     catch
                     {
-                        // 若无法读取 volume properties，退回采样计算
+                        // If volume properties cannot be read, fall back to sampling
                         SampleGridVolume(baseSurf, compSurf, out cutVolume, out fillVolume);
                     }
                 }
@@ -108,13 +108,13 @@ namespace Civil3DFactory
                 double finalFill = fillVolume * fillFactor;
                 double finalNet = finalFill - finalCut;
 
-                // 导出 Excel 报表
+                // Export the Excel report
                 List<string> excelFiles = new List<string>();
                 string outdir = ResolveOutDir(a, doc);
                 if (exportExcel)
                 {
                     string excelBaseName = string.IsNullOrEmpty(excelOutPath)
-                        ? string.Format("曲面体积计算表_{0}_{1}", Sanitize(baseName), Sanitize(compName))
+                        ? string.Format("SurfaceVolume_{0}_{1}", Sanitize(baseName), Sanitize(compName))
                         : Path.GetFileNameWithoutExtension(excelOutPath);
                     string targetDir = string.IsNullOrEmpty(excelOutPath)
                         ? outdir
@@ -122,8 +122,8 @@ namespace Civil3DFactory
 
                     string[] headers = new string[]
                     {
-                        "序号", "基准曲面", "对比曲面", "边界范围", "挖方系数", "填方系数",
-                        "开挖体积(m³)", "填方体积(m³)", "净体积(m³)"
+                        "No.", "Base surface", "Comparison surface", "Boundary", "Cut factor", "Fill factor",
+                        "Cut volume (m3)", "Fill volume (m3)", "Net volume (m3)"
                     };
                     List<object[]> rows = new List<object[]>
                     {
@@ -136,7 +136,7 @@ namespace Civil3DFactory
                     excelFiles = Excel.Write(targetDir, excelBaseName, headers, rows, "xlsx");
                 }
 
-                // 绘制 DWG 统计表格
+                // Draw the DWG summary table
                 if (drawDwgTable)
                 {
                     CreateVolumeDwgTable(tr, db, tablePt, baseName, compName, finalCut, finalFill, finalNet);
@@ -177,7 +177,7 @@ namespace Civil3DFactory
             fillVol = 0.0;
 
             Extents3d ext = baseSurf.GeometricExtents;
-            double step = 2.0; // 2m 采样网格
+            double step = 2.0; // 2 m sampling grid
             double cellArea = step * step;
 
             for (double x = ext.MinPoint.X; x <= ext.MaxPoint.X; x += step)
@@ -188,7 +188,7 @@ namespace Civil3DFactory
                     if (GridTrySample(baseSurf, new Point3d(x, y, 0), out zBase) &&
                         GridTrySample(compSurf, new Point3d(x, y, 0), out zComp))
                     {
-                        double diff = zComp - zBase; // 疏浚开挖: comp < base -> diff < 0
+                        double diff = zComp - zBase; // dredging cut: comp < base -> diff < 0
                         if (diff < 0)
                             cutVol += Math.Abs(diff) * cellArea;
                         else
@@ -207,12 +207,12 @@ namespace Civil3DFactory
             tbl.SetSize(3, 5);
             tbl.Position = pt;
 
-            tbl.Cells[0, 0].TextString = "曲面体积计算与疏浚统计表";
-            tbl.Cells[1, 0].TextString = "基准曲面";
-            tbl.Cells[1, 1].TextString = "对比曲面";
-            tbl.Cells[1, 2].TextString = "挖方(m³)";
-            tbl.Cells[1, 3].TextString = "填方(m³)";
-            tbl.Cells[1, 4].TextString = "净体积(m³)";
+            tbl.Cells[0, 0].TextString = "Surface Volume and Dredging Summary";
+            tbl.Cells[1, 0].TextString = "Base surface";
+            tbl.Cells[1, 1].TextString = "Comparison surface";
+            tbl.Cells[1, 2].TextString = "Cut (m3)";
+            tbl.Cells[1, 3].TextString = "Fill (m3)";
+            tbl.Cells[1, 4].TextString = "Net volume (m3)";
 
             tbl.Cells[2, 0].TextString = baseName;
             tbl.Cells[2, 1].TextString = compName;

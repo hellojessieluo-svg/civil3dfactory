@@ -14,11 +14,11 @@ using CivDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 要素线工作法（项目B L4 重构 2026-08-24 定调，记忆 feedback-design-input-draggable-lines）：
-    /// 设计真源=带分类特性的要素线（人拉线），自动化=串环+距离场放坡+建TIN（消费线）。
-    /// create_feature_lines 把线升级成 FeatureLine（三种高程模式），dredge_from_feature_lines
-    /// 按分类把一组线串成环直接出设计面——复用 create_dredge_grading 的成面公共段，零算法复制。
-    /// v1 口径：弧段建线时按 densify_step 细分成折线（R459 弧 10m 弦矢高 2.7cm，几何无感）。
+    /// Feature-line workflow (settled in the Project B L4 refactor, 2026-08-24; memory feedback-design-input-draggable-lines):
+    /// design truth = feature lines carrying classification properties (drawn by people); automation = chain into a ring + distance-field grading + build TIN (consume the lines).
+    /// create_feature_lines upgrades curves to FeatureLines (three elevation modes); dredge_from_feature_lines
+    /// chains a classified set of lines into a ring and produces the design surface directly, reusing the surface-building code of create_dredge_grading with zero algorithm duplication.
+    /// v1 rule: arcs are densified into polylines by densify_step when lines are created (an R459 arc with 10 m chords has 2.7 cm sagitta, geometrically negligible).
     /// </summary>
     public static partial class Ops
     {
@@ -28,7 +28,7 @@ namespace Civil3DFactory
         {
             var items = a["items"] as JsonArray;
             if (items == null || items.Count == 0)
-                throw new InvalidOperationException("items 必需：[{handle,name,z_mode,...}]。");
+                throw new InvalidOperationException("items is required: [{handle,name,z_mode,...}].");
             Database db = doc.Database;
             CivDoc civ = Civ(db);
             var made = new JsonArray();
@@ -48,9 +48,9 @@ namespace Civil3DFactory
                     bool eraseSource = GetBool(it, "erase_source", true);
 
                     var src = tr.GetObject(ResolveHandle(db, h), OpenMode.ForRead) as Curve;
-                    if (src == null) throw new InvalidOperationException(h + " 不是曲线。");
+                    if (src == null) throw new InvalidOperationException(h + " is not a curve.");
 
-                    // 采样：顶点必收，弧段按 densify_step 细分（v1：要素线里弧=细分折线）
+                    // Sampling: vertices always kept, arcs densified by densify_step (v1: arcs in feature lines = densified polylines)
                     var pts = new Point3dCollection();
                     var pl = src as Polyline;
                     if (pl != null)
@@ -74,14 +74,14 @@ namespace Civil3DFactory
                     }
                     else
                     {
-                        // 其他曲线（三维多段线等）：按等距采样，步长 densify_step
+                        // Other curves (3D polylines etc.): sample at equal spacing, step densify_step
                         double L = src.GetDistanceAtParameter(src.EndParam);
                         int nseg = Math.Max(1, (int)Math.Ceiling(L / Math.Max(step, 0.5)));
                         for (int k = 0; k <= nseg; k++)
                             pts.Add(src.GetPointAtDist(Math.Min(L, L * k / nseg)));
                     }
 
-                    // 高程
+                    // Elevation
                     var pts2 = new Point3dCollection();
                     foreach (Point3d p in pts)
                     {
@@ -95,7 +95,7 @@ namespace Civil3DFactory
                     btr.AppendEntity(tmp);
                     tr.AddNewlyCreatedDBObject(tmp, true);
                     ObjectId flId = CivFeatureLine.Create(name, tmp.ObjectId);
-                    if (!tmp.IsErased) { tmp.UpgradeOpen(); tmp.Erase(); }   // Create 若消费了源就不用再删
+                    if (!tmp.IsErased) { tmp.UpgradeOpen(); tmp.Erase(); }   // no need to erase if Create already consumed the source
 
                     var fl = (CivFeatureLine)tr.GetObject(flId, OpenMode.ForWrite);
                     if (!string.IsNullOrEmpty(layer))
@@ -105,13 +105,13 @@ namespace Civil3DFactory
                     if (zMode == "surface" || zMode == "cap")
                     {
                         if (string.IsNullOrEmpty(surfName))
-                            throw new InvalidOperationException(name + "：z_mode=" + zMode + " 必须给 surface。");
+                            throw new InvalidOperationException(name + ": z_mode=" + zMode + " requires surface.");
                         ObjectId sfId = FindSurfaceId(tr, civ, surfName);
-                        if (sfId.IsNull) throw new InvalidOperationException("找不到曲面 '" + surfName + "'。");
+                        if (sfId.IsNull) throw new InvalidOperationException("Surface '" + surfName + "' not found.");
                         fl.AssignElevationsFromSurface(sfId, true);
                         if (zMode == "cap")
                         {
-                            // 上限模式：min(地形, z)——接台田的上口线口径
+                            // Cap mode: min(terrain, z), the rule for crest lines meeting terraces
                             var allp = fl.GetPoints(CivFlPointType.AllPoints);
                             for (int i = 0; i < allp.Count; i++)
                                 if (allp[i].Z > zConst)
@@ -123,14 +123,14 @@ namespace Civil3DFactory
                         var s2 = tr.GetObject(src.ObjectId, OpenMode.ForWrite);
                         if (!s2.IsErased) s2.Erase();
                     }
-                    // 建线即挂分类：props={set,values}（集定义须已存在，先跑 property_sets define）
+                    // Attach classification on creation: props={set,values} (the set definition must exist; run property_sets define first)
                     var props = it["props"] as JsonObject;
                     if (props != null)
                     {
-                        string psName = GetString(props, "set", "疏浚要素");
+                        string psName = GetString(props, "set", "DredgeFeatures");
                         var dict = new DictionaryPropertySetDefinitions(db);
                         if (!dict.Has(psName, tr))
-                            throw new InvalidOperationException("特性集 '" + psName + "' 不存在，先用 property_sets define 建。");
+                            throw new InvalidOperationException("Property set '" + psName + "' does not exist; create it with property_sets define first.");
                         ObjectId psdId = dict.GetAt(psName);
                         PropertyDataServices.AddPropertySet(fl, psdId);
                         ObjectId psId = PropertyDataServices.GetPropertySet(fl, psdId);
@@ -190,7 +190,7 @@ namespace Civil3DFactory
             catch { return double.NaN; }
         }
 
-        /// <summary>要素线折线（AllPoints 直线插值）按步长重采样，保 z 线性。</summary>
+        /// <summary>Resamples the feature-line polyline (AllPoints, linear interpolation) at the given step, keeping z linear.</summary>
         static List<Point3d> DredgeResample(List<Point3d> src, double step)
         {
             var outp = new List<Point3d> { src[0] };
@@ -211,7 +211,7 @@ namespace Civil3DFactory
 
         static JsonNode DredgeFromFeatureLines(JsonObject a, Document doc)
         {
-            string setName = GetString(a, "set", "疏浚要素");
+            string setName = GetString(a, "set", "DredgeFeatures");
             string region = GetString(a, "region", null);
             var lineHandles = a["lines"] as JsonArray;
             string terrName = GetString(a, "surface", null);
@@ -220,7 +220,7 @@ namespace Civil3DFactory
             double flatStep = GetDouble(a, "flat_step", 20.0);
             double chainTol = GetDouble(a, "chain_tol", 0.1);
             bool drawToe = GetBool(a, "draw_toe", true);
-            bool drawCrest = GetBool(a, "draw_crest", false);   // 上口线就是要素线本身，缺省不再另画
+            bool drawCrest = GetBool(a, "draw_crest", false);   // the crest line is the feature line itself; not drawn separately by default
             string surfLayer = GetString(a, "surface_layer", "C3DF-DREDGE-SURFACE");
             string crestLayer = GetString(a, "crest_layer", "C3DF-DREDGE-TOP");
             string toeLayer = GetString(a, "toe_layer", "C3DF-DREDGE-TOE");
@@ -231,14 +231,14 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // ---- 收线（句柄白名单 或 按分类扫描分区号）----
+                // ---- Collect lines (handle whitelist, or scan by the Region classification) ----
                 var fls = new List<CivFeatureLine>();
                 if (lineHandles != null && lineHandles.Count > 0)
                 {
                     foreach (JsonNode hn in lineHandles)
                     {
                         var fl = tr.GetObject(ResolveHandle(db, hn.GetValue<string>()), OpenMode.ForRead) as CivFeatureLine;
-                        if (fl == null) throw new InvalidOperationException(hn + " 不是要素线。");
+                        if (fl == null) throw new InvalidOperationException(hn + " is not a feature line.");
                         fls.Add(fl);
                     }
                 }
@@ -248,49 +248,49 @@ namespace Civil3DFactory
                     {
                         var fl = tr.GetObject(id, OpenMode.ForRead) as CivFeatureLine;
                         if (fl == null) continue;
-                        if (string.Equals(FlPsText(tr, db, fl, setName, "分区号"), region,
+                        if (string.Equals(FlPsText(tr, db, fl, setName, "Region"), region,
                                           StringComparison.OrdinalIgnoreCase)) fls.Add(fl);
                     }
                 }
-                else throw new InvalidOperationException("lines 或 region 至少给一个。");
+                else throw new InvalidOperationException("Give at least one of lines or region.");
                 if (fls.Count < 2)
-                    throw new InvalidOperationException("凑不成环：只找到 " + fls.Count + " 条要素线。");
+                    throw new InvalidOperationException("Cannot form a ring: only " + fls.Count + " feature line(s) found.");
 
-                // 地形：参数缺省时从线上的〈地形曲面〉分类字段读（跟地形线才需要）
+                // Terrain: when the parameter is absent, read the <TerrainSurface> field from the lines (only follow-terrain lines need it)
                 if (string.IsNullOrEmpty(terrName))
                     foreach (var fl in fls)
                     {
-                        string t = FlPsText(tr, db, fl, setName, "地形曲面");
+                        string t = FlPsText(tr, db, fl, setName, "TerrainSurface");
                         if (!string.IsNullOrEmpty(t)) { terrName = t; break; }
                     }
                 CivSurface terr = null;
                 if (!string.IsNullOrEmpty(terrName))
                 {
                     ObjectId sfId = FindSurfaceId(tr, civ, terrName);
-                    if (sfId.IsNull) throw new InvalidOperationException("找不到曲面 '" + terrName + "'。");
+                    if (sfId.IsNull) throw new InvalidOperationException("Surface '" + terrName + "' not found.");
                     terr = (CivSurface)tr.GetObject(sfId, OpenMode.ForRead);
                 }
 
-                // ---- 逐线读分类与采样 ----
+                // ---- Read classification and sample each line ----
                 var segs = new List<(CivFeatureLine Fl, string Role, string Mode, double M, List<Point3d> Pts)>();
                 var lineRows = new JsonArray();
                 foreach (var fl in fls)
                 {
-                    string role = FlPsText(tr, db, fl, setName, "角色") ?? "";
-                    string mode = FlPsText(tr, db, fl, setName, "高程模式") ?? "定值";
-                    double m = FlPsReal(tr, db, fl, setName, "坡比m");
+                    string role = FlPsText(tr, db, fl, setName, "Role") ?? "";
+                    string mode = FlPsText(tr, db, fl, setName, "ZMode") ?? "Fixed";
+                    double m = FlPsReal(tr, db, fl, setName, "SlopeM");
                     if (double.IsNaN(m) || m < 0.5 || m > 50)
-                        throw new InvalidOperationException("要素线 '" + fl.Name + "' 的〈坡比m〉缺失/出界(0.5~50)。");
-                    // 跟地形/上限线：重建时刷新存储高程快照——线上显示的 z、特征线 z、引擎现采 z 三者一致
-                    if ((mode.Contains("跟地") || mode.StartsWith("上限")) && terr != null)
+                        throw new InvalidOperationException("Feature line '" + fl.Name + "': <SlopeM> missing or out of range (0.5~50).");
+                    // Follow-terrain / cap lines: refresh the stored elevation snapshot on rebuild so the displayed z, breakline z and engine-sampled z all agree
+                    if ((mode.Contains("Follow") || mode.StartsWith("Cap")) && terr != null)
                     {
                         try
                         {
                             var flW = (CivFeatureLine)tr.GetObject(fl.ObjectId, OpenMode.ForWrite);
                             flW.AssignElevationsFromSurface(terr.ObjectId, true);
                             double capv;
-                            if (mode.StartsWith("上限") &&
-                                double.TryParse(mode.Substring(2).Trim(), out capv))
+                            if (mode.StartsWith("Cap") &&
+                                double.TryParse(mode.Substring(3).Trim(), out capv))
                             {
                                 var ap = flW.GetPoints(CivFlPointType.AllPoints);
                                 for (int i = 0; i < ap.Count; i++)
@@ -303,18 +303,18 @@ namespace Civil3DFactory
                     var raw = new List<Point3d>();
                     foreach (Point3d p in fl.GetPoints(CivFlPointType.AllPoints)) raw.Add(p);
                     if (raw.Count < 2)
-                        throw new InvalidOperationException("要素线 '" + fl.Name + "' 点数不足。");
+                        throw new InvalidOperationException("Feature line '" + fl.Name + "' has too few points.");
                     segs.Add((fl, role, mode, m, DredgeResample(raw, sampleStep)));
                     lineRows.Add(new JsonObject
                     {
-                        ["name"] = fl.Name, ["角色"] = role, ["高程模式"] = mode, ["坡比m"] = m,
+                        ["name"] = fl.Name, ["role"] = role, ["z_mode"] = mode, ["slope_m"] = m,
                         ["points"] = raw.Count, ["z_min"] = Math.Round(fl.MinElevation, 3),
                         ["z_max"] = Math.Round(fl.MaxElevation, 3)
                     });
                 }
 
-                // ---- 串环（端点就近，必要时倒向）。距离一律按平面算：
-                //      接头处高程跳变是设计（上口线5.0 接 跟地形线），不是缝 ----
+                // ---- Chain into a ring (nearest endpoints, reversing where needed). Distances are always planar:
+                //      an elevation jump at a joint is by design (crest line at 5.0 meeting a follow-terrain line), not a gap ----
                 double D2(Point3d p, Point3d q)
                 {
                     double dx = p.X - q.X, dy = p.Y - q.Y;
@@ -338,8 +338,8 @@ namespace Civil3DFactory
                     }
                     if (bestD > chainTol)
                         throw new InvalidOperationException(
-                            "串环断链：'" + segs[order[order.Count - 1].Idx].Fl.Name + "' 之后最近端点差 " +
-                            bestD.ToString("0.###") + "m（容差 " + chainTol + "）。");
+                            "Ring chain broken: after '" + segs[order[order.Count - 1].Idx].Fl.Name + "' the nearest endpoint is " +
+                            bestD.ToString("0.###") + " m away (tolerance " + chainTol + ").");
                     gaps.Add(bestD);
                     order.Add((best, bestRev));
                     used.Add(best);
@@ -351,11 +351,11 @@ namespace Civil3DFactory
                                             : segs[lastSeg.Idx].Pts[segs[lastSeg.Idx].Pts.Count - 1];
                     double dClose = D2(lastP, first);
                     if (dClose > chainTol)
-                        throw new InvalidOperationException("环不闭合：尾点到首点差 " + dClose.ToString("0.###") + "m。");
+                        throw new InvalidOperationException("Ring not closed: last point is " + dClose.ToString("0.###") + " m from the first.");
                     gaps.Add(dClose);
                 }
 
-                // ---- 底高程：参数 > 线上〈设计底高程〉字段（多线不一致报错） > 口门线最低点 ----
+                // ---- Bottom elevation: parameter > <BottomElev> field on the lines (error if they disagree) > lowest point of the Mouth line ----
                 double bottom;
                 if (a["bottom_elev"] != null) bottom = GetDouble(a, "bottom_elev", 0.0);
                 else
@@ -363,28 +363,28 @@ namespace Civil3DFactory
                     var fieldVals = new List<double>();
                     foreach (var fl in fls)
                     {
-                        double b = FlPsReal(tr, db, fl, setName, "设计底高程");
+                        double b = FlPsReal(tr, db, fl, setName, "BottomElev");
                         if (!double.IsNaN(b) && Math.Abs(b) > 1e-9 &&
                             !fieldVals.Exists(v => Math.Abs(v - b) < 1e-6)) fieldVals.Add(b);
                     }
                     if (fieldVals.Count > 1)
-                        throw new InvalidOperationException("各线的〈设计底高程〉不一致：" +
-                            string.Join("/", fieldVals) + "——统一了再来。");
+                        throw new InvalidOperationException("<BottomElev> differs between lines: " +
+                            string.Join("/", fieldVals) + ". Make them consistent first.");
                     if (fieldVals.Count == 1) bottom = fieldVals[0];
                     else
                     {
                         double mn = double.MaxValue;
                         foreach (var s in segs)
-                            if (s.Role.Contains("口门"))
+                            if (s.Role.Contains("Mouth"))
                                 foreach (Point3d p in s.Pts) if (p.Z < mn) mn = p.Z;
                         if (mn == double.MaxValue)
                             throw new InvalidOperationException(
-                                "底高程三处都没有：没给 bottom_elev、线上没挂〈设计底高程〉、也没有〈角色〉含「口门」的线。");
+                                "No bottom elevation from any of the three sources: bottom_elev not given, no <BottomElev> on the lines, and no line whose <Role> contains 'Mouth'.");
                         bottom = mn;
                     }
                 }
 
-                // ---- 组环（Z：跟地形现采；M：逐线）----
+                // ---- Assemble the ring (Z: sampled live from terrain; M: per line) ----
                 var ring = new DredgeRing();
                 int followed = 0;
                 foreach (var (idx, rev) in order)
@@ -392,20 +392,20 @@ namespace Civil3DFactory
                     var s = segs[idx];
                     var ptsSeg = new List<Point3d>(s.Pts);
                     if (rev) ptsSeg.Reverse();
-                    bool follow = s.Mode.Contains("跟地");
-                    // 「上限X」：接台田口径，顶=min(地形,X)，重建时现采现 clamp
+                    bool follow = s.Mode.Contains("Follow");
+                    // "CapX": terrace-meeting rule, top = min(terrain, X), sampled and clamped live on rebuild
                     double cap = double.NaN;
-                    if (s.Mode.StartsWith("上限"))
+                    if (s.Mode.StartsWith("Cap"))
                     {
-                        if (!double.TryParse(s.Mode.Substring(2).Trim(), out cap))
+                        if (!double.TryParse(s.Mode.Substring(3).Trim(), out cap))
                             throw new InvalidOperationException(
-                                "要素线 '" + s.Fl.Name + "' 高程模式 '" + s.Mode + "' 解析不了（写法：上限5.0）。");
+                                "Feature line '" + s.Fl.Name + "': elevation mode '" + s.Mode + "' cannot be parsed (expected form: Cap5.0).");
                         follow = true;
                     }
                     if (follow && terr == null)
                         throw new InvalidOperationException(
-                            "要素线 '" + s.Fl.Name + "' 是" + s.Mode + "模式，但没有地形曲面可采。");
-                    for (int i = 0; i < ptsSeg.Count - 1; i++)   // 每段丢尾点（=下段首点）
+                            "Feature line '" + s.Fl.Name + "' is in " + s.Mode + " mode but there is no terrain surface to sample.");
+                    for (int i = 0; i < ptsSeg.Count - 1; i++)   // drop each segment's last point (= next segment's first)
                     {
                         Point3d p = ptsSeg[i];
                         double z = p.Z;
@@ -422,7 +422,7 @@ namespace Civil3DFactory
                     }
                 }
                 if (ring.Count < 16)
-                    throw new InvalidOperationException("环采样点过少（" + ring.Count + "）。");
+                    throw new InvalidOperationException("Too few ring sample points (" + ring.Count + ").");
                 ring.Recalc();
                 double perim = 0;
                 for (int i = 0; i < ring.Count; i++)
@@ -433,7 +433,7 @@ namespace Civil3DFactory
                 }
                 ring.TotalLen = perim;
 
-                // 清本区旧坡顶/坡脚线（C3DF_DREDGE 标记 + 首顶点落在环内），防重建堆积
+                // Clear this region's old crest/toe lines (C3DF_DREDGE tag + first vertex inside the ring) so rebuilds do not pile up
                 int erasedOld = 0;
                 foreach (ObjectId id in ModelSpace(db, tr))
                 {
@@ -447,7 +447,7 @@ namespace Civil3DFactory
                     erasedOld++;
                 }
 
-                string sName = GetString(a, "name", "疏浚设计-" + (region ?? segs[0].Fl.Name));
+                string sName = GetString(a, "name", "DredgeDesign-" + (region ?? segs[0].Fl.Name));
                 ObjectId lyS = GridEnsureLayer(tr, db, surfLayer, 7);
                 ObjectId lyC = GridEnsureLayer(tr, db, crestLayer, 1);
                 ObjectId lyT = GridEnsureLayer(tr, db, toeLayer, 3);
@@ -457,8 +457,8 @@ namespace Civil3DFactory
                 DredgeSurfaceOut so = DredgeBuildSurface(tr, db, civ, btr, ring, bottom, sName,
                     lyS, lyC, lyT, drawCrest, drawToe, slopeStep, flatStep);
 
-                // 要素线挂进曲面定义（Definition→Breaklines）：定义自我描述 + 边线几何强制贴合。
-                // 注意：内部坡面点是 Edits，别在 GUI 里手点原生 REBUILD（会用新线配旧点）；重建一律走联动/op。
+                // Attach the feature lines to the surface definition (Definition -> Breaklines): self-describing definition + edges forced to fit.
+                // Note: interior slope points are Edits; do not run native REBUILD by hand in the GUI (it pairs new lines with old points). Always rebuild through the linkage/op.
                 int breaklines = 0;
                 try
                 {
@@ -470,7 +470,7 @@ namespace Civil3DFactory
                     breaklines = bIds.Count;
                 }
                 catch (System.Exception ex)
-                { so.Notes.Add("要素线挂特征线失败（曲面本体不受影响）：" + ex.Message); }
+                { so.Notes.Add("Failed to attach feature lines as breaklines (surface itself unaffected): " + ex.Message); }
 
                 double zMin = double.MaxValue, zMax = double.MinValue;
                 foreach (double z in ring.Z) { if (z < zMin) zMin = z; if (z > zMax) zMax = z; }

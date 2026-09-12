@@ -19,7 +19,14 @@ internal static class Program
                 ? args[0].ToLowerInvariant() : "daylight";
 
             string left, right;
-            if (cmd == "flatdig")
+            if (cmd == "channel")
+            {
+                var spec = ChannelSpec.Parse(args);
+                Directory.CreateDirectory(spec.OutDir);
+                left = ChannelWriter.Write(spec, isLeft: true);
+                right = ChannelWriter.Write(spec, isLeft: false);
+            }
+            else if (cmd == "flatdig")
             {
                 var spec = FlatDigSpec.Parse(args);
                 Directory.CreateDirectory(spec.OutDir);
@@ -44,6 +51,7 @@ internal static class Program
             Console.Error.WriteLine();
             Console.Error.WriteLine(DaylightSpec.Usage);
             Console.Error.WriteLine(FlatDigSpec.Usage);
+            Console.Error.WriteLine(ChannelSpec.Usage);
             return 2;
         }
     }
@@ -239,6 +247,22 @@ internal static class PktWriter
         return outPath;
     }
 
+    /// <summary>Write a complete .pkt package from a finished XAML and .atc text (shared plumbing for every template).</summary>
+    internal static void WritePackage(string outPath, string guid, string xaml, string atc)
+    {
+        var bomUtf8 = new UTF8Encoding(true);
+        var utf8 = new UTF8Encoding(false);
+        File.Delete(outPath);
+        using var zip = ZipFile.Open(outPath, ZipArchiveMode.Create);
+        AddEntry(zip, guid + ".xaml", xaml, bomUtf8);
+        AddEntry(zip, guid + ".atc", atc, utf8);
+        AddEntry(zip, guid + ".cfg", Cfg, utf8);
+        AddEntry(zip, guid + ".cdmd", Cdmd, utf8);
+        AddEntry(zip, guid + ".emd", Emd, utf8);
+        AddEntry(zip, guid + ".pvd", Pvd, utf8);
+        AddEntry(zip, "[Content_Types].xml", ContentTypes, bomUtf8);
+    }
+
     /// <summary>Shared .atc skeleton: tool name, description and the parameter block (each subassembly builds its own).</summary>
     internal static string BuildAtcXml(string toolName, string escapedDesc, string guid, string paramsXml, string units)
     {
@@ -318,7 +342,7 @@ internal static class PktWriter
         return result;
     }
 
-    private static string XmlEscape(string s) => s
+    internal static string XmlEscape(string s) => s
         .Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
 
     /// <summary>.atc: the tool catalog Civil 3D reads on import (subassembly name, description, parameters and defaults). Target parameters are not listed here; they live only in the XAML.</summary>

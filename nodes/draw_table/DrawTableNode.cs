@@ -10,21 +10,21 @@ namespace Civil3DFactory
 {
     public static partial class Ops
     {
-        // 自画数据表（纯 CAD 线+文字），模型空间或指定布局都能画。
-        // 用途：工程量表上图。OLE 表无头贴不进去也改不了，自画表 accore 能打印、导纯 CAD 不掉、改数只需重跑。
-        // 实体带 XData(C3DF_TBL:<name>) 认亲，同名重跑先清旧表；也认专用图层上的实体。
+        // Hand-drawn data table (pure CAD lines + text), in model space or a given layout.
+        // Purpose: put quantity tables on drawings. OLE tables cannot be pasted or edited headless; a drawn table plots in accore, survives pure-CAD export, and a rerun updates the numbers.
+        // Entities carry XData (C3DF_TBL:<name>) for identification; a rerun with the same name removes the old table first; entities on the dedicated layer are recognised too.
         const string TblRegApp = "C3DF_TBL";
 
         static JsonNode RunNodeDrawTable(JsonObject a, Document doc)
         {
             var rows = a["rows"] as JsonArray;
             if (rows == null || rows.Count == 0)
-                throw new InvalidOperationException("需要 rows:[[单元格,...],...]（每行一个数组，空字符串=空格）");
-            string name = GetString(a, "name", "表");
+                throw new InvalidOperationException("rows:[[cell,...],...] is required (one array per row, empty string = blank cell)");
+            string name = GetString(a, "name", "Table");
             string space = GetString(a, "space", "Model");
             double x0 = GetDouble(a, "x", double.NaN), yTop = GetDouble(a, "y", double.NaN);
             if (double.IsNaN(x0) || double.IsNaN(yTop))
-                throw new InvalidOperationException("需要 x,y（表左上角坐标；布局里是图纸 mm，模型空间是图形单位）");
+                throw new InvalidOperationException("x,y required (table top-left; paper mm in a layout, drawing units in model space)");
             double rowH = GetDouble(a, "row_height", 5.0);
             double textH = GetDouble(a, "text_height", 2.5);
             double totalW = GetDouble(a, "width", 0.0);
@@ -34,15 +34,15 @@ namespace Civil3DFactory
             bool clear = GetBool(a, "clear", true);
             int headerRows = (int)GetDouble(a, "header_rows", 1);
             double headerH = GetDouble(a, "header_row_height", rowH);
-            bool mask = GetBool(a, "mask", false);                 // 表底下垫 Wipeout，遮住视口里的模型内容（OLE 的不透明底）
-            double lwMm = GetDouble(a, "lineweight", 0.25);          // 图层线宽 mm；0 = 不设
+            bool mask = GetBool(a, "mask", false);                 // Wipeout under the table to mask model content in the viewport (the opaque background of OLE)
+            double lwMm = GetDouble(a, "lineweight", 0.25);          // layer lineweight mm; 0 = not set
 
-            // 列数 = 最长行
+            // column count = longest row
             int nCols = 0;
             foreach (JsonNode r in rows) nCols = Math.Max(nCols, ((JsonArray)r).Count);
-            if (nCols == 0) throw new InvalidOperationException("rows 里没有单元格");
+            if (nCols == 0) throw new InvalidOperationException("rows contains no cell");
 
-            // 列宽：col_widths 显式给；否则按各列最长文本估宽（中文按 1.0 字高、ASCII 0.6 字高 + 2 字高留白），再按 width 等比缩放
+            // Column widths: col_widths explicit; otherwise estimated from the longest text per column (CJK 1.0 x height, ASCII 0.6 x height + 2 x height padding), then scaled proportionally to width
             var colW = new double[nCols];
             if (a["col_widths"] is JsonArray cw && cw.Count == nCols)
             {
@@ -77,7 +77,7 @@ namespace Civil3DFactory
             string drawOrderNote = null;
             using (var tr = db.TransactionManager.StartTransaction())
             {
-                // 目标空间
+                // Target space
                 BlockTableRecord btr;
                 if (string.Equals(space, "Model", StringComparison.OrdinalIgnoreCase))
                 {
@@ -88,12 +88,12 @@ namespace Civil3DFactory
                 {
                     var dict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
                     if (!dict.Contains(space))
-                        throw new InvalidOperationException("图里没有布局 '" + space + "'。");
+                        throw new InvalidOperationException("Layout '" + space + "' not in the drawing.");
                     var layout = (Layout)tr.GetObject(dict.GetAt(space), OpenMode.ForRead);
                     btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForWrite);
                 }
 
-                // 图层 + RegApp
+                // Layer + RegApp
                 var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
                 ObjectId layerId;
                 if (lt.Has(layerName)) layerId = lt[layerName];
@@ -124,7 +124,7 @@ namespace Civil3DFactory
                     rat.DowngradeOpen();
                 }
 
-                // 清旧表：同空间里带 C3DF_TBL XData 且同名的实体
+                // Remove the old table: entities in the same space with C3DF_TBL XData and the same name
                 if (clear)
                 {
                     foreach (ObjectId id in btr)
@@ -144,13 +144,13 @@ namespace Civil3DFactory
                     }
                 }
 
-                // 文字样式：参数指定 > -黑体 > 图默认
+                // Text style: parameter > "-SimHei"-style > drawing default
                 ObjectId styleId = ObjectId.Null;
                 var tst = (TextStyleTable)tr.GetObject(db.TextStyleTableId, OpenMode.ForRead);
                 if (!string.IsNullOrEmpty(textStyleName))
                 {
                     if (!tst.Has(textStyleName))
-                        throw new InvalidOperationException("图里没有文字样式 '" + textStyleName + "'。");
+                        throw new InvalidOperationException("Text style '" + textStyleName + "' not in the drawing.");
                     styleId = tst[textStyleName];
                 }
 
@@ -169,7 +169,7 @@ namespace Civil3DFactory
                     made++;
                 };
 
-                // 白底遮罩（先画，压在最底）：Wipeout 按表外框，WIPEOUTFRAME 归 0 不出框线
+                // White mask (drawn first, at the bottom): Wipeout by the table outline, WIPEOUTFRAME set to 0 so no frame line shows
                 if (mask)
                 {
                     var wo = new Wipeout();
@@ -184,19 +184,19 @@ namespace Civil3DFactory
                     try { Application.SetSystemVariable("WIPEOUTFRAME", 0); } catch { }
                 }
 
-                // 横线
+                // Horizontal lines
                 double yb = yTop;
                 var rowYs = new List<double> { yTop };
                 for (int r = 0; r < rows.Count; r++) { yb -= r < headerRows ? headerH : rowH; rowYs.Add(yb); }
                 foreach (double y in rowYs)
                     put(new Line(new Point3d(x0, y, 0), new Point3d(x0 + sumW, y, 0)));
-                // 竖线
+                // Vertical lines
                 double xc = x0;
                 var colXs = new List<double> { x0 };
                 for (int c = 0; c < nCols; c++) { xc += colW[c]; colXs.Add(xc); }
                 foreach (double x in colXs)
                     put(new Line(new Point3d(x, yTop, 0), new Point3d(x, yTop - totalH, 0)));
-                // 文字（居中）
+                // Text (centred)
                 for (int r = 0; r < rows.Count; r++)
                 {
                     var ra = (JsonArray)rows[r];
@@ -211,20 +211,20 @@ namespace Civil3DFactory
                         t.HorizontalMode = TextHorizontalMode.TextCenter;
                         t.VerticalMode = TextVerticalMode.TextVerticalMid;
                         t.AlignmentPoint = new Point3d(cx, cy, 0);
-                        // 文字比格子宽就压宽度因子，不溢出
+                        // If the text is wider than the cell, reduce the width factor so it does not overflow
                         double avail = colW[c] - 0.6 * textH;
                         double est = EstTextWidth(s, textH);
                         if (est > avail && est > 0) t.WidthFactor = Math.Max(0.5, avail / est);
                         put(t);
                     }
                 }
-                // 置顶：布局里视口常被人 draworder 到最前，新画的表会被视口里的模型内容压住
+                // Bring to front: viewports in layouts are often draw-ordered to the front, so a new table would be hidden by model content in the viewport
                 try
                 {
                     var dot = (DrawOrderTable)tr.GetObject(btr.DrawOrderTableId, OpenMode.ForWrite);
                     dot.MoveToTop(newIds);
                 }
-                catch (System.Exception ex) { drawOrderNote = "置顶失败：" + ex.Message; }
+                catch (System.Exception ex) { drawOrderNote = "Bring-to-front failed: " + ex.Message; }
                 tr.Commit();
             }
 
@@ -243,7 +243,7 @@ namespace Civil3DFactory
                 ["layer"] = layerName,
                 ["mask"] = mask,
                 ["lineweight_mm"] = lwMm,
-                ["note"] = drawOrderNote ?? "已置顶"
+                ["note"] = drawOrderNote ?? "Brought to front"
             };
         }
 
@@ -254,12 +254,12 @@ namespace Civil3DFactory
             {
                 if (v.TryGetValue<string>(out string s)) return s;
                 if (v.TryGetValue<double>(out double d)) return d.ToString("0.##");
-                if (v.TryGetValue<bool>(out bool b)) return b ? "是" : "否";
+                if (v.TryGetValue<bool>(out bool b)) return b ? "Yes" : "No";
             }
             return n.ToJsonString().Trim('"');
         }
 
-        // 粗估文字宽度：CJK 按 1.0 字高，其余按 0.6 字高（中文字宽=字高×宽度因子×0.7 的经验值留了余量）
+        // Rough text width: CJK 1.0 x height, others 0.6 x height (CJK glyph width = height x width factor x 0.7 empirically, with margin)
         static double EstTextWidth(string s, double h)
         {
             double w = 0;

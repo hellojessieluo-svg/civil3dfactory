@@ -2,10 +2,10 @@
   "node": "normalize_textstyles",
   "version": 1,
   "executor": "powershell_external",
-  "fixture": "",
+  "fixture": "examples/title-block-demo.dwg",
   "fixture_requirements": [
-    "图中同时存在名为 -黑体 与 txt1 的文字样式（缺任一样式节点直接报错，这是设计行为）",
-    "至少一处文字引用这两个样式，便于人眼确认 Regen 后字形变化"
+    "The drawing contains both text styles targeted by run.ps1: the SimHei-convention style (name '-' + U+9ED1 U+4F53) and txt1 (missing either one makes the node fail by design)",
+    "At least one text references each of the two styles so the glyph change after Regen can be checked visually"
   ],
   "task": {
     "out": "${temp}/normalize-textstyles-out.dwg",
@@ -13,13 +13,13 @@
   },
   "assertions": [
     "result.ok == true",
-    "源图 SHA256 不变（节点只写 out，拒绝原地改）",
-    "out 与 dwg 同路径时报错并不产生输出",
-    "out 已存在且未给 overwrite 时报错",
-    "重开 out 后 -黑体 的 GetFont typeface == 'SimHei'（FontFile 不足以判定 TTF）",
-    "重开 out 后 txt1.FontFile 命中 gbenor.shx 且 BigFontFile 命中 gbcbig.shx",
-    "两个样式 width_factor == 0.8",
-    "跑完没有残留 acad.exe 进程"
+    "source SHA256 unchanged (the node writes only out and refuses in-place editing)",
+    "out equal to dwg path fails and produces no output",
+    "out already present without overwrite fails",
+    "after reopening out, GetFont typeface of the SimHei-convention style == 'SimHei' (FontFile alone cannot identify a TTF)",
+    "after reopening out, txt1.FontFile matches gbenor.shx and BigFontFile matches gbcbig.shx",
+    "both styles have width_factor == 0.8",
+    "no acad.exe process is left behind"
   ],
   "status": "moved_from_root_script_pending_fixture"
 }

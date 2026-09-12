@@ -7,25 +7,25 @@ using CivAlignment = Autodesk.Civil.DatabaseServices.Alignment;
 namespace Civil3DFactory.Geometry
 {
     /// <summary>
-    /// 转角切弧解析核（唯一真源）：两条路线各给一个拾取点 → 固定腿+相切弧的全部几何。
-    /// 拾取点承担两件事：定连接侧（消象限歧义——2026-08-23 全天的教训）、定腿的朝向。
-    /// 纯几何闭式解，不经原生连接路线求解器。
+    /// Corner fillet solver core (single source of truth): one pick point on each of two alignments -> full geometry of fixed legs + tangent arc.
+    /// The pick points do two things: fix the connection side (removes quadrant ambiguity, the lesson of 2026-08-23) and fix the leg direction.
+    /// Pure closed-form geometry; does not use the native connected-alignment solver.
     /// </summary>
     public static class FilletSolveCore
     {
         public class Result
         {
-            public Point3d Line1Start, Line1End;   // 腿1：外端 → 切点T1（沿行进方向）
-            public Point3d Line2Start, Line2End;   // 腿2：切点T2 → 外端
-            public double StationA, StationB;      // 两切点在各自母线上的桩号（取不到=-1）
-            public bool CornerBeyondA, CornerBeyondB; // 角点在切点的桩号增方向侧？（收口判端用）
-            public Point3d Corner;                 // 两切线交点（尖角点）
+            public Point3d Line1Start, Line1End;   // leg 1: outer end -> tangent point T1 (in travel direction)
+            public Point3d Line2Start, Line2End;   // leg 2: tangent point T2 -> outer end
+            public double StationA, StationB;      // stations of the two tangent points on their parent alignments (-1 if unavailable)
+            public bool CornerBeyondA, CornerBeyondB; // is the corner on the increasing-station side of the tangent point? (used to pick the end when trimming)
+            public Point3d Corner;                 // intersection of the two tangents (sharp corner)
             public double ArcLength, CornerAngleDeg;
-            public string Error;                   // 非空=失败原因
+            public string Error;                   // non-empty = failure reason
         }
 
-        /// <param name="mirrorB">镜像：B 侧腿在角点处反向（弧解到补角象限，另一侧同尺寸切弧）。
-        /// 不是"同切点大弧"——那是气球圈，2026-08-23 深夜用户实图否掉。</param>
+        /// <param name="mirrorB">Mirror: reverse the B-side leg at the corner (arc solved in the supplementary quadrant, same-size tangent arc on the other side).
+        /// Not the "large arc through the same tangent points": that is a balloon loop, rejected on real drawings late on 2026-08-23.</param>
         public static Result Solve(CivAlignment a, Point3d pickA,
                                    CivAlignment b, Point3d pickB,
                                    double radius, double leg, bool mirrorB = false)
@@ -33,8 +33,8 @@ namespace Civil3DFactory.Geometry
             var r = new Result();
             try
             {
-                // 拾取点未必垂足在路线桩号范围内（点在端头外侧 StationOffset 抛
-                // PointNotOnEntity）——先把点吸到线上，再不行就粗扫细化。
+                // The pick point's foot may fall outside the alignment station range (StationOffset throws
+                // PointNotOnEntity beyond the ends): snap the point onto the line first, else coarse scan then refine.
                 double StationOf(CivAlignment al, Point3d pick)
                 {
                     try
@@ -73,7 +73,7 @@ namespace Civil3DFactory.Geometry
                     double s0 = Math.Max(al.StartingStation, s - 0.05);
                     double s1 = Math.Min(al.EndingStation, s + 0.05);
                     var v = Pt(al, s1) - Pt(al, s0);
-                    if (v.Length < 1e-9) { r.Error = "取向失败：拾取点太靠路线端部。"; return default; }
+                    if (v.Length < 1e-9) { r.Error = "Orientation failed: pick point too close to the alignment end."; return default; }
                     return v / v.Length;
                 }
 
@@ -81,24 +81,24 @@ namespace Civil3DFactory.Geometry
                 Vector3d u1 = Dir(a, sa), u2 = Dir(b, sb);
                 if (r.Error != null) return r;
 
-                // 两条局部直线求交（视拾取点附近为直线段——转角处的常态）
+                // Intersect the two local lines (the neighbourhood of a pick point is treated as straight, the norm at corners)
                 double det = u1.X * (-u2.Y) - u1.Y * (-u2.X);
-                if (Math.Abs(det) < 1e-9) { r.Error = "两条路线在拾取处近乎平行，倒不了角。"; return r; }
+                if (Math.Abs(det) < 1e-9) { r.Error = "The two alignments are nearly parallel at the pick points; cannot fillet."; return r; }
                 double dx = P2.X - P1.X, dy = P2.Y - P1.Y;
                 double t1 = (dx * (-u2.Y) - dy * (-u2.X)) / det;
                 Point3d C = new Point3d(P1.X + t1 * u1.X, P1.Y + t1 * u1.Y, 0);
 
-                Vector3d d1 = P1 - C, d2 = P2 - C;   // 角点指向各自拾取点＝腿的朝向
+                Vector3d d1 = P1 - C, d2 = P2 - C;   // corner -> pick point = leg direction
                 if (d1.Length < 0.5 || d2.Length < 0.5)
-                { r.Error = "拾取点离交点太近（<0.5m），请在离角远一点的位置点取。"; return r; }
+                { r.Error = "Pick point too close to the intersection (<0.5 m); pick further from the corner."; return r; }
                 d1 /= d1.Length; d2 /= d2.Length;
-                if (mirrorB) d2 = -d2;   // 镜像：B 侧腿反向，弧落到另一侧（补角象限）
+                if (mirrorB) d2 = -d2;   // mirror: reverse the B-side leg, arc lands on the other side (supplementary quadrant)
 
                 double cos = Math.Max(-1, Math.Min(1, d1.DotProduct(d2)));
                 double theta = Math.Acos(cos);
                 r.CornerAngleDeg = theta * 180 / Math.PI;
                 if (theta < 0.09 || theta > Math.PI - 0.09)
-                { r.Error = $"夹角退化（{r.CornerAngleDeg:0.0}°），倒不了角。"; return r; }
+                { r.Error = $"Degenerate angle ({r.CornerAngleDeg:0.0} deg); cannot fillet."; return r; }
 
                 double t = radius / Math.Tan(theta / 2);
                 r.Corner = C;
@@ -109,10 +109,10 @@ namespace Civil3DFactory.Geometry
 
                 double sta = 0, off = 0;
                 try { a.StationOffset(T1.X, T1.Y, ref sta, ref off); r.StationA = sta; }
-                catch { r.StationA = -1; }   // 切点在母线端头外（腿伸出去的情形）
+                catch { r.StationA = -1; }   // tangent point beyond the parent alignment end (leg sticks out)
                 try { b.StationOffset(T2.X, T2.Y, ref sta, ref off); r.StationB = sta; }
                 catch { r.StationB = -1; }
-                // 角在切点的哪一头：切点处桩号增方向 与 切点→角点 的点积（几何判定，零歧义）
+                // Which side of the tangent point the corner is on: dot product of the increasing-station direction at the tangent point and tangent point -> corner (geometric, unambiguous)
                 if (r.StationA >= 0)
                     r.CornerBeyondA = Dir(a, r.StationA).DotProduct(C - T1) > 0;
                 if (r.StationB >= 0)
@@ -120,35 +120,35 @@ namespace Civil3DFactory.Geometry
             }
             catch (System.Exception ex)
             {
-                r.Error = "解算异常：" + ex.Message;
+                r.Error = "Solve error: " + ex.Message;
             }
             return r;
         }
 
         /// <summary>
-        /// 收口（点对点契约，2026-08-23 定）：偏移段的临角区间端**精确**落到转角路线的
-        /// 腿外端（Result.Line1Start / Line2End），段尾点 == 角首点，零搭接零缝。
-        /// 传坐标不传桩号——偏移路线自家桩号与母线帧在弯道上差几米（老妖怪），
-        /// 内部一律用母线 StationOffset 换算到母线帧后再改区间端。seg 须已 ForWrite。
-        /// 返回报账文本；非偏移路线/会吃光区间时不动并说明。
+        /// Trim (point-to-point contract, fixed 2026-08-23): the corner-side region end of the offset segment lands **exactly** on the
+        /// outer leg end of the corner alignment (Result.Line1Start / Line2End); segment end == corner start, zero overlap, zero gap.
+        /// Pass coordinates, not stations: an offset alignment's own stations differ from the parent frame by metres on curves (an old demon),
+        /// so internally everything is converted to the parent frame via the parent's StationOffset before the region end is changed. seg must already be ForWrite.
+        /// Returns a report string; leaves the region alone and says so for non-offset alignments or when trimming would consume the region.
         /// </summary>
         public static string SnapOffsetEnd(Transaction tr, CivAlignment seg,
                                            Point3d legOuterPt, Point3d cornerPt)
         {
             Autodesk.Civil.DatabaseServices.OffsetAlignmentInfo info;
             try { info = seg.OffsetAlignmentInfo; } catch { info = null; }
-            if (info == null) return seg.Name + "：非偏移路线，端头未收";
+            if (info == null) return seg.Name + ": not an offset alignment, end not trimmed";
 
             CivAlignment parent;
             try { parent = (CivAlignment)tr.GetObject(info.ParentAlignmentId, OpenMode.ForRead); }
-            catch { return seg.Name + "：取不到母线，端头未收"; }
+            catch { return seg.Name + ": parent alignment unavailable, end not trimmed"; }
 
             double psta = 0, poff = 0;
             try { parent.StationOffset(legOuterPt.X, legOuterPt.Y, ref psta, ref poff); }
-            catch { return seg.Name + "：腿外端超出母线范围，端头未收"; }
+            catch { return seg.Name + ": outer leg end beyond parent range, end not trimmed"; }
 
-            // 判端基准＝角点桩号（不是腿外端）：镜像后腿外端会跑到角另一侧，
-            // 用"角在切点哪一头"的点积判端会判反——离角最近的那个区间端才是要动的端。
+            // End selection reference = corner station (not the outer leg end): after mirroring the outer leg end moves to the other side of the corner,
+            // so the "which side of the tangent point" dot product would pick the wrong end; the region end nearest the corner is the one to move.
             double pstaRef = psta;
             try
             {
@@ -156,7 +156,7 @@ namespace Civil3DFactory.Geometry
                 parent.StationOffset(cornerPt.X, cornerPt.Y, ref pc, ref po);
                 pstaRef = pc;
             }
-            catch { }   // 角点超出母线范围就退回用腿外端当基准
+            catch { }   // corner beyond parent range: fall back to the outer leg end as reference
 
             var regions = info.Regions;
             int best = -1;
@@ -168,22 +168,22 @@ namespace Civil3DFactory.Geometry
                     : Math.Min(Math.Abs(pstaRef - g.StartStation), Math.Abs(pstaRef - g.EndStation));
                 if (d < bd) { bd = d; best = i; }
             }
-            if (best < 0) return seg.Name + "：无区间，端头未收";
+            if (best < 0) return seg.Name + ": no region, end not trimmed";
             var reg = regions[best];
             bool moveStart = Math.Abs(pstaRef - reg.StartStation) <= Math.Abs(pstaRef - reg.EndStation);
             if (moveStart)
             {
-                if (psta > reg.EndStation - 1) return seg.Name + "：收口会吃光区间，未收";
+                if (psta > reg.EndStation - 1) return seg.Name + ": trimming would consume the region, not trimmed";
                 double old = reg.StartStation;
                 reg.StartStation = psta;
-                return $"{seg.Name} 起点 {old:0.00}→{psta:0.00}";
+                return $"{seg.Name} start {old:0.00}->{psta:0.00}";
             }
             else
             {
-                if (psta < reg.StartStation + 1) return seg.Name + "：收口会吃光区间，未收";
+                if (psta < reg.StartStation + 1) return seg.Name + ": trimming would consume the region, not trimmed";
                 double old = reg.EndStation;
                 reg.EndStation = psta;
-                return $"{seg.Name} 终点 {old:0.00}→{psta:0.00}";
+                return $"{seg.Name} end {old:0.00}->{psta:0.00}";
             }
         }
     }

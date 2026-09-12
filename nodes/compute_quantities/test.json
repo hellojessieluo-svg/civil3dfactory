@@ -1,7 +1,7 @@
 {
   "node": "compute_quantities",
   "version": 1,
-  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "fixture": "examples/channel-demo.dwg",
   "prerequisite": "create_sample_lines",
   "assertions": [
     "data.sections > 0",

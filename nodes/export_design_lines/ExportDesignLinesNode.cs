@@ -17,22 +17,22 @@ using CivSubType = Autodesk.Civil.DatabaseServices.AlignmentSubEntityType;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// export_design_lines：把设计意图从 Civil 3D 对象里搬到多段线上，写进一张全新空白 DWG。
-    /// 产出的三类线就是以后建模的**输入参数**，模型退化为下游产物。
+    /// export_design_lines: move the design intent from Civil 3D objects onto polylines, written into a brand-new empty DWG.
+    /// The three kinds of lines produced are the input parameters for all future modelling; the model degrades to a downstream product.
     ///
-    ///   中心线-{通道}          走廊基线所用的路线，非闭合
-    ///   边线-{通道}-{左|右}    其余路线，按几何归属到通道并定左右，非闭合
-    ///   边界-{通道}            走廊曲面的外边界，闭合
+    ///   CL-{channel}             the alignment used by the corridor baseline, open
+    ///   EDGE-{channel}-{L|R}     the remaining alignments, assigned to a channel by geometry and given a side, open
+    ///   BOUNDARY-{channel}       the outer boundary of the corridor surface, closed
     ///
-    /// 三处不靠猜：
-    /// · 路线枚举走 ModelSpace，不用 CivilDocument.GetAlignmentIds()
-    ///   —— 后者漏掉场地内的路线（本图 B1 的两条边线就在场地里，导致 19/21 之差）。
-    /// · 通道归属和左右用父中心线的 StationOffset 实测（正=右 负=左），
-    ///   不信 OffsetAlignmentInfo.NominalOffset（本图读出 1(E) 左 75 右 25，与图名 25 不符）。
-    /// · 中心线集合 = 走廊基线引用的路线，不靠名字规则。
+    /// Three things are measured, not guessed:
+    /// - Alignments are enumerated from ModelSpace, not CivilDocument.GetAlignmentIds()
+    ///   -- the latter misses alignments inside sites (both B1 edges of this drawing sit in a site, giving 19 vs 21).
+    /// - Channel ownership and side are measured with StationOffset against the parent centerline (positive = right, negative = left),
+    ///   not taken from OffsetAlignmentInfo.NominalOffset (this drawing read 1(E) left 75 right 25, contradicting the name's 25).
+    /// - The centerline set = alignments referenced by corridor baselines, no naming rules.
     ///
-    /// 几何精确：直线与圆弧原样保留（圆弧走 bulge = tan(Δ/4)，顺时针取负），
-    /// 只有缓和曲线按 spiral_step 采样。每条线回报 length_delta 自检。
+    /// Geometry is exact: lines and arcs are kept as-is (arc bulge = tan(delta/4), negative when clockwise);
+    /// only spirals are sampled by spiral_step. Every line reports length_delta as a self-check.
     /// </summary>
     public static partial class Ops
     {
@@ -41,7 +41,7 @@ namespace Civil3DFactory
 
         sealed class EdlLine
         {
-            public string Source;              // 源对象名
+            public string Source;              // source object name
             public string Channel;
             public string Role;                // CENTER / LEFT / RIGHT / BOUNDARY
             public double SrcLength;
@@ -56,10 +56,10 @@ namespace Civil3DFactory
         {
             string outPath = Need(a, "out");
             if (!Path.IsPathRooted(outPath))
-                throw new InvalidOperationException("out 必须是绝对路径：" + outPath);
+                throw new InvalidOperationException("out must be an absolute path: " + outPath);
             bool overwrite = GetBool(a, "overwrite", false);
             if (File.Exists(outPath) && !overwrite)
-                throw new InvalidOperationException("文件已存在，拒绝覆盖：" + outPath + "（确需覆盖传 overwrite:true）");
+                throw new InvalidOperationException("File already exists, refusing to overwrite: " + outPath + " (pass overwrite:true to overwrite)");
 
             string tplCenter = GetString(a, "center_layer", "CL-{channel}");
             string tplEdge = GetString(a, "edge_layer", "EDGE-{channel}-{side}");
@@ -84,7 +84,7 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // ---- 1 从 ModelSpace 收全部路线、走廊、曲面 ----
+                // ---- 1 Collect all alignments, corridors and surfaces from ModelSpace ----
                 var aligns = new List<CivAlign>();
                 var corrs = new List<CivCorr>();
                 var tins = new List<CivTin>();
@@ -97,9 +97,9 @@ namespace Civil3DFactory
                     else if (o is CivTin) tins.Add((CivTin)o);
                 }
 
-                // ---- 2 中心线 = 走廊基线引用的路线 ----
+                // ---- 2 Centerlines = alignments referenced by corridor baselines ----
                 var centerIds = new HashSet<ObjectId>();
-                var corridorChannel = new Dictionary<string, string>();   // 走廊名 → 通道名
+                var corridorChannel = new Dictionary<string, string>();   // corridor name -> channel name
                 foreach (CivCorr c in corrs)
                 {
                     string cname = "";
@@ -116,10 +116,10 @@ namespace Civil3DFactory
                                 corridorChannel[cname] = al.Name;
                         }
                     }
-                    catch (System.Exception ex) { notes.Add("走廊 " + cname + " 读基线失败：" + ex.Message); }
+                    catch (System.Exception ex) { notes.Add("Corridor " + cname + " failed to read baselines: " + ex.Message); }
                 }
                 if (centerIds.Count == 0)
-                    throw new InvalidOperationException("图里没有走廊基线，无法确定哪些路线是中心线。");
+                    throw new InvalidOperationException("No corridor baselines in the drawing; cannot determine which alignments are centerlines.");
 
                 var centers = new List<CivAlign>();
                 var edges = new List<CivAlign>();
@@ -130,24 +130,24 @@ namespace Civil3DFactory
                 foreach (CivAlign x in centers) diagC.Add(x.Name);
                 var diagE = new JsonArray();
                 foreach (CivAlign x in edges) diagE.Add(x.Name);
-                notes.Add("诊断：ModelSpace 找到路线 " + aligns.Count +
-                          " 条；判为中心线 " + centers.Count + " 条 " + diagC.ToJsonString() +
-                          "；判为边线 " + edges.Count + " 条 " + diagE.ToJsonString());
+                notes.Add("Diagnostics: ModelSpace has " + aligns.Count +
+                          " alignments; " + centers.Count + " classified as centerlines " + diagC.ToJsonString() +
+                          "; " + edges.Count + " classified as edges " + diagE.ToJsonString());
 
-                // ---- 3 中心线 ----
+                // ---- 3 Centerlines ----
                 foreach (CivAlign al in centers)
                 {
                     var it = new EdlLine { Source = al.Name, Channel = al.Name, Role = "CENTER", SrcLength = al.Length };
                     if (EdlExtract(al, spiralStep, it)) lines.Add(it);
-                    else notes.Add("中心线 " + al.Name + " 没有可转换的几何，已跳过");
+                    else notes.Add("Centerline " + al.Name + " has no convertible geometry, skipped");
                 }
 
-                // ---- 4 边线：按实测偏距归属通道并定左右 ----
+                // ---- 4 Edges: assign to a channel by measured offset and determine the side ----
                 foreach (CivAlign al in edges)
                 {
                     var it = new EdlLine { Source = al.Name, SrcLength = al.Length };
                     if (!EdlExtract(al, spiralStep, it))
-                    { notes.Add("边线 " + al.Name + " 没有可转换的几何，已跳过"); continue; }
+                    { notes.Add("Edge " + al.Name + " has no convertible geometry, skipped"); continue; }
 
                     CivAlign best = null;
                     double bestAbs = double.MaxValue, bMin = 0, bMax = 0, bMean = 0;
@@ -155,35 +155,35 @@ namespace Civil3DFactory
                     {
                         double mn, mx, mean;
                         int hit = EdlMeasure(c, al, probes, out mn, out mx, out mean);
-                        if (hit < probes / 2) continue;                 // 多数点落在该中心线桩号范围外
+                        if (hit < probes / 2) continue;                 // most probe points fall outside this centerline's station range
                         double mag = Math.Abs(mean);
-                        if (mag > offTol) continue;                     // 离得太远，不是这条通道的边线
+                        if (mag > offTol) continue;                     // too far away, not an edge of this channel
                         if (mag < bestAbs) { bestAbs = mag; best = c; bMin = mn; bMax = mx; bMean = mean; }
                     }
 
                     if (best == null)
                     {
-                        // 报清楚每条中心线各自量到了什么，别只说"找不到"
+                        // Report what each centerline measured instead of just saying "not found"
                         var why = new JsonArray();
                         foreach (CivAlign c in centers)
                         {
                             double m1, m2, m3;
                             int h = EdlMeasure(c, al, probes, out m1, out m2, out m3);
-                            why.Add(c.Name + ": 命中 " + h + "/" + probes +
-                                    " 平均偏距 " + Math.Round(m3, 2));
+                            why.Add(c.Name + ": hits " + h + "/" + probes +
+                                    " mean offset " + Math.Round(m3, 2));
                         }
-                        notes.Add("边线 " + al.Name + " 找不到归属中心线（需命中≥" + (probes / 2) +
-                                  " 且 |平均偏距|≤" + offTol.ToString("0.#") + " m）。逐条实测：" +
+                        notes.Add("Edge " + al.Name + " has no parent centerline (needs hits >= " + (probes / 2) +
+                                  " and |mean offset| <= " + offTol.ToString("0.#") + " m). Per-centerline measurements: " +
                                   why.ToJsonString());
                         continue;
                     }
                     it.Channel = best.Name;
-                    it.Role = bMean >= 0 ? "RIGHT" : "LEFT";            // Civil 约定：正=右 负=左
+                    it.Role = bMean >= 0 ? "RIGHT" : "LEFT";            // Civil convention: positive = right, negative = left
                     it.OffMin = Math.Abs(bMin); it.OffMax = Math.Abs(bMax); it.OffMean = Math.Abs(bMean);
                     lines.Add(it);
                 }
 
-                // ---- 5 道路边界：走廊曲面外边界（闭合）----
+                // ---- 5 Road boundaries: outer boundary of the corridor surface (closed) ----
                 if (withBoundaries)
                 {
                     foreach (CivTin s in tins)
@@ -193,7 +193,7 @@ namespace Civil3DFactory
                         string channel = null;
                         foreach (var kv in corridorChannel)
                             if (sname.IndexOf(kv.Key, StringComparison.Ordinal) >= 0) { channel = kv.Value; break; }
-                        if (channel == null) continue;                  // 原地形等非走廊曲面
+                        if (channel == null) continue;                  // non-corridor surfaces such as existing ground
 
                         int got = 0;
                         try
@@ -209,7 +209,7 @@ namespace Civil3DFactory
                                     foreach (Point3d p in bd.Vertices)
                                     { it.V.Add(new Point2d(p.X, p.Y)); it.B.Add(0.0); it.Lines++; }
                                     if (it.V.Count < 3) continue;
-                                    // 首末点重合则去掉末点，交给 Closed 标志
+                                    // If first and last points coincide, drop the last one and rely on the Closed flag
                                     if (it.V[0].GetDistanceTo(it.V[it.V.Count - 1]) < 1e-6)
                                     { it.V.RemoveAt(it.V.Count - 1); it.B.RemoveAt(it.B.Count - 1); }
                                     lines.Add(it); got++;
@@ -217,9 +217,9 @@ namespace Civil3DFactory
                             }
                         }
                         catch (System.Exception ex)
-                        { notes.Add("曲面 " + sname + " 读边界失败：" + ex.Message); }
-                        // 定义边界为空时退回 ExtractBorder：取曲面真实轮廓。
-                        // 它会往宿主图里生成实体，读完就删；宿主图本来也不保存。
+                        { notes.Add("Surface " + sname + " failed to read boundaries: " + ex.Message); }
+                        // When the definition boundary is empty, fall back to ExtractBorder: the surface's actual outline.
+                        // It creates entities in the host drawing; they are erased right after reading (the host drawing is never saved anyway).
                         if (got == 0)
                         {
                             try
@@ -248,7 +248,7 @@ namespace Civil3DFactory
                                             it.V.Add(new Point2d(v.Position.X, v.Position.Y)); it.B.Add(0.0);
                                         }
                                     }
-                                    ent.Erase();                       // 读完即删，不留在宿主图
+                                    ent.Erase();                       // erase right after reading, do not leave it in the host drawing
                                     if (it.V.Count < 3) continue;
                                     if (it.V[0].GetDistanceTo(it.V[it.V.Count - 1]) < 1e-6)
                                     { it.V.RemoveAt(it.V.Count - 1); it.B.RemoveAt(it.B.Count - 1); }
@@ -256,21 +256,21 @@ namespace Civil3DFactory
                                     lines.Add(it); got++;
                                 }
                                 if (got > 0)
-                                    notes.Add("曲面 " + sname + " 无定义边界，已用 ExtractBorder 取轮廓（" + got + " 条）");
+                                    notes.Add("Surface " + sname + " has no definition boundary; outline taken with ExtractBorder (" + got + " curves)");
                             }
                             catch (System.Exception ex)
-                            { notes.Add("曲面 " + sname + " ExtractBorder 失败：" + ex.Message); }
+                            { notes.Add("Surface " + sname + " ExtractBorder failed: " + ex.Message); }
                         }
-                        if (got == 0) notes.Add("曲面 " + sname + " 取不到任何外边界");
+                        if (got == 0) notes.Add("Surface " + sname + " has no outer boundary at all");
                     }
                 }
                 tr.Commit();
             }
 
             if (lines.Count == 0)
-                throw new InvalidOperationException("没有可导出的线。");
+                throw new InvalidOperationException("No lines to export.");
 
-            // ---- 6 写进全新空白图 ----
+            // ---- 6 Write into a brand-new empty drawing ----
             var items = new JsonArray();
             using (var nd = new Database(true, false))
             {
@@ -283,7 +283,7 @@ namespace Civil3DFactory
 
                     foreach (EdlLine it in lines)
                     {
-                        string side = it.Role == "LEFT" ? "左" : it.Role == "RIGHT" ? "右" : "";
+                        string side = it.Role == "LEFT" ? "L" : it.Role == "RIGHT" ? "R" : "";
                         string tpl = it.Role == "CENTER" ? tplCenter
                                    : it.Role == "BOUNDARY" ? tplBound : tplEdge;
                         string layer = tpl.Replace("{channel}", it.Channel).Replace("{side}", side);
@@ -293,8 +293,8 @@ namespace Civil3DFactory
                         ObjectId ltId = A2PResolveLinetype(tr, nd, lt, "acadiso.lin");
                         ObjectId layerId = EadEnsureLayer(tr, nd, layer, color, ltId);
 
-                        // ⚠ 先入库再设属性：未入库的实体还绑在宿主图上，
-                        // 直接设 LayerId（取自新图）会抛 eWrongDatabase。
+                        // Append before setting properties: an un-appended entity is still bound to the host drawing,
+                        // and setting LayerId (taken from the new drawing) directly throws eWrongDatabase.
                         var pl = new Polyline(it.V.Count);
                         pl.SetDatabaseDefaults(nd);
                         for (int i = 0; i < it.V.Count; i++)
@@ -369,8 +369,8 @@ namespace Civil3DFactory
             };
         }
 
-        /// <summary>沿 edge 采样，量它相对 center 的桩号偏距。返回落在桩号范围内的点数。
-        /// Civil 约定：offset 正 = 中心线右侧，负 = 左侧。</summary>
+        /// <summary>Sample along edge and measure its station offset relative to center. Returns the number of points inside the station range.
+        /// Civil convention: positive offset = right of the centerline, negative = left.</summary>
         static int EdlMeasure(CivAlign center, CivAlign edge, int probes,
             out double min, out double max, out double mean)
         {
@@ -399,7 +399,7 @@ namespace Civil3DFactory
             return hit;
         }
 
-        /// <summary>路线 → 顶点/bulge。直线圆弧精确，缓和曲线按步长采样。</summary>
+        /// <summary>Alignment -> vertex/bulge. Lines and arcs are exact; spirals are sampled by step.</summary>
         static bool EdlExtract(CivAlign al, double spiralStep, EdlLine it)
         {
             Point2d tail = new Point2d(0.0, 0.0);

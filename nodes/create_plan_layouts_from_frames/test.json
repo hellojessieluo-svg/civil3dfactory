@@ -1,7 +1,7 @@
 {
   "node": "create_plan_layouts_from_frames",
   "version": 1,
-  "fixture": "tests/dwg/plan-layout-base-with-frames.dwg",
+  "fixture": "examples/title-block-demo.dwg",
   "prerequisite": "horizontal plan frames with C3DF_PLAN_FRAME XData and an A3 title block",
   "args": {
     "block": "${title_block}",
@@ -9,14 +9,14 @@
     "paper": "A3",
     "scale": 5000,
     "frame_layer": "C3DF-PLAN-FRAME-NOPLOT",
-    "layout_prefix": "分平面图-",
+    "layout_prefix": "PLAN-",
     "max_layouts": 3,
     "attributes": {
-      "图名": "分平面图（{start_station}—{end_station}）",
-      "图号": "PLAN-{n:00}",
-      "比例": "1:5000",
-      "当前页": "{n}",
-      "总页数": "{total}"
+      "SHEET_TITLE": "Plan ({start_station} to {end_station})",
+      "SHEET_NO": "PLAN-{n:00}",
+      "SCALE": "1:5000",
+      "PAGE": "{n}",
+      "PAGES": "{total}"
     }
   },
   "assertions": [

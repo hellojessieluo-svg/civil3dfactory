@@ -15,20 +15,20 @@ namespace Civil3DFactory
     public static partial class Ops
     {
         /// <summary>
-        /// 只读诊断：列出标签样式（LabelStyle）及其文本组件的内容与位置参数。
+        /// Read-only diagnostic: list label styles (LabelStyle) with the content and position parameters of their text components.
         ///
-        /// 为什么有这个零件：标签在图上显示的固定文字（如「疏浚控制线」）藏在
-        /// LabelStyle 的文本组件里，DXFOUT 落不到明文（Civil 自定义对象走 proxy），
-        /// 只能靠 API 读。
+        /// Why this node exists: fixed text shown by labels (e.g. "Dredge control line") hides in the
+        /// text components of the LabelStyle; DXFOUT never writes it as plain text (Civil custom objects go through proxies),
+        /// so the API is the only way to read it.
         ///
-        /// ⚠ 历史教训（2026-08-26 三连崩）：**不许用反射深爬样式对象**——
-        /// Flatten 式反射会摸到 Database/Document 等属性，accoreconsole 原生崩溃
-        /// （非 .NET 异常，catch 不住）。本版只走强类型文档路径：
-        /// LabelStyle.GetComponents(Text) → LabelStyleTextComponent.Text.Contents/XOffset/YOffset。
+        /// WARNING, lesson learned (three crashes on 2026-08-26): **never deep-crawl style objects by reflection**;
+        /// flatten-style reflection touches properties like Database/Document and crashes accoreconsole natively
+        /// (not a .NET exception; cannot be caught). This version uses only the strongly typed documented path:
+        /// LabelStyle.GetComponents(Text) -> LabelStyleTextComponent.Text.Contents/XOffset/YOffset.
         /// </summary>
         static JsonNode RunNodeDumpLabelStyles(JsonObject a, Document doc)
         {
-            // 只报文本内容含这个串的样式；不给就全报
+            // only report styles whose text content contains this string; report all if absent
             string contains = GetString(a, "contains", null);
             int maxStyles = (int)GetDouble(a, "max_styles", 800);
 
@@ -39,7 +39,7 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // 用属性游走只**收集 ObjectId**（这一步 08-26 实测安全，崩的是后面的反射展开）。
+                // Walk properties only to **collect ObjectIds** (verified safe on 08-26; the crash was in the later reflective expansion).
                 var ids = new List<ObjectId>();
                 var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
                 object root = null;
@@ -47,9 +47,9 @@ namespace Civil3DFactory
                 catch { }
                 CollectIds(root ?? (object)civ.Styles, ids, seen, 0, 7);
 
-                // Code Set Style 支：走廊断面的 Point/Link 标签（「疏浚控制线」这类固定文字）
-                // 挂在 CodeSetStyle 每个 item 的 LabelStyleId 上，不在 LabelStyles 根下。
-                // 同时记下「标签样式 → 挂在哪个 code set 的哪个 code」，查重复标签要用。
+                // Code Set Style branch: Point/Link labels of corridor sections (fixed text like "Dredge control line")
+                // hang on the LabelStyleId of each CodeSetStyle item, not under the LabelStyles root.
+                // Also record "label style -> which code of which code set"; needed when hunting duplicate labels.
                 var styleOwners = new Dictionary<ObjectId, List<string>>();
                 try
                 {
@@ -68,7 +68,7 @@ namespace Civil3DFactory
                             try { codeName = item.Code; } catch { }
                             if (codeName == null)
                             {
-                                // 属性名各版本不一（Code / CodeName / Description），反射只取一个字符串，不深爬
+                                // Property names vary by version (Code / CodeName / Description); reflection fetches a single string, no deep crawl
                                 foreach (string pn in new[] { "CodeName", "Description" })
                                 {
                                     try
@@ -102,7 +102,7 @@ namespace Civil3DFactory
 
                     var comps = new JsonArray();
                     bool hit = false;
-                    // 文本组件：内容 + 偏移。全走强类型，不反射。
+                    // Text components: content + offsets. Strongly typed only, no reflection.
                     foreach (CivLabelStyleComponentType ct in new CivLabelStyleComponentType[]
                     {
                         CivLabelStyleComponentType.Text,
@@ -139,8 +139,8 @@ namespace Civil3DFactory
                                     contents.IndexOf(contains, StringComparison.Ordinal) >= 0)
                                     hit = true;
                             }
-                            // 锚点两项在 General 组：AnchorComponent（挂在哪个组件/要素上）、AnchorLocation（挂在它的哪个点）。
-                            // 组件之间的上下距离就是由「锚点 + 附着点 + 偏移」决定的，只报偏移看不出间距来源。
+                            // The two anchor items are in the General group: AnchorComponent (which component/feature it hangs on), AnchorLocation (which point of it).
+                            // Vertical spacing between components is determined by "anchor + attachment + offset"; reporting offsets alone hides the source of the spacing.
                             {
                                 object ac = GetGroupProp(c, "General", "AnchorComponent");
                                 if (ac != null) jc["anchor_component"] = ac.ToString();
@@ -165,8 +165,8 @@ namespace Civil3DFactory
                         ["handle"] = st.Handle.ToString(),
                         ["components"] = comps
                     };
-                    // 拖曳状态（Dragged State 页）与引线（Leader 页）：只读 Property* 包装器的 Value，
-                    // 名单化一层，不深爬（避开 08-26 那种原生崩）。
+                    // Dragged State page and Leader page: read only the Value of the Property* wrappers,
+                    // one whitelisted level, no deep crawl (avoids the 08-26 style native crash).
                     JsonObject ds = ShallowPropertyValues(GetGroupProp(st, "Properties", "DraggedStateComponents", false));
                     if (ds != null && ds.Count > 0) entry["dragged_state"] = ds;
                     JsonObject ld = ShallowPropertyValues(GetGroupProp(st, "Properties", "Leader", false));
@@ -192,8 +192,8 @@ namespace Civil3DFactory
             };
         }
 
-        /// <summary>递归收集对象树里的 ObjectId（样式集合大多是 IEnumerable&lt;ObjectId&gt;）。
-        /// 只收 id、不打开对象——这一步实测安全。</summary>
+        /// <summary>Recursively collect ObjectIds in the object tree (style collections are mostly IEnumerable&lt;ObjectId&gt;).
+        /// Collect ids only, never open objects; verified safe.</summary>
         static void CollectIds(object root, List<ObjectId> outIds, HashSet<object> seen, int depth, int maxDepth)
         {
             if (root == null || depth > maxDepth) return;
@@ -218,7 +218,7 @@ namespace Civil3DFactory
             foreach (PropertyInfo p in root.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
                 if (p.GetIndexParameters().Length > 0) continue;
-                // 只钻样式树容器，不碰引擎对象
+                // Drill into style-tree containers only, never engine objects
                 string tn = p.PropertyType.Name;
                 bool container = tn.IndexOf("Styles", StringComparison.OrdinalIgnoreCase) >= 0
                               || tn.IndexOf("Collection", StringComparison.OrdinalIgnoreCase) >= 0

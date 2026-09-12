@@ -10,14 +10,14 @@ using CivilDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// offsets_from_boundary（S02）：把闭合边界多段线劈成左右两条偏移路线，供走廊当宽度目标。
+    /// offsets_from_boundary (S02): split a closed boundary polyline into left/right offset alignments for the corridor to use as width targets.
     ///
-    /// 做法：边界每个顶点用中心线 StationOffset 投影成 (桩号, 偏距)，按 interval 分桶，
-    /// 桶内最负偏距 = 左半宽、最正偏距 = 右半宽，再用 PointLocation(桩号, ±半宽) 回投成点。
-    /// 顺带解决两个问题：端部封口顶点被自然排除（它们不构成某桩号的极值）；
-    /// 三角网轮廓那几百个碎顶点被抽稀成按 interval 的规整线。
+    /// Approach: project every boundary vertex onto the centerline via StationOffset as (station, offset), bucket by interval,
+    /// most negative offset in a bucket = left half-width, most positive = right half-width, then project back with PointLocation(station, +/-halfwidth).
+    /// This also solves two problems: end-cap vertices drop out naturally (they are never the extreme at any station);
+    /// the hundreds of tiny vertices of a TIN outline get thinned into a regular line at the given interval.
     ///
-    /// 命名按 create_corridor 的约定：{通道}_左 / {通道}_右（它按名前缀找目标，不看偏移距离）。
+    /// Naming follows the create_corridor convention: {channel}_L / {channel}_R (it finds targets by name prefix, not by offset distance).
     /// </summary>
     public static partial class Ops
     {
@@ -47,7 +47,7 @@ namespace Civil3DFactory
                 ObjectId labelId = FindStyleId(tr,
                     civ.Styles.LabelSetStyles.AlignmentLabelSetStyles, labelSet);
                 if (labelId.IsNull)
-                    throw new InvalidOperationException("当前图里没有任何路线标签集样式，无法建偏移路线。");
+                    throw new InvalidOperationException("The drawing has no alignment label set style; cannot create offset alignments.");
 
                 var byName = new Dictionary<string, CivAlign>(StringComparer.OrdinalIgnoreCase);
                 foreach (ObjectId aid in civ.GetAlignmentIds())
@@ -60,7 +60,7 @@ namespace Civil3DFactory
                 BlockTableRecord ms = (BlockTableRecord)tr.GetObject(
                     bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
 
-                // 收边界多段线
+                // Collect boundary polylines
                 var bounds = new List<KeyValuePair<string, Polyline>>();
                 foreach (ObjectId id in ms)
                 {
@@ -75,11 +75,11 @@ namespace Civil3DFactory
                     double area = 0.0;
                     try { area = Math.Abs(pl.Area); } catch (System.Exception) { }
                     if (area < minArea)
-                    { notes.Add("丢弃碎片边界 " + layer + "（面积 " + Math.Round(area, 2) + "）"); continue; }
+                    { notes.Add("Discarded fragment boundary " + layer + " (area " + Math.Round(area, 2) + ")"); continue; }
                     bounds.Add(new KeyValuePair<string, Polyline>(ch, pl));
                 }
                 if (bounds.Count == 0)
-                    throw new InvalidOperationException("没找到任何边界多段线（前缀 \"" + bPrefix + "\"）。");
+                    throw new InvalidOperationException("No boundary polyline found (prefix \"" + bPrefix + "\").");
 
                 foreach (var kv in bounds)
                 {
@@ -87,12 +87,12 @@ namespace Civil3DFactory
                     Polyline bpl = kv.Value;
                     CivAlign center;
                     if (!byName.TryGetValue(ch, out center))
-                    { notes.Add("边界 " + ch + " 找不到同名中心线路线，跳过"); continue; }
+                    { notes.Add("Boundary " + ch + ": no centerline alignment with the same name, skipped"); continue; }
 
                     double s0 = center.StartingStation, s1 = center.EndingStation;
                     int nv = bpl.NumberOfVertices;
 
-                    // 探针半长：取边界顶点里最大偏距再放宽，保证垂线一定穿透两侧
+                    // Probe half-length: largest boundary-vertex offset plus a margin, so the perpendicular always crosses both sides
                     double probeHalf = 0.0;
                     for (int i = 0; i < nv; i++)
                     {
@@ -104,14 +104,14 @@ namespace Civil3DFactory
                     }
                     probeHalf = probeHalf * 1.5 + 10.0;
 
-                    // ⚠ 不要用「顶点按桩号分桶取极值」：三角网轮廓的顶点沿桩号分布极不均匀，
-                    // 某些桶采不到最外侧顶点，线会被掐细（实测 B1 左侧被掐到 18.6m，实际 35m）。
-                    // 改为几何求交：每个桩号作一条垂线去截边界，交点即真实左右边缘。
+                    // WARNING: do not use "bucket vertices by station and take extremes": TIN outline vertices are very unevenly spread along the station,
+                    // some buckets miss the outermost vertex and the line gets pinched (measured: B1 left side pinched to 18.6m, actual 35m).
+                    // Use geometric intersection instead: at each station cast a perpendicular across the boundary; the intersections are the true left/right edges.
                     var lp = new List<Point2d>();
                     var rp = new List<Point2d>();
                     double lMin = double.MaxValue, lMax = 0, rMin = double.MaxValue, rMax = 0;
                     int nStep = Math.Max(2, (int)Math.Ceiling((s1 - s0) / interval));
-                    double eps = Math.Min(0.05, (s1 - s0) * 1e-4);   // 躲开两端封口
+                    double eps = Math.Min(0.05, (s1 - s0) * 1e-4);   // stay clear of the end caps
                     for (int i = 0; i <= nStep; i++)
                     {
                         double st = s0 + (s1 - s0) * i / (double)nStep;
@@ -153,9 +153,9 @@ namespace Civil3DFactory
                         if (hi < rMin) rMin = hi; if (hi > rMax) rMax = hi;
                     }
                     if (lp.Count < 2 || rp.Count < 2)
-                    { notes.Add("边界 " + ch + " 有效采样点不足（左 " + lp.Count + " 右 " + rp.Count + "），跳过"); continue; }
+                    { notes.Add("Boundary " + ch + ": not enough valid samples (left " + lp.Count + " right " + rp.Count + "), skipped"); continue; }
 
-                    string lName = ch + "_左", rName = ch + "_右";
+                    string lName = ch + "_L", rName = ch + "_R";
                     ObjectId lId = OfbMakeAlignment(tr, civ, ms, db, lp, lName, styleId, labelId,
                                                     byName, replaceExisting, notes);
                     ObjectId rId = OfbMakeAlignment(tr, civ, ms, db, rp, rName, styleId, labelId,
@@ -202,27 +202,27 @@ namespace Civil3DFactory
             };
         }
 
-        /// <summary>点串 → 临时多段线 → 路线。临时线由 CreateAlignmentFromEntity 的 eraseSource 收走。</summary>
+        /// <summary>Point list -> temporary polyline -> alignment. The temporary line is removed by CreateAlignmentFromEntity's eraseSource.</summary>
         static ObjectId OfbMakeAlignment(Transaction tr, CivilDoc civ, BlockTableRecord ms, Database db,
             List<Point2d> pts, string name, ObjectId styleId, ObjectId labelId,
             Dictionary<string, CivAlign> byName, bool replaceExisting, JsonArray notes)
         {
-            // 同名已存在：改名腾位，建成功才删（别先删后建，失败会赔掉原件）
+            // Same name exists: rename it out of the way and delete only after the new one succeeds (never delete first; a failure would lose the original)
             CivAlign old = null;
             string parked = null;
             if (byName.ContainsKey(name))
             {
                 if (!replaceExisting)
-                { notes.Add("偏移路线 " + name + " 已存在，未替换"); return ObjectId.Null; }
+                { notes.Add("Offset alignment " + name + " already exists, not replaced"); return ObjectId.Null; }
                 old = byName[name];
                 try
                 {
                     old.UpgradeOpen();
-                    parked = name + "_旧_" + Guid.NewGuid().ToString("N").Substring(0, 6);
+                    parked = name + "_old_" + Guid.NewGuid().ToString("N").Substring(0, 6);
                     old.Name = parked;
                 }
                 catch (System.Exception ex)
-                { notes.Add("偏移路线 " + name + " 无法改名腾位：" + ex.Message); return ObjectId.Null; }
+                { notes.Add("Offset alignment " + name + " could not be renamed out of the way: " + ex.Message); return ObjectId.Null; }
             }
 
             var pl = new Polyline(pts.Count);
@@ -244,9 +244,9 @@ namespace Civil3DFactory
                 if (old != null)
                 {
                     try { old.Name = name; }
-                    catch (System.Exception) { notes.Add("⚠ 旧路线改不回原名，现名 " + parked); }
+                    catch (System.Exception) { notes.Add("WARNING: old alignment could not be renamed back, now named " + parked); }
                 }
-                notes.Add("建偏移路线 " + name + " 失败：" + ex.Message);
+                notes.Add("Failed to create offset alignment " + name + ": " + ex.Message);
                 return ObjectId.Null;
             }
 
@@ -254,7 +254,7 @@ namespace Civil3DFactory
             {
                 try { old.Erase(); }
                 catch (System.Exception ex)
-                { notes.Add("⚠ " + name + " 新的已建，旧的删不掉（现名 " + parked + "）：" + ex.Message); }
+                { notes.Add("WARNING: " + name + " new one created but the old one could not be deleted (now named " + parked + "): " + ex.Message); }
             }
             return id;
         }

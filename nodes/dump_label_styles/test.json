@@ -1,12 +1,12 @@
 {
   "node": "dump_label_styles",
   "version": 1,
-  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
+  "fixture": "examples/channel-demo.dwg",
   "assertions": [
     "data.styles_scanned > 100",
-    "带 contains 时 styles 里每个样式的文本组件 contents 含该串（注意 \U+XXXX 转义，字面中文搜不到——contents 常是 <[Description]> 动态字段或转义序列）",
-    "used_by_codes 报出 CodeSetStyles 支的挂载（样式 → code set / code）"
+    "with contains, every style's text-component contents include the substring (note \\U+XXXX escapes: literal non-ASCII text is not found -- contents are usually <[Description]> dynamic fields or escape sequences)",
+    "used_by_codes reports the CodeSetStyles branch attachments (style -> code set / code)"
   ],
-  "note": "实测档案（2026-08-26 项目B）：LabelStyles 根 105 个 + CodeSetStyles 支 15 个。三条死路都踩过：①反射深爬（Flatten 任意对象）accoreconsole 原生崩，catch 不住；②从 civ.Styles 根爬同崩；③DXFOUT 拿不到标签明文（proxy）。唯一活路=强类型 GetComponents(Text/Line/Block) + 只收 ObjectId 的属性游走。曾用它破了 655 双份标签之谜（@C3DF-centerline 挂 8 个 code set 的 origin，同一样式被渲染两遍）。",
+  "note": "Field record (2026-08-26): 105 styles under the LabelStyles root + 15 under the CodeSetStyles branch. Three dead ends were tried: (1) deep reflection crawl (Flatten on arbitrary objects) crashes accoreconsole natively and cannot be caught; (2) crawling from the civ.Styles root crashes the same way; (3) DXFOUT does not expose label text (proxy). The only working path is strongly typed GetComponents(Text/Line/Block) plus property walking that collects ObjectIds only. It solved the 655 doubled-label mystery (@C3DF-centerline attached as origin to 8 code sets, so the same style rendered twice).",
   "status": "draft_assertions_pending_owner_review"
 }

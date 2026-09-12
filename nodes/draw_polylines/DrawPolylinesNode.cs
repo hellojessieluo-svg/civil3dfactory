@@ -12,13 +12,13 @@ namespace Civil3DFactory
         static JsonNode RunNodeDrawPolylines(JsonObject args, Document doc)
             => DrawPolylines(args, doc);
 
-        // 往宿主图批量画多段线（支持 bulge 弧段）：台田边界等派生物落图用。
-        // clear_layers 先清指定图层上的旧多段线（重跑幂等）；图层不存在就建。
+        // Batch-draw polylines into the host drawing (bulge arcs supported): for derived output such as parcel boundaries.
+        // clear_layers first removes old polylines on the given layers (idempotent rerun); missing layers are created.
         static JsonNode DrawPolylines(JsonObject a, Document doc)
         {
             var arr = a["polylines"] as JsonArray;
             if (arr == null || arr.Count == 0)
-                throw new InvalidOperationException("需要 polylines:[{layer?,closed?,name?,vertices:[[x,y,bulge?],...]},...]");
+                throw new InvalidOperationException("polylines:[{layer?,closed?,name?,vertices:[[x,y,bulge?],...]},...] is required");
             string defLayer = GetString(a, "layer", "0");
             short defColor = (short)GetDouble(a, "color", 7);
 
@@ -63,7 +63,7 @@ namespace Civil3DFactory
                 {
                     var o = (JsonObject)n;
                     var verts = o["vertices"] as JsonArray;
-                    if (verts == null || verts.Count < 2) { report.Add("顶点不足，跳过一条"); continue; }
+                    if (verts == null || verts.Count < 2) { report.Add("Too few vertices, one polyline skipped"); continue; }
                     string layer = GetString(o, "layer", defLayer);
                     short color = (short)GetDouble(o, "color", defColor);
                     ObjectId layerId = EnsureLayer(layer, color);

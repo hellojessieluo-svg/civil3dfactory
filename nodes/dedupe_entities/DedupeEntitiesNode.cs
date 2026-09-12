@@ -11,26 +11,26 @@ namespace Civil3DFactory
     public static partial class Ops
     {
         /// <summary>
-        /// 模型空间同位置同内容实体去重 +（可选）按内容平移 MTEXT。
+        /// Dedupe model-space entities with identical position and content + (optional) move MTEXT by content.
         ///
-        /// 为什么有这个零件（2026-08-26 项目B初设横断面）：断面标签被引擎画了两遍、
-        /// 655 个 MTEXT/引线完全重合（成品 PDF 上就是 LX 说的「字体重叠」）；样式侧无解
-        /// （同一样式渲染两份，关样式=两份全没）。在导出后的纯 CAD 件上去重是唯一稳路。
-        /// 「疏浚控制线」与「设计常水位」行距只有 0.42m 必然挤，顺带按内容匹配上移。
+        /// Why this node exists (2026-08-26, project B preliminary-design cross sections): the engine drew the section labels twice,
+        /// 655 MTEXT/leaders exactly overlapping (the "overlapping text" LX saw on the final PDF); no fix on the style side
+        /// (one style rendered twice; turning it off removes both). Deduping the exported pure-CAD file is the only reliable route.
+        /// "Dredge control line" and "Design normal water level" are only 0.42 m apart and always crowd; shift them up by content match while at it.
         /// </summary>
         static JsonNode RunNodeDedupeEntities(JsonObject a, Document doc)
         {
-            // 限定图层（缺省全模型空间）；位置量化精度（米）
+            // restrict to a layer (default whole model space); position quantisation (m)
             string layerFilter = GetString(a, "layer", null);
             double tol = GetDouble(a, "tol", 0.001);
-            // moves: [{contains, dy, dx?}] —— 去重后，把内容含 contains 的 MTEXT/TEXT 平移
+            // moves: [{contains, dy, dx?}]: after dedupe, translate MTEXT/TEXT whose content contains `contains`
             var moves = a["moves"] as JsonArray;
-            // erases: [{contains?, regex?, layer?}] —— 删内容匹配的 MTEXT/TEXT。
-            // 为什么有它（2026-08-26 项目B纵断面）：桩号高程/坡度标签挂在 Civil 标签机制深处，
-            // 配置无标签集、清视图标签组、清全部 Profile 标签组三轮全部无效（图面纹丝不动），
-            // 断路器拉闸后唯一稳路=在导出件上按内容删普通文字实体。
+            // erases: [{contains?, regex?, layer?}]: erase MTEXT/TEXT whose content matches.
+            // Why (2026-08-26, project B profiles): station-elevation/grade labels sit deep in Civil's label machinery;
+            // three rounds (no-label set, clearing view label groups, clearing all Profile label groups) had no effect (drawing unchanged),
+            // so after the circuit breaker tripped the only reliable route = delete plain text entities by content on the exported file.
             var erases = a["erases"] as JsonArray;
-            // erase_lines: [{layer, vertical?, min_len?}] —— 删几何匹配的 LINE（标签的长引出竖线）
+            // erase_lines: [{layer, vertical?, min_len?}]: erase LINEs matching geometry (the long vertical leader lines of labels)
             var eraseLines = a["erase_lines"] as JsonArray;
 
             Database db = doc.Database;
@@ -86,8 +86,8 @@ namespace Civil3DFactory
                             string pat = GetString(r, "contains", null);
                             string rx = GetString(r, "regex", null);
                             bool hit2 = false;
-                            // 原文和去格式码后的 plain 都试：竖排字每字夹一个 \P（纵\P坡\P转…），
-                            // 只对原文匹配会漏掉整批竖排标签（2026-08-26 实测）
+                            // Try both raw and format-stripped plain text: vertical text has a \P between every character (e.g. A\PB\PC...),
+                            // matching raw text only would miss the whole batch of vertical labels (verified 2026-08-26)
                             if (!string.IsNullOrEmpty(pat) &&
                                 (txt.IndexOf(pat, StringComparison.Ordinal) >= 0
                                  || plain.IndexOf(pat, StringComparison.Ordinal) >= 0)) hit2 = true;
@@ -142,7 +142,7 @@ namespace Civil3DFactory
                         if (e == null || e.IsErased) continue;
                         string txt = e is MText ? ((MText)e).Contents : (e is DBText ? ((DBText)e).TextString : null);
                         if (txt == null) continue;
-                        // 导出件（proxy 炸开产物）的中文常以 \U+XXXX 转义存在内容里，先解码再匹配
+                        // In exported files (exploded proxies) non-ASCII text is often stored as \U+XXXX escapes; decode before matching
                         txt = DecodeMtextUnicode(txt);
                         foreach (JsonNode mn in moves)
                         {
@@ -174,7 +174,7 @@ namespace Civil3DFactory
             };
         }
 
-        /// <summary>把 MTEXT 内容里的 \U+XXXX 转义解码成真字符。</summary>
+        /// <summary>Decode \U+XXXX escapes in MTEXT content into real characters.</summary>
         static string DecodeMtextUnicode(string s)
         {
             if (string.IsNullOrEmpty(s) || s.IndexOf("\\U+", StringComparison.OrdinalIgnoreCase) < 0) return s;
@@ -183,7 +183,7 @@ namespace Civil3DFactory
                 m => ((char)System.Convert.ToInt32(m.Groups[1].Value, 16)).ToString());
         }
 
-        /// <summary>实体的「同位置同内容」指纹；认不出的类型返回 null（不参与去重）。</summary>
+        /// <summary>"Same position, same content" fingerprint of an entity; null for unrecognised types (excluded from dedupe).</summary>
         static string DedupeKey(Entity e, double tol)
         {
             Func<double, string> q = v => Math.Round(v / tol).ToString(CultureInfo.InvariantCulture);

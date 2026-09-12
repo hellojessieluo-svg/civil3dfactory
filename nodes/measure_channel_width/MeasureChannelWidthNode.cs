@@ -12,14 +12,14 @@ using CivTin = Autodesk.Civil.DatabaseServices.TinSurface;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// measure_channel_width：量出每条通道沿程的实际疏浚宽度。
+    /// measure_channel_width: measure the actual dredge width of each channel along its length.
     ///
-    /// 做法：取走廊曲面外边界的每个顶点，用中心线的 StationOffset 投影成 (桩号, 偏距)，
-    /// 按 interval 分桶，桶内负偏距的最大绝对值 = 左半宽，正偏距最大值 = 右半宽。
-    /// 不做几何求交，靠投影统计，稳且快。
+    /// Method: take every vertex of the corridor surface's outer boundary, project it with the centerline's StationOffset into (station, offset),
+    /// bucket by interval; within a bucket the largest |negative offset| = left half width, the largest positive offset = right half width.
+    /// No geometric intersection, just projection statistics: robust and fast.
     ///
-    /// 为什么要它：通道是**变宽**的，工程量表里的"平均上口宽 100m"是均值不是设计值。
-    /// 闭合边界能表达变宽，单个数字不能——这张表就是把边界翻译成沿程宽度。
+    /// Why: channels have VARIABLE width; the "average top width 100 m" in the quantity table is a mean, not the design value.
+    /// A closed boundary can express variable width, a single number cannot -- this table translates the boundary into width along the length.
     /// </summary>
     public static partial class Ops
     {
@@ -30,7 +30,7 @@ namespace Civil3DFactory
         {
             double interval = GetDouble(a, "interval", 50.0);
             if (interval <= 1e-6) interval = 50.0;
-            double minArea = GetDouble(a, "min_area", 100.0);   // 小于此面积的边界视为碎片丢弃
+            double minArea = GetDouble(a, "min_area", 100.0);   // boundaries smaller than this area are treated as fragments and dropped
             string onlyCh = GetString(a, "channel", null);
 
             Database db = doc.Database;
@@ -48,7 +48,7 @@ namespace Civil3DFactory
                     else if (o is CivTin) tins.Add((CivTin)o);
                 }
 
-                // 走廊名 → 中心线路线
+                // corridor name -> centerline alignment
                 var corridorAlign = new Dictionary<string, CivAlign>();
                 foreach (CivCorr c in corrs)
                 {
@@ -97,14 +97,14 @@ namespace Civil3DFactory
                                 }
                             double area = McwArea(local);
                             ent.Erase();
-                            if (area < minArea) continue;      // 碎片
+                            if (area < minArea) continue;      // fragment
                             pts.AddRange(local);
                         }
                     }
                     catch (System.Exception) { }
                     if (pts.Count < 3) continue;
 
-                    // 投影分桶
+                    // project and bucket
                     double len = center.Length;
                     int nb = Math.Max(1, (int)Math.Ceiling(len / interval));
                     var L = new double[nb];

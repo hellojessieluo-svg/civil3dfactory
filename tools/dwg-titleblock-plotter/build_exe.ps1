@@ -1,4 +1,7 @@
-# Build DWGTitleblockPlotter.exe (ASCII-only; PS 5.1 mangles non-BOM UTF-8).
+# Build DWGTitleblockPlotter.exe (ASCII-only script; PS 5.1 mangles non-BOM UTF-8).
+# Steps: build the accoreconsole plugin -> install Python deps into .build-deps ->
+# PyInstaller one-file EXE into output\ -> copy the EXE to the tool folder root,
+# which is where install.ps1 and the nodes look for it.
 # Use Continue, not Stop: PyInstaller writes INFO to stderr and PS 5.1 wraps
 # native stderr as a terminating error under Stop. Each critical step below has
 # an explicit $LASTEXITCODE / Test-Path guard instead.
@@ -8,12 +11,13 @@ $Python = (Get-Command python -ErrorAction SilentlyContinue).Source   # python 3
 $Deps = Join-Path $Project '.build-deps'
 $Dist = Join-Path $Project 'output'
 $Work = Join-Path $Project '.build'
+$ExeName = 'DWGTitleblockPlotter.exe'
 $env:PYTHONUTF8 = '1'
 $env:PIP_PROGRESS_BAR = 'off'
 $env:PIP_DISABLE_PIP_VERSION_CHECK = '1'
 
-if (-not (Test-Path -LiteralPath $Python)) {
-    throw "Build Python not found: $Python"
+if (-not $Python -or -not (Test-Path -LiteralPath $Python)) {
+    throw "Build Python not found on PATH (need python 3.10+)"
 }
 
 # Build the accoreconsole plotting plugin and bundle its DLL into the EXE.
@@ -23,6 +27,7 @@ dotnet build $PluginProject -c Release -o $PluginOutput
 if ($LASTEXITCODE -ne 0) { throw 'CAD plot plugin build failed' }
 $PluginDll = Join-Path $PluginOutput 'CadPlotPlugin.dll'
 
+# Install PyInstaller + PySide6 + pywin32 into a private folder the first time only.
 if ((-not (Test-Path -LiteralPath (Join-Path $Deps 'PyInstaller'))) -or `
     (-not (Test-Path -LiteralPath (Join-Path $Deps 'PySide6'))) -or `
     (-not (Test-Path -LiteralPath (Join-Path $Deps 'win32com')))) {
@@ -31,7 +36,7 @@ if ((-not (Test-Path -LiteralPath (Join-Path $Deps 'PyInstaller'))) -or `
 }
 
 # pywin32 installed via --target does not run pywin32.pth, so wire up the
-# module + DLL search paths manually (see 02 project pitfalls).
+# module + DLL search paths manually.
 $Win32 = Join-Path $Deps 'win32'
 $Win32Lib = Join-Path $Deps 'win32\lib'
 $Pythonwin = Join-Path $Deps 'pythonwin'
@@ -55,4 +60,9 @@ $env:PATH = "$Pywin32System32;$env:PATH"
     (Join-Path $Project 'titleblock_plotter.py')
 if ($LASTEXITCODE -ne 0) { throw 'EXE build failed' }
 
-Write-Host "Done: $(Join-Path $Dist 'DWGTitleblockPlotter.exe')"
+# Copy the EXE from output\ to the tool folder root (install.ps1 and the nodes expect it there).
+$Built = Join-Path $Dist $ExeName
+if (-not (Test-Path -LiteralPath $Built)) { throw "EXE not found after build: $Built" }
+Copy-Item -LiteralPath $Built -Destination (Join-Path $Project $ExeName) -Force
+
+Write-Host "Done: $(Join-Path $Project $ExeName)"

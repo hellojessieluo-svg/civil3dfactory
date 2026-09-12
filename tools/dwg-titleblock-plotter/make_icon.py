@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""生成 app.ico：圆润打印机 + corner badge。运行：python make_icon.py（需 Pillow）。"""
+"""Generate app.ico: a rounded printer with a corner badge. Run: python make_icon.py (needs Pillow)."""
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -27,26 +27,26 @@ def draw_icon(size: int = SIZE) -> Image.Image:
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
 
-    # 背景圆角方块
+    # Rounded square background
     d.rounded_rectangle((28 * s, 28 * s, 484 * s, 484 * s), radius=110 * s, fill=BLUE)
 
-    # 出纸口上方那张纸（打印机顶部露出）
+    # Sheet of paper sticking out of the top of the printer
     d.rounded_rectangle((150 * s, 92 * s, 362 * s, 230 * s), radius=22 * s, fill=PAPER)
     for i, y in enumerate((130, 160, 190)):
         w = 140 if i != 2 else 90
         d.rounded_rectangle((186 * s, y * s, (186 + w) * s, (y + 12) * s), radius=6 * s, fill=(170, 184, 200, 255))
 
-    # 机身
+    # Printer body
     d.rounded_rectangle((92 * s, 210 * s, 420 * s, 380 * s), radius=48 * s, fill=WHITE)
-    # 机身上的进纸缝
+    # Paper feed slot on the body
     d.rounded_rectangle((150 * s, 210 * s, 362 * s, 232 * s), radius=8 * s, fill=(206, 216, 228, 255))
-    # 指示灯
+    # Status light
     d.ellipse((350 * s, 262 * s, 384 * s, 296 * s), fill=(72, 199, 120, 255))
-    # 底部出纸
+    # Output tray at the bottom
     d.rounded_rectangle((150 * s, 340 * s, 362 * s, 430 * s), radius=22 * s, fill=PAPER)
     d.rounded_rectangle((186 * s, 386 * s, 300 * s, 398 * s), radius=6 * s, fill=(170, 184, 200, 255))
 
-    # badge
+    # Corner badge
     r = 96 * s
     cx, cy = 400 * s, 400 * s
     d.ellipse((cx - r - 12 * s, cy - r - 12 * s, cx + r + 12 * s, cy + r + 12 * s), fill=BLUE)

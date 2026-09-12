@@ -11,17 +11,17 @@ using CivDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 疏浚区边界盘点与参数试算（只读）。
+    /// Dredge region boundary inventory and parameter trial (read-only).
     ///
-    /// 疏浚放坡链路的第一步：把边界图层上的闭合多段线逐个盘出来——句柄、面积、周长、
-    /// 形心、落在区内的文字（自动认区名，如 CR1 / DK1#地块）、边界处原地形高程统计。
+    /// First step of the dredge grading chain: inventory every closed polyline on the boundary layer -- handle, area, perimeter,
+    /// centroid, text inside the region (auto-detected region names such as CR1 / DK1#Parcel), existing ground elevation stats along the boundary.
     ///
-    /// 给了 bottom_elev + slope_ratio_m 还会**按 create_dredge_grading 同一个锥面模型**
-    /// 网格试算方量：不建曲面、不改图，先看这套参数出来的量对不对，再决定拿哪套参数去建面。
-    /// 「参数从数据推」的那一步就在这里；产出直接就是 create_dredge_grading 的 regions 参数骨架。
+    /// With bottom_elev + slope_ratio_m it also runs a grid trial of the volume **using the same cone model as create_dredge_grading**:
+    /// no surface built, drawing untouched; check the quantity from this parameter set before deciding which set to build the surface with.
+    /// This is the "derive parameters from data" step; the output is directly the regions parameter skeleton for create_dredge_grading.
     ///
-    /// 试算用 grid_step 网格积分，比下游 TIN 三角网体积法略糙（默认 5m 网格约 1% 量级），
-    /// 只用来定参数，不作为出量口径——出量走 calculate_surface_volume。
+    /// The trial integrates on a grid_step grid, slightly coarser than the downstream TIN volume method (about 1% at the default 5m grid);
+    /// use it only to fix parameters, not as the reported quantity -- quantities come from calculate_surface_volume.
     /// </summary>
     public static partial class Ops
     {
@@ -36,15 +36,15 @@ namespace Civil3DFactory
             bool hasBottom = a["bottom_elev"] != null;
             double gBottom = GetDouble(a, "bottom_elev", 0.0);
             double gSlope = GetDouble(a, "slope_ratio_m", 5.0);
-            if (gSlope <= 0) throw new InvalidOperationException("slope_ratio_m 必须大于 0（1:m 的 m）。");
+            if (gSlope <= 0) throw new InvalidOperationException("slope_ratio_m must be greater than 0 (the m in 1:m).");
             bool hasStart = a["start_elev"] != null;
 
             var regionSpecs = a["regions"] as JsonArray;
 
             double sampleStep = GetDouble(a, "sample_step", 2.0);
             double gridStep = GetDouble(a, "grid_step", 5.0);
-            if (sampleStep <= 0) throw new InvalidOperationException("sample_step 必须大于 0。");
-            if (gridStep <= 0) throw new InvalidOperationException("grid_step 必须大于 0。");
+            if (sampleStep <= 0) throw new InvalidOperationException("sample_step must be greater than 0.");
+            if (gridStep <= 0) throw new InvalidOperationException("grid_step must be greater than 0.");
 
             var interfaceLayers = a["interface_layers"] as JsonArray;
 
@@ -68,30 +68,30 @@ namespace Civil3DFactory
                 if (!string.IsNullOrEmpty(surfName))
                 {
                     ObjectId gsId = FindSurfaceId(tr, civ, surfName);
-                    if (gsId.IsNull) throw new InvalidOperationException("找不到原地形曲面 '" + surfName + "'。");
+                    if (gsId.IsNull) throw new InvalidOperationException("Existing ground surface '" + surfName + "' not found.");
                     ground = (CivSurface)tr.GetObject(gsId, OpenMode.ForRead);
                 }
                 if (ground == null && !hasStart)
-                    warnings.Add((JsonNode)"没给 surface 也没给 start_elev：只报几何，不报高程与试算方量。");
+                    warnings.Add((JsonNode)"Neither surface nor start_elev given: reporting geometry only, no elevations or trial volumes.");
 
                 CivSurface startSurface = null;
                 if (!string.IsNullOrEmpty(startSurfName))
                 {
                     ObjectId ssId = FindSurfaceId(tr, civ, startSurfName);
-                    if (ssId.IsNull) throw new InvalidOperationException("找不到起坡高程曲面 '" + startSurfName + "'。");
+                    if (ssId.IsNull) throw new InvalidOperationException("Start elevation surface '" + startSurfName + "' not found.");
                     startSurface = (CivSurface)tr.GetObject(ssId, OpenMode.ForRead);
                 }
 
                 List<ObjectId> bndIds = DredgeCollectBoundaries(tr, db, bndLayer, handles);
                 if (bndIds.Count == 0)
                     throw new InvalidOperationException(
-                        "图层 '" + bndLayer + "' 上没有闭合多段线" +
-                        (handles != null && handles.Count > 0 ? "（或句柄白名单一个都没命中）" : "") + "。");
+                        "No closed polyline on layer '" + bndLayer + "'" +
+                        (handles != null && handles.Count > 0 ? " (or none of the handle whitelist matched)" : "") + ".");
 
                 List<DredgeText> texts = DredgeCollectTexts(tr, db, labelLayer);
                 List<Curve> interfaces = DredgeCollectInterfaces(tr, db, interfaceLayers);
                 if (interfaceLayers != null && interfaceLayers.Count > 0 && interfaces.Count == 0)
-                    warnings.Add((JsonNode)"interface_layers 给了但那些图层上一条曲线都没有，分界线口径没生效。");
+                    warnings.Add((JsonNode)"interface_layers was given but those layers hold no curve; the interface rule had no effect.");
 
                 int seq = 0;
                 foreach (ObjectId bid in bndIds)
@@ -103,7 +103,7 @@ namespace Civil3DFactory
                     DredgeRing ring = DredgeBuildRing(pl, sampleStep);
                     if (ring.Count < 3)
                     {
-                        warnings.Add((JsonNode)("边界 " + handle + " 采样点不足，跳过。"));
+                        warnings.Add((JsonNode)("Boundary " + handle + ": not enough sample points, skipped."));
                         continue;
                     }
 
@@ -116,13 +116,13 @@ namespace Civil3DFactory
                     if (string.IsNullOrEmpty(id)) id = label;
                     if (string.IsNullOrEmpty(id)) id = "R" + seq.ToString("00", CultureInfo.InvariantCulture);
 
-                    // 与 create_dredge_grading 共用的参数合并口径：盘点试算用的就是建面要用的那套
+                    // Parameter merge shared with create_dredge_grading: the trial uses exactly the set the surface build will use
                     DredgeZSpec zspec = DredgeMergeZSpec(a, rspec, gBottom, gSlope, startSurface, interfaces);
                     if (!hasBottom) zspec.Bottom = double.MinValue;
                     double bottom = zspec.Bottom;
                     double slopeM = zspec.SlopeM;
                     if (slopeM <= 0)
-                        throw new InvalidOperationException("分区 '" + id + "' 的 slope_ratio_m 必须大于 0。");
+                        throw new InvalidOperationException("slope_ratio_m of region '" + id + "' must be greater than 0.");
 
                     double cx = 0, cy = 0;
                     for (int i = 0; i < ring.Count; i++) { cx += ring.P[i].X; cy += ring.P[i].Y; }
@@ -142,7 +142,7 @@ namespace Civil3DFactory
                             Math.Round(ring.MinX, 3), Math.Round(ring.MinY, 3),
                             Math.Round(ring.MaxX, 3), Math.Round(ring.MaxY, 3) },
                         ["winding"] = DredgeSignedArea(ring.P) > 0 ? "ccw" : "cw",
-                        // 本区实际生效的参数（全局 + regions 覆盖后），直接可抄进 create_dredge_grading
+                        // Effective parameters for this region (global + regions override), can be copied straight into create_dredge_grading
                         ["bottom_elev"] = hasBottom ? (JsonNode)bottom : null,
                         ["slope_ratio_m"] = slopeM,
                         ["start_elev_mode"] = zspec.Mode,
@@ -151,7 +151,7 @@ namespace Civil3DFactory
                     };
                     totalArea += pl.Area;
 
-                    // ---- 边界处起坡高程统计 ----
+                    // ---- Start elevation stats along the boundary ----
                     double zMax = double.MinValue;
                     if (ground != null || hasStart)
                     {
@@ -175,10 +175,10 @@ namespace Civil3DFactory
                         row["interface_points"] = onIface;
                         if (off > 0)
                             warnings.Add((JsonNode)("[" + id + "] " + off + "/" + ring.Count +
-                                                    " 个边界采样点落在原地形曲面外。"));
+                                                    " boundary sample points are off the existing ground surface."));
                     }
 
-                    // ---- 按锥面模型网格试算 ----
+                    // ---- Grid trial with the cone model ----
                     if (hasBottom && ground != null)
                     {
                         double bandMax = (zMax - bottom) * slopeM;
@@ -222,27 +222,27 @@ namespace Civil3DFactory
                         totalCut += cut;
                         totalFill += fill;
                         if (offCells > 0)
-                            warnings.Add((JsonNode)("[" + id + "] 试算时 " + offCells + "/" + cells +
-                                                    " 个网格点在原地形曲面外，已跳过（方量偏小）。"));
+                            warnings.Add((JsonNode)("[" + id + "] during the trial " + offCells + "/" + cells +
+                                                    " grid points were off the existing ground surface and skipped (volume underestimated)."));
                     }
 
                     perRegion.Add(row);
                 }
 
-                // ---- 参数表骨架导出 ----
+                // ---- Export the parameter table skeleton ----
                 if (exportExcel)
                 {
                     string baseName = string.IsNullOrEmpty(excelOutPath)
-                        ? "疏浚区参数表_" + Sanitize(bndLayer)
+                        ? "DredgeRegionParams_" + Sanitize(bndLayer)
                         : System.IO.Path.GetFileNameWithoutExtension(excelOutPath);
                     string dir = string.IsNullOrEmpty(excelOutPath)
                         ? ResolveOutDir(a, doc)
                         : (System.IO.Path.GetDirectoryName(excelOutPath) ?? ResolveOutDir(a, doc));
 
                     string[] headers = {
-                        "序号", "编号", "句柄", "面积(m²)", "周长(m)",
-                        "疏浚底高程(m)", "边坡(1:m)", "起坡高程min(m)", "起坡高程max(m)",
-                        "放坡带宽max(m)", "试算挖方(m³)", "试算填方(m³)", "试算平均挖深(m)", "备注"
+                        "Seq", "Id", "Handle", "Area(m2)", "Perimeter(m)",
+                        "BottomElev(m)", "Slope(1:m)", "StartElevMin(m)", "StartElevMax(m)",
+                        "BandWidthMax(m)", "EstCut(m3)", "EstFill(m3)", "EstMeanDepth(m)", "Notes"
                     };
                     var rows = new List<object[]>();
                     int i2 = 0;
@@ -268,13 +268,13 @@ namespace Civil3DFactory
                         });
                     }
                     rows.Add(new object[] {
-                        "合计", "", "", Math.Round(totalArea, 2), "", "", "", "", "", "",
+                        "Total", "", "", Math.Round(totalArea, 2), "", "", "", "", "", "",
                         Math.Round(totalCut, 2), Math.Round(totalFill, 2), "", ""
                     });
                     excelFiles = Excel.Write(dir, baseName, headers, rows, excelFormat);
                 }
 
-                // 只读节点：不 Commit，图纸一点不动
+                // Read-only node: no Commit, the drawing is untouched
             }
 
             return new JsonObject

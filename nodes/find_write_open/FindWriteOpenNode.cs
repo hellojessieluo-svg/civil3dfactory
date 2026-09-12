@@ -7,9 +7,9 @@ using Autodesk.AutoCAD.DatabaseServices;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// find_write_open：扫全库，找出仍处于「写打开」状态的对象。
-    /// 专治 save_dwg 的 eWasOpenForWrite —— 那个错只说有对象没关，不说是谁。
-    /// 扫模型空间、所有布局块、以及命名对象字典下的实体。
+    /// find_write_open: scan the whole database for objects still open for write.
+    /// Cures save_dwg's eWasOpenForWrite -- that error only says some object is unclosed, not which one.
+    /// Scans model space, every layout block, and entities under the named object dictionary.
     /// </summary>
     public static partial class Ops
     {
@@ -37,7 +37,7 @@ namespace Civil3DFactory
                         scanned++;
                         try
                         {
-                            // openErased=true：已删对象也可能挂着写句柄
+                            // openErased=true: erased objects may still hold a write handle
                             DBObject o = tr.GetObject(id, OpenMode.ForRead, false, true);
                             if (o == null || !o.IsWriteEnabled) continue;
                             string t = o.GetType().Name;
@@ -52,8 +52,8 @@ namespace Civil3DFactory
                         }
                         catch (Autodesk.AutoCAD.Runtime.Exception ex)
                         {
-                            // 已被别处以写打开时，事务里再取会抛；这本身就是证据
-                            string t = "(取不到:" + ex.ErrorStatus + ")";
+                            // Already opened for write elsewhere: getting it again inside the transaction throws; that itself is the evidence
+                            string t = "(unreadable:" + ex.ErrorStatus + ")";
                             byType[t] = byType.ContainsKey(t) ? byType[t] + 1 : 1;
                             if (hits.Count < max)
                                 hits.Add(new JsonObject

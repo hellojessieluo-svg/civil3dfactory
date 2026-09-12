@@ -11,28 +11,28 @@ using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Runtime;
 using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 
-// Dispatcher.cs 已经声明了 assembly 级 CommandClass。只要存在这个特性，AutoCAD 就
-// **只**扫描被显式列出的类，漏登记的类里的 CommandMethod 一个都不会注册（表现为
-// "Unknown command C3DF-SERVE"，且没有任何报错）。新增命令类必须在这里补一行。
+// Dispatcher.cs already declares the assembly-level CommandClass. Once that attribute exists, AutoCAD
+// scans **only** the explicitly listed classes; CommandMethods in an unlisted class are never registered (it shows up as
+// "Unknown command C3DF-SERVE" with no error at all). Every new command class must be added here.
 [assembly: CommandClass(typeof(Civil3DFactory.ResidentServer))]
 
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 常驻服务：让 accoreconsole 开一次图纸后留在内存里，后续命令走命名管道发进来。
+    /// Resident service: accoreconsole opens the drawing once and keeps it in memory; later commands arrive over a named pipe.
     ///
-    /// 为什么：accoreconsole 冷启动（进程启动 + Civil 3D 内核初始化 + 打开图纸）是流水线
-    /// 最大的固定开销，一条 10 个节点的流水线要白付 9 次。常驻之后只付一次。
+    /// Why: the accoreconsole cold start (process launch + Civil 3D kernel init + opening the drawing) is the pipeline's
+    /// largest fixed cost; a 10-node pipeline pays it 9 times for nothing. Resident mode pays it once.
     ///
-    /// 线程模型（关键）：整个服务循环就跑在 C3DF-Serve 这条命令自己的线程上，也就是文档线程。
-    /// 命令执行期间文档本来就是锁住的，所以管道收到的每条请求都在合法的命令上下文里同步执行，
-    /// 和 C3DF-Run 的执行环境**逐字相同**——不需要 DocumentLock、不需要跨线程调度，
-    /// 也就没有 Civil 3D API 跨线程调用那一类崩溃。代价是同一时刻只服务一个请求，
-    /// 这正是我们要的：一张图纸不允许被并发改。
+    /// Threading model (key point): the whole service loop runs on the C3DF-Serve command's own thread, i.e. the document thread.
+    /// The document is already locked while a command runs, so every request from the pipe executes synchronously in a valid command context,
+    /// **exactly** the same environment as C3DF-Run: no DocumentLock, no cross-thread dispatch,
+    /// hence none of the Civil 3D API cross-thread crashes. The price is serving one request at a time,
+    /// which is exactly what we want: one drawing must not be modified concurrently.
     ///
-    /// 存盘语义（和冷启动一致，故意不做自动保存）：内存里的改动**永远不会**自己写回宿主图纸，
-    /// 要落盘必须显式跑 save_dwg。常驻退出时走 QUIT + _Y（丢弃），改动直接没。
-    /// 状态里的 dirty 字段就是给调用方看的警告：还有没存的改动，别急着关。
+    /// Save semantics (same as cold start; deliberately no auto-save): in-memory changes are **never** written back to the host drawing on their own;
+    /// persisting requires an explicit save_dwg. On exit the resident runs QUIT + _Y (discard) and the changes are simply gone.
+    /// The dirty field in the status is the caller's warning: there are unsaved changes, do not close yet.
     /// </summary>
     public class ResidentServer
     {
@@ -55,7 +55,7 @@ namespace Civil3DFactory
 
             if (string.IsNullOrWhiteSpace(pipeName))
             {
-                LogTo(logPath, "拒绝启动：没有 C3DF_PIPE 环境变量。");
+                LogTo(logPath, "Refusing to start: C3DF_PIPE environment variable is missing.");
                 return;
             }
 
@@ -95,19 +95,19 @@ namespace Civil3DFactory
             NamedPipeServerStream pipe;
             try
             {
-                // maxNumberOfServerInstances = 1：同一张图纸只允许一个常驻。抢不到管道名的那个
-                // 直接退出让位——两个 accoreconsole 同时按住一张图纸，写盘一定互相覆盖。
+                // maxNumberOfServerInstances = 1: only one resident per drawing. Whoever fails to grab the pipe name
+                // exits and yields: two accoreconsoles holding the same drawing would overwrite each other on save.
                 pipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1,
                     PipeTransmissionMode.Byte, PipeOptions.Asynchronous, BufSize, BufSize);
             }
             catch (System.Exception ex)
             {
-                LogTo(logPath, "管道 " + pipeName + " 已被占用，让位退出：" + ex.Message);
+                LogTo(logPath, "Pipe " + pipeName + " is already taken; yielding and exiting: " + ex.Message);
                 return;
             }
 
             Environment.SetEnvironmentVariable("C3DF_RUNNER", "resident");
-            LogTo(logPath, "常驻启动 pid=" + pid + " pipe=" + pipeName + " idle=" + idleSec + "s dwg=" + dwg);
+            LogTo(logPath, "Resident started pid=" + pid + " pipe=" + pipeName + " idle=" + idleSec + "s dwg=" + dwg);
             Dispatcher.Audit(new JsonObject
             {
                 ["event"] = "resident_start",
@@ -132,7 +132,7 @@ namespace Civil3DFactory
                         string line = ReadLine(pipe, ReadTimeoutSec * 1000);
                         if (string.IsNullOrWhiteSpace(line))
                         {
-                            LogTo(logPath, "空请求（客户端探活或断开），忽略。");
+                            LogTo(logPath, "Empty request (client probe or disconnect), ignored.");
                         }
                         else
                         {
@@ -143,13 +143,13 @@ namespace Civil3DFactory
                             }
                             catch (System.Exception pex)
                             {
-                                // 把收到的开头贴进错误里：请求按 \n 分帧，客户端一旦把带换行的
-                                // JSON 原样塞进来，服务端只会读到半截，光看 "invalid JSON" 定不了位。
+                                // Include the head of what was received in the error: requests are framed by \n, so once a client
+                                // sends JSON containing newlines verbatim, the server reads only a fragment, and "invalid JSON" alone gives no clue.
                                 throw new InvalidOperationException(
-                                    "请求 JSON 解析失败（收到 " + line.Length + " 字节，开头: "
-                                    + line.Substring(0, Math.Min(200, line.Length)) + "）：" + pex.Message);
+                                    "Request JSON parse failed (received " + line.Length + " bytes, starting with: "
+                                    + line.Substring(0, Math.Min(200, line.Length)) + "): " + pex.Message);
                             }
-                            if (req == null) throw new InvalidOperationException("请求不是 JSON 对象。");
+                            if (req == null) throw new InvalidOperationException("Request is not a JSON object.");
                             cmd = (GetString(req, "cmd", "ping") ?? "ping").Trim().ToLowerInvariant();
                             lastCmd = cmd;
                             lastAt = DateTimeOffset.Now;
@@ -184,11 +184,11 @@ namespace Civil3DFactory
 
                                 default:
                                     throw new InvalidOperationException(
-                                        "未知命令 '" + cmd + "'。可用: ping/status/ops/keepalive/close");
+                                        "Unknown command '" + cmd + "'. Available: ping/status/ops/keepalive/close");
                             }
 
-                            // 报 idle 而不是 busy：客户端读到这份快照时，这条请求已经处理完了，
-                            // 服务端正要回到等连接的状态。报 busy 会让 status 永远显示"忙"。
+                            // Report idle rather than busy: by the time the client reads this snapshot the request is already done
+                            // and the server is about to wait for the next connection. Reporting busy would make status show "busy" forever.
                             resp["resident"] = Status(stop ? "closing" : "idle");
                             resp["ms"] = sw.ElapsedMilliseconds;
                             if (resp["ok"] == null || !resp["ok"].GetValue<bool>()) failed++;
@@ -200,7 +200,7 @@ namespace Civil3DFactory
                     catch (System.Exception ex)
                     {
                         failed++;
-                        LogTo(logPath, "请求失败 cmd=" + cmd + "：" + ex.GetType().Name + " " + ex.Message);
+                        LogTo(logPath, "Request failed cmd=" + cmd + ": " + ex.GetType().Name + " " + ex.Message);
                         try
                         {
                             var err = new JsonObject
@@ -219,10 +219,10 @@ namespace Civil3DFactory
                     }
                     finally
                     {
-                        // 一条请求一次连接：断开后回到 WaitForConnection。管道实例本身不销毁，
-                        // 名字始终挂在 \\.\pipe\ 下，所以客户端在服务端处理期间连进来只会
-                        // 等（ERROR_PIPE_BUSY 由 NamedPipeClientStream.Connect 自己重试），
-                        // 不会撞上"管道不存在"而误判常驻已死。
+                        // One connection per request: after disconnect, back to WaitForConnection. The pipe instance itself is not destroyed;
+                        // the name stays under \\.\pipe\, so a client connecting while the server is busy simply
+                        // waits (ERROR_PIPE_BUSY is retried by NamedPipeClientStream.Connect itself)
+                        // instead of hitting "pipe does not exist" and wrongly concluding the resident is dead.
                         try { if (pipe.IsConnected) pipe.Disconnect(); } catch { }
                         WriteState(statePath, Status("idle"));
                     }
@@ -233,13 +233,13 @@ namespace Civil3DFactory
             catch (System.Exception ex)
             {
                 stopReason = "error";
-                LogTo(logPath, "服务循环异常退出：" + ex);
+                LogTo(logPath, "Service loop exited with exception: " + ex);
             }
             finally
             {
                 try { pipe.Dispose(); } catch { }
                 DeleteState(statePath);
-                LogTo(logPath, "常驻退出 reason=" + stopReason + " served=" + served
+                LogTo(logPath, "Resident exiting reason=" + stopReason + " served=" + served
                              + " failed=" + failed + " dirty=" + dirty
                              + " uptime=" + (uptime.ElapsedMilliseconds / 1000) + "s");
                 Dispatcher.Audit(new JsonObject
@@ -262,13 +262,13 @@ namespace Civil3DFactory
         }
 
         /// <summary>
-        /// 跑一份任务。审计上下文（run_id / 审计日志路径）跟着**每条请求**走，不能沿用进程启动时的
-        /// 环境变量——常驻进程活得比单次运行久，否则一整天的请求全记进第一次启动的那个 run 里。
+        /// Runs one task. The audit context (run_id / audit log path) travels with **each request** and must not reuse the
+        /// environment variables from process start: the resident outlives a single run, otherwise a whole day of requests would be logged under the first run.
         /// </summary>
         static JsonObject RunOps(JsonObject req, Document doc, ref bool dirty)
         {
             JsonNode task = req["task"];
-            if (task == null) throw new InvalidOperationException("ops 请求缺少 task 字段。");
+            if (task == null) throw new InvalidOperationException("ops request has no task field.");
             string resultPath = GetString(req, "result_path", null);
 
             Environment.SetEnvironmentVariable("C3DF_RUN_ID", GetString(req, "run_id", null));
@@ -286,7 +286,7 @@ namespace Civil3DFactory
             };
         }
 
-        /// <summary>成功跑过任何一个 WritesDrawing 操作，就认为内存里的图脏了。</summary>
+        /// <summary>Once any WritesDrawing op has succeeded, the in-memory drawing is considered dirty.</summary>
         static bool TouchedDrawing(JsonObject result)
         {
             try
@@ -307,12 +307,12 @@ namespace Civil3DFactory
             return false;
         }
 
-        // ===================== 管道读写 =====================
+        // ===================== Pipe I/O =====================
 
         /// <summary>
-        /// 等一个客户端，超时就返回 false（= 闲置到点，该退了）。
-        /// 用 WaitForConnectionAsync + CancellationToken 而不是同步 WaitForConnection：
-        /// 同步版没有超时，闲置的常驻会永远挂着不退。
+        /// Waits for one client; returns false on timeout (= idle limit reached, time to exit).
+        /// Uses WaitForConnectionAsync + CancellationToken instead of the synchronous WaitForConnection:
+        /// the synchronous version has no timeout, and an idle resident would hang forever.
         /// </summary>
         static bool WaitForClient(NamedPipeServerStream pipe, int timeoutMs)
         {
@@ -328,7 +328,7 @@ namespace Civil3DFactory
             }
         }
 
-        /// <summary>读一行 UTF-8 JSON（\n 分帧）。读超时返回 null，防一个不发数据的客户端把常驻卡死。</summary>
+        /// <summary>Reads one line of UTF-8 JSON (\n framed). Returns null on read timeout so a silent client cannot freeze the resident.</summary>
         static string ReadLine(PipeStream pipe, int timeoutMs)
         {
             var buf = new byte[8192];
@@ -340,7 +340,7 @@ namespace Civil3DFactory
                     int n;
                     try { n = pipe.ReadAsync(buf, 0, buf.Length, cts.Token).GetAwaiter().GetResult(); }
                     catch (OperationCanceledException) { return null; }
-                    if (n <= 0) break;                       // 客户端断开
+                    if (n <= 0) break;                       // client disconnected
                     for (int i = 0; i < n; i++)
                     {
                         if (buf[i] != (byte)'\n') continue;
@@ -349,13 +349,13 @@ namespace Civil3DFactory
                     }
                     acc.Write(buf, 0, n);
                     if (acc.Length > MaxRequestBytes)
-                        throw new InvalidOperationException("请求超过 " + MaxRequestBytes + " 字节，拒绝处理。");
+                        throw new InvalidOperationException("Request exceeds " + MaxRequestBytes + " bytes; refused.");
                 }
                 return acc.Length > 0 ? Utf8().GetString(acc.ToArray()).TrimEnd('\r') : null;
             }
         }
 
-        /// <summary>回一行 UTF-8 JSON。必须紧凑（不缩进）——缩进会带换行，把分帧打烂。</summary>
+        /// <summary>Writes one line of UTF-8 JSON. Must be compact (no indentation): indentation adds newlines and breaks the framing.</summary>
         static void WriteLine(PipeStream pipe, JsonNode node)
         {
             byte[] bytes = Utf8().GetBytes(ToLine(node) + "\n");
@@ -375,16 +375,16 @@ namespace Civil3DFactory
             try { return node.ToJsonString(); }
             catch (System.Exception ex)
             {
-                return "{\"ok\":false,\"error\":\"序列化失败: "
+                return "{\"ok\":false,\"error\":\"Serialization failed: "
                      + ex.Message.Replace("\"", "'").Replace("\\", "/").Replace("\n", " ") + "\"}";
             }
         }
 
-        // ===================== 状态与日志 =====================
+        // ===================== Status and logging =====================
 
         /// <summary>
-        /// 状态文件是客户端的探活依据：有文件 + pid 活着 = 常驻在。退出时删掉，
-        /// 硬崩时残留的文件由客户端按 pid 判死后清理。
+        /// The status file is the client's liveness check: file present + pid alive = resident is up. Deleted on exit;
+        /// a file left behind by a hard crash is cleaned up by the client once it sees the pid is dead.
         /// </summary>
         static void WriteState(string path, JsonObject state)
         {
@@ -418,7 +418,7 @@ namespace Civil3DFactory
             catch { }
         }
 
-        // ===================== 小工具 =====================
+        // ===================== Helpers =====================
 
         static UTF8Encoding Utf8() { return new UTF8Encoding(false); }
 

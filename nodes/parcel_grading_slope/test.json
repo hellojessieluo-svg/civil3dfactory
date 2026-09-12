@@ -1,11 +1,11 @@
 {
   "node": "parcel_grading_slope",
   "version": 1,
-  "fixture": "tests/dwg/parcel-grading-sample.dwg",
+  "fixture": "examples/channel-demo.dwg",
   "prerequisite": null,
   "fixture_requirements": [
-    "模型空间包含地块红线多段线 ParcelBoundary",
-    "包含目标地形曲面 TargetSurface"
+    "Model space contains the parcel boundary polyline ParcelBoundary",
+    "Contains the target terrain surface TargetSurface"
   ],
   "assertions": [
     "data.grading_surface != null",

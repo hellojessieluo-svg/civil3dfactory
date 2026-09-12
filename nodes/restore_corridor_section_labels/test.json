@@ -1,7 +1,7 @@
 {
   "node": "restore_corridor_section_labels",
   "version": 1,
-  "fixture": "tests/dwg/road-to-section-drawings-with-section-views.dwg",
+  "fixture": "examples/channel-demo.dwg",
   "prerequisite": "run through civil3dfactory.ps1 after save_dwg",
   "assertions": [
     "data.executed == true",

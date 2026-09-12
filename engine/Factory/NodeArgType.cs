@@ -5,64 +5,64 @@ using System.Globalization;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// node.json 参数类型串的解析结果。
+    /// Parsed form of a node.json parameter type string.
     ///
-    /// 契约层原本只有 string/number/integer/boolean 这几个「值类型」，
-    /// 表单层拿不到语义，只能一律退回文本框——这是参数难填的根因。
-    /// 这里给契约补一层「语义类型」词汇，表单照着长控件：
+    /// The contract layer originally had only the "value types" string/number/integer/boolean;
+    /// the form layer got no semantics and fell back to a text box for everything, which is the root cause of hard-to-fill parameters.
+    /// This adds a "semantic type" vocabulary to the contract, and the form builds controls from it:
     ///
-    ///   enum[a|b|c]              只读下拉
-    ///   list:dwg.layer           可编辑下拉，候选从当前图纸现列（见 Ops.UiListNames）
-    ///   civil.alignment          等价 list:civil.alignment，保留旧写法
-    ///   pick.point               图中拾取一点        → [x, y]
-    ///   pick.points              图中连续拾取        → [[x,y], …]
-    ///   pick.entity&lt;polyline&gt;   图中选一个对象      → 句柄字符串
-    ///   pick.entities&lt;polyline&gt;  图中框选            → 句柄数组
-    ///   pick.distance            图中量距离          → number
-    ///   number{0..1}             带范围校验
-    ///   number{unit:m}           带单位后缀
-    ///   number{0..1,unit:%}      两者可组合
+    ///   enum[a|b|c]              read-only dropdown
+    ///   list:dwg.layer           editable dropdown, candidates listed live from the current drawing (see Ops.UiListNames)
+    ///   civil.alignment          same as list:civil.alignment, legacy spelling kept
+    ///   pick.point               pick one point in the drawing   -> [x, y]
+    ///   pick.points              pick several points             -> [[x,y], ...]
+    ///   pick.entity&lt;polyline&gt;   select one object               -> handle string
+    ///   pick.entities&lt;polyline&gt;  window-select objects           -> handle array
+    ///   pick.distance            measure a distance              -> number
+    ///   number{0..1}             with range validation
+    ///   number{unit:m}           with unit suffix
+    ///   number{0..1,unit:%}      both combined
     ///
-    /// 修饰符可叠加：尾部 ? 表示可选，尾部 [] 表示数组（[2] 表示定长 2）。
-    /// 不认识的串一律退回 text，旧契约一个字不改也能继续跑。
+    /// Modifiers stack: trailing ? means optional, trailing [] means array ([2] means fixed length 2).
+    /// Unknown strings fall back to text, so old contracts keep working without a single edit.
     /// </summary>
     public sealed class NodeArgType
     {
-        /// <summary>node.json 里的原始串，去掉可选问号。</summary>
+        /// <summary>The raw string from node.json, with the optional question mark removed.</summary>
         public string Raw;
-        /// <summary>控件类别：bool | number | integer | path | enum | list | pick | json | text。</summary>
+        /// <summary>Control kind: bool | number | integer | path | enum | list | pick | json | text.</summary>
         public string Kind = "text";
         public bool Optional;
         public bool IsArray;
-        /// <summary>定长数组的长度，如 path[2] 为 2；不定长为 0。</summary>
+        /// <summary>Length of a fixed-length array, e.g. 2 for path[2]; 0 when unbounded.</summary>
         public int ArrayLength;
 
-        /// <summary>Kind == "enum" 时的候选值。</summary>
+        /// <summary>Candidate values when Kind == "enum".</summary>
         public List<string> EnumValues;
-        /// <summary>Kind == "list" 时传给 Ops.UiListNames 的源键，如 dwg.layer、civil.alignment。</summary>
+        /// <summary>Source key passed to Ops.UiListNames when Kind == "list", e.g. dwg.layer, civil.alignment.</summary>
         public string ListSource;
 
-        /// <summary>Kind == "pick" 时的拾取动作：point | points | entity | entities | distance。</summary>
+        /// <summary>Pick action when Kind == "pick": point | points | entity | entities | distance.</summary>
         public string PickKind;
-        /// <summary>实体拾取的类型过滤，如 polyline、alignment；空表示不限。</summary>
+        /// <summary>Type filter for entity picks, e.g. polyline, alignment; empty means unrestricted.</summary>
         public string PickFilter;
 
         public double? Min;
         public double? Max;
         public string Unit;
         /// <summary>
-        /// 契约里用 =值 写的默认值。
-        /// 必填参数（`number=50`）会预填进框；可选参数（`number?=50`）只在类型提示里
-        /// 显示"默认 50"而不预填——留空正是让节点走自己的内部缺省。
+        /// Default value written as =value in the contract.
+        /// Required parameters (`number=50`) are pre-filled; optional ones (`number?=50`) only show
+        /// "default 50" in the type hint without pre-filling, since leaving it blank is how the node uses its own internal default.
         /// </summary>
         public string Default;
         /// <summary>
-        /// `flow:` 前缀：这一项只是流水线的数据依赖声明，节点执行时并不读它，
-        /// 参数对话框不显示。写它是为了让流水线知道上下游怎么接，不是为了让人填。
+        /// `flow:` prefix: this item is only a pipeline data-dependency declaration; the node does not read it at run time
+        /// and the parameter dialog hides it. It exists so the pipeline knows how stages connect, not for people to fill in.
         /// </summary>
         public bool FlowOnly;
 
-        /// <summary>界面右侧那列的类型提示文字。</summary>
+        /// <summary>Type hint text for the right-hand column of the UI.</summary>
         public string Hint
         {
             get
@@ -70,18 +70,18 @@ namespace Civil3DFactory
                 string text;
                 switch (Kind)
                 {
-                    case "enum": text = "选项"; break;
+                    case "enum": text = "Options"; break;
                     case "list": text = ListLabel(ListSource); break;
                     case "pick": text = PickLabel(PickKind, PickFilter); break;
                     default: text = Raw; break;
                 }
-                if (IsArray && Kind != "pick") text += ArrayLength > 0 ? " ×" + ArrayLength : " 多个";
+                if (IsArray && Kind != "pick") text += ArrayLength > 0 ? " ×" + ArrayLength : " multiple";
                 if (!string.IsNullOrEmpty(Unit)) text += " " + Unit;
                 if (Min.HasValue || Max.HasValue)
                     text += " " + Bound(Min) + "~" + Bound(Max);
 
-                // 可选参数的默认值不预填，但要让人看见留空会得到什么
-                if (Optional && !string.IsNullOrEmpty(Default)) return text + " 默认 " + Default;
+                // optional defaults are not pre-filled, but people should see what leaving it blank gives
+                if (Optional && !string.IsNullOrEmpty(Default)) return text + " default " + Default;
                 return text + (Optional ? " ?" : "");
             }
         }
@@ -93,56 +93,56 @@ namespace Civil3DFactory
 
         static string ListLabel(string source)
         {
-            if (string.IsNullOrEmpty(source)) return "列表";
+            if (string.IsNullOrEmpty(source)) return "List";
             if (source.StartsWith("dwg.", StringComparison.OrdinalIgnoreCase))
             {
                 switch (source.ToLowerInvariant())
                 {
-                    case "dwg.layer": return "图层";
-                    case "dwg.blockname": return "块名";
-                    case "dwg.textstyle": return "文字样式";
-                    case "dwg.dimstyle": return "标注样式";
-                    case "dwg.linetype": return "线型";
-                    case "dwg.ctb": return "打印样式表";
-                    case "dwg.layout": return "布局";
+                    case "dwg.layer": return "Layer";
+                    case "dwg.blockname": return "Block name";
+                    case "dwg.textstyle": return "Text style";
+                    case "dwg.dimstyle": return "Dim style";
+                    case "dwg.linetype": return "Linetype";
+                    case "dwg.ctb": return "Plot style table";
+                    case "dwg.layout": return "Layout";
                 }
             }
-            if (source.StartsWith("civil.style.", StringComparison.OrdinalIgnoreCase)) return "样式";
-            if (source.StartsWith("civil.labelset.", StringComparison.OrdinalIgnoreCase)) return "标注集";
-            if (source.StartsWith("civil.bandset.", StringComparison.OrdinalIgnoreCase)) return "带状集";
-            if (source.StartsWith("civil.codeset", StringComparison.OrdinalIgnoreCase)) return "代码集";
-            return "图中对象";
+            if (source.StartsWith("civil.style.", StringComparison.OrdinalIgnoreCase)) return "Style";
+            if (source.StartsWith("civil.labelset.", StringComparison.OrdinalIgnoreCase)) return "Label set";
+            if (source.StartsWith("civil.bandset.", StringComparison.OrdinalIgnoreCase)) return "Band set";
+            if (source.StartsWith("civil.codeset", StringComparison.OrdinalIgnoreCase)) return "Code set";
+            return "Drawing object";
         }
 
         static string PickLabel(string kind, string filter)
         {
             switch (kind)
             {
-                case "point": return "图中一点";
-                case "points": return "图中多点";
-                case "distance": return "图中距离";
-                case "entity": return "图中对象" + (string.IsNullOrEmpty(filter) ? "" : "·" + filter);
-                case "entities": return "图中多个" + (string.IsNullOrEmpty(filter) ? "" : "·" + filter);
+                case "point": return "Point in drawing";
+                case "points": return "Points in drawing";
+                case "distance": return "Distance in drawing";
+                case "entity": return "Drawing object" + (string.IsNullOrEmpty(filter) ? "" : "·" + filter);
+                case "entities": return "Drawing objects" + (string.IsNullOrEmpty(filter) ? "" : "·" + filter);
             }
-            return "图中拾取";
+            return "Pick in drawing";
         }
 
-        // ───────────────────────── 解析 ─────────────────────────
+        // ───────────────────────── Parsing ─────────────────────────
 
         public static NodeArgType Parse(string raw)
         {
             var t = new NodeArgType();
             string s = (raw ?? "string").Trim();
 
-            // flow: 前缀最先剥：它只说明"这一项不进表单"，剩下的照常解析
+            // strip the flow: prefix first: it only says "this item stays out of the form"; the rest parses as usual
             if (s.StartsWith("flow:", StringComparison.OrdinalIgnoreCase))
             {
                 t.FlowOnly = true;
                 s = s.Substring(5).Trim();
             }
 
-            // =值 是默认值。取第一个「不在括号里」的等号：括号内的属于 enum 候选或数值修饰，
-            // 而默认值本身可能带花括号（如图层名模板 CL-{channel}），所以不能简单地从右往左找。
+            // =value is the default. Take the first equals sign that is not inside brackets: bracketed ones belong to enum candidates or numeric modifiers,
+            // and the default itself may contain braces (e.g. the layer name template CL-{channel}), so a simple right-to-left search will not do.
             int eq = TopLevelEquals(s);
             if (eq > 0)
             {
@@ -157,7 +157,7 @@ namespace Civil3DFactory
             }
             else
             {
-                // 老写法把问号夹在类型名和结构体中间：array?<{…}>、object?{…}
+                // legacy spelling puts the question mark between the type name and the structure: array?<{...}>, object?{...}
                 int q = s.IndexOf('?');
                 if (q > 0 && q < s.Length - 1 && (s[q + 1] == '<' || s[q + 1] == '{'))
                 {
@@ -166,12 +166,12 @@ namespace Civil3DFactory
                 }
             }
 
-            // 尾部 {…} 是数值修饰，先摘下来再判数组，避免 number{0..1} 被误当结构体
+            // a trailing {...} is a numeric modifier; strip it before the array check so number{0..1} is not mistaken for a structure
             string modifiers = null;
             if (s.EndsWith("}", StringComparison.Ordinal))
             {
                 int brace = s.LastIndexOf('{');
-                // 只有 { 之前还有类型名时才当修饰符；"{a:1}" 这种整串是结构体，留给 json
+                // only treat it as a modifier when a type name precedes the {; a whole string like "{a:1}" is a structure, left to json
                 if (brace > 0)
                 {
                     modifiers = s.Substring(brace + 1, s.Length - brace - 2);
@@ -179,7 +179,7 @@ namespace Civil3DFactory
                 }
             }
 
-            // 数组后缀 [] / [2]，但 enum[a|b] 的方括号是候选值，不能当数组
+            // array suffix [] / [2]; but the brackets of enum[a|b] hold candidates and are not an array
             if (s.EndsWith("]", StringComparison.Ordinal)
                 && !s.StartsWith("enum[", StringComparison.OrdinalIgnoreCase))
             {
@@ -239,7 +239,7 @@ namespace Civil3DFactory
                 return t;
             }
 
-            // 旧写法：civil.* 直接就是「从图里列名字」
+            // legacy spelling: civil.* directly means "list names from the drawing"
             if (lower.StartsWith("civil.", StringComparison.Ordinal))
             {
                 t.Kind = "list";
@@ -258,13 +258,13 @@ namespace Civil3DFactory
             }
             if (t.Kind != null)
             {
-                // 标量套了数组（string[]、number[]）就只能编 JSON；
-                // path[] 例外，表单那边给的是多行框加浏览按钮
+                // scalars wrapped in arrays (string[], number[]) can only be edited as JSON;
+                // path[] is the exception: the form gives a multi-line box plus a browse button
                 if (t.IsArray && t.Kind != "path") t.Kind = "json";
                 return t;
             }
 
-            // 结构化 / 未知：交给 JSON 编辑框，行为与改造前一致
+            // structured / unknown: hand over to the JSON editor, same behaviour as before the rework
             if (t.IsArray || lower.Contains("<") || lower.Contains("{") || lower.StartsWith("object", StringComparison.Ordinal)
                 || lower.StartsWith("array", StringComparison.Ordinal))
             {
@@ -276,7 +276,7 @@ namespace Civil3DFactory
             return t;
         }
 
-        /// <summary>找出第一个不在 [] / {} / &lt;&gt; 内部的等号；没有返回 -1。</summary>
+        /// <summary>Finds the first equals sign not inside [] / {} / &lt;&gt;; returns -1 if none.</summary>
         static int TopLevelEquals(string s)
         {
             int depth = 0;
@@ -290,7 +290,7 @@ namespace Civil3DFactory
             return -1;
         }
 
-        /// <summary>解析 {0..1,unit:m} 这类修饰。</summary>
+        /// <summary>Parses modifiers like {0..1,unit:m}.</summary>
         static void ApplyModifiers(NodeArgType t, string modifiers)
         {
             if (string.IsNullOrWhiteSpace(modifiers)) return;

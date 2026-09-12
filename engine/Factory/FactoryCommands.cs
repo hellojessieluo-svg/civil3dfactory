@@ -10,17 +10,17 @@ using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 工厂在 Civil 3D 里的内置命令（功能区 Civil3DFactory.Ui 已于 2026-09-05 拆除）：
-    ///   C3DF-NODE   执行一个节点（功能区按钮走的也是这条路）
-    ///   C3DF-NODES  在命令行列出全部节点及其命令名
-    /// 另外每个节点会动态注册一个 C3DF_&lt;节点ID&gt; 命令，可直接敲。
+    /// The factory's built-in commands inside Civil 3D (the Civil3DFactory.Ui ribbon was removed on 2026-09-05):
+    ///   C3DF-NODE   runs one node (the ribbon buttons went through this path too)
+    ///   C3DF-NODES  lists every node and its command name on the command line
+    /// Additionally each node registers a dynamic C3DF_&lt;nodeId&gt; command that can be typed directly.
     /// </summary>
     public class FactoryCommands
     {
         static string _pendingNodeId;
         static readonly HashSet<string> Registered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        /// <summary>功能区按钮先排队再发命令，避免把节点 ID 当命令行输入解析。</summary>
+        /// <summary>Ribbon buttons queue first and then send the command, so the node ID is not parsed as command-line input.</summary>
         public static void Queue(string nodeId)
         {
             _pendingNodeId = nodeId;
@@ -36,7 +36,7 @@ namespace Civil3DFactory
             {
                 Editor ed = Ed();
                 if (ed == null) return;
-                var opts = new PromptStringOptions("\n节点 ID（C3DF-NODES 可列出全部）")
+                var opts = new PromptStringOptions("\nNode ID (C3DF-NODES lists them all)")
                 {
                     AllowSpaces = false
                 };
@@ -56,26 +56,26 @@ namespace Civil3DFactory
             if (ed == null) return;
             try
             {
-                ed.WriteMessage("\n[C3DF] nodes/node.json（" + FactoryPaths.RequireRoot() + "）\n");
+                ed.WriteMessage("\n[C3DF] nodes/node.json (" + FactoryPaths.RequireRoot() + ")\n");
                 foreach (KeyValuePair<string, List<NodeDef>> panel in NodeCatalog.Panels())
                 {
                     ed.WriteMessage("── " + panel.Key + "\n");
                     foreach (NodeDef n in panel.Value)
                     {
                         ed.WriteMessage("   " + n.CommandName.PadRight(38)
-                            + n.Title + (n.Runnable ? "" : "  (插件内无执行入口)") + "\n");
+                            + n.Title + (n.Runnable ? "" : "  (no execution entry in the plugin)") + "\n");
                     }
                 }
             }
             catch (System.Exception ex)
             {
-                ed.WriteMessage("\n[C3DF] 读取节点契约失败：" + ex.Message + "\n");
+                ed.WriteMessage("\n[C3DF] Failed to read node contracts: " + ex.Message + "\n");
             }
         }
 
         /// <summary>
-        /// 给每个节点动态注册 C3DF_&lt;节点ID&gt; 命令。用的是 Internal.Utils，
-        /// 注册失败不影响功能区和 C3DF-NODE，所以整体吞掉异常。
+        /// Registers a dynamic C3DF_&lt;nodeId&gt; command for every node. Uses Internal.Utils;
+        /// a registration failure does not affect the ribbon or C3DF-NODE, so exceptions are swallowed as a whole.
         /// </summary>
         public static void RegisterNodeCommands()
         {

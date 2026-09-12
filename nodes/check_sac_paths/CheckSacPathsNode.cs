@@ -20,7 +20,7 @@ namespace Civil3DFactory
             string assemblyName = Need(args, "assembly");
             var configuredPaths = args["paths"] as JsonArray;
             if (configuredPaths == null || configuredPaths.Count != 2)
-                throw new ArgumentException("check_sac_paths 必须且只能配置左右两个 PKT 路径。");
+                throw new ArgumentException("check_sac_paths must be configured with exactly two PKT paths (left and right).");
 
             string leftPath = null;
             string rightPath = null;
@@ -54,11 +54,11 @@ namespace Civil3DFactory
 
             if (missing.Count > 0)
                 throw new InvalidOperationException(
-                    "SAC 前置检查失败：固定 PKT 路径不存在或文件为空：" +
-                    string.Join("；", missing));
+                    "SAC pre-check failed: fixed PKT path missing or file empty: " +
+                    string.Join("; ", missing));
             if (string.IsNullOrEmpty(leftPath) || string.IsNullOrEmpty(rightPath))
                 throw new InvalidOperationException(
-                    "SAC 前置检查失败：两个 PKT 文件名必须分别含 LEFT 和 RIGHT。");
+                    "SAC pre-check failed: the two PKT file names must contain LEFT and RIGHT respectively.");
 
             Database db = doc.Database;
             var repaired = new JsonArray();
@@ -66,7 +66,7 @@ namespace Civil3DFactory
             {
                 var assemblies = FindAllAssemblies(db, tr);
                 if (assemblies.Count == 0)
-                    throw new InvalidOperationException("SAC 前置检查失败：图中没有任何装配");
+                    throw new InvalidOperationException("SAC pre-check failed: no assembly in the drawing");
 
                 foreach (var assembly in assemblies)
                 {
@@ -90,9 +90,9 @@ namespace Civil3DFactory
                         string oldHelpCommand = SafeString(() => oldSa.HelpCommand);
                         string oldHelpFile = SafeString(() => oldSa.HelpFile);
                         bool oldEmbedded = SafeBool(() => oldSa.UseEmbeddedProject);
-                        // FileNotFound 状态的 SAC 子装配读这两个属性会抛 InvalidOperationException
-                        // （2026-09-05 项目A实测，泛型异常的真身就是它）；读不到就按 (0,0) 处理，
-                        // 反正新子装配 Origin 已照抄、Side 已照抄，偏移量对挂在装配基线上的部件恒为 0。
+                        // Reading these two properties on a SAC subassembly in FileNotFound state throws InvalidOperationException
+                        // (verified on project A 2026-09-05; that is the real face of the generic exception); treat as (0,0) when unreadable,
+                        // since Origin and Side are copied anyway and the offset is always 0 for parts attached to the assembly baseline.
                         Vector2d oldParentOffset = new Vector2d(0, 0), oldAssemblyOffset = new Vector2d(0, 0);
                         try { oldParentOffset = oldSa.OffsetToParentAssembly; } catch { }
                         try { oldAssemblyOffset = oldSa.OffsetToAssembly; } catch { }
@@ -124,8 +124,8 @@ namespace Civil3DFactory
                             try { newSa.HelpFile = oldHelpFile; } catch { }
                         try { newSa.UseEmbeddedProject = oldEmbedded; } catch { }
 
-                        // 参数序：第一个是装配里现有的（被换掉的），第二个是新导入的目标。
-                        // 反过来传 API 报 "The target subassembly should be in the assembly."（2026-09-05 实测）
+                        // Parameter order: first is the existing one in the assembly (being replaced), second is the newly imported target.
+                        // Reversed, the API reports "The target subassembly should be in the assembly." (verified 2026-09-05)
                         assembly.ReplaceSubassembly(oldSa.ObjectId, newId);
                         try { newSa.Name = oldName; } catch { }
                         repaired.Add(new JsonObject
@@ -170,7 +170,7 @@ namespace Civil3DFactory
 
             if (unhealthy.Count > 0)
                 throw new InvalidOperationException(
-                    "SAC 自动修复后仍未通过复检：" + string.Join("；", unhealthy));
+                    "SAC still fails re-check after auto-repair: " + string.Join("; ", unhealthy));
 
             return new JsonObject
             {
@@ -231,7 +231,7 @@ namespace Civil3DFactory
             if (marker.Contains("left")) return leftPath;
             if (marker.Contains("right")) return rightPath;
             throw new InvalidOperationException(
-                "无法自动判断 SAC 子装配左右侧：" + sa.Name + "（Side=" + sa.Side + "）");
+                "Cannot determine the side of SAC subassembly automatically: " + sa.Name + " (Side=" + sa.Side + ")");
         }
 
         static void CopyParamValues(object sourceCollection, object targetCollection)

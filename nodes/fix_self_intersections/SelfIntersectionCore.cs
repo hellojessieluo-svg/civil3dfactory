@@ -1,4 +1,4 @@
-#nullable disable   // 本文件被 Civil3DFactory（可空关）与 WaterBox（可空开）两个工程共同编译，按关处理
+#nullable disable   // This file is compiled by both Civil3DFactory (nullable off) and WaterBox (nullable on); treat as off
 
 using System;
 using System.Collections.Generic;
@@ -8,26 +8,26 @@ using Autodesk.AutoCAD.Geometry;
 namespace Civil3DFactory.Geometry
 {
     /// <summary>
-    /// 自相交多段线的检测与修复核心（纯几何/DB，无交互依赖）。
+    /// Detection and repair core for self-intersecting polylines (pure geometry/DB, no interaction dependencies).
     ///
-    /// 自交线是下游的头号杀手：进 TIN 建面、GetOffsetCurves 偏移、算面积、打 Hatch
-    /// 全会失败或悄悄给错数。修法是「去回环」——在两段的交点处把线剪断，
-    /// 丢掉小的那个环、保留大的那个：
-    ///   闭合线：两个候选都是环，比**面积**（含弧段的弓形修正），保面积大的；
-    ///   开放线：套索状回环一律丢，保主干。
-    /// 丢弃比例超过 max_drop_ratio 就**停手不改**并报「需人工确认」——
-    /// 8 字形、大幅画错这类不是小毛刺，替用户拿主意会毁掉设计意图。
+    /// Self-intersecting lines are the number-one downstream killer: TIN surface building, GetOffsetCurves offsets, area
+    /// computation and hatching all fail or silently give wrong numbers. The fix is loop removal -- cut the line at the
+    /// intersection of the two segments, drop the smaller loop and keep the larger one:
+    ///   closed line: both candidates are loops, compare AREA (with segment correction for arcs), keep the larger one;
+    ///   open line: lasso-shaped loops are always dropped, the trunk is kept.
+    /// If the dropped share exceeds max_drop_ratio the line is left UNTOUCHED and reported as needing manual confirmation --
+    /// figure-eights and grossly misdrawn shapes are not small burrs; deciding for the user would destroy the design intent.
     ///
-    /// 唯一真源：Civil3DFactory（节点 fix_self_intersections）与 products\waterbox
-    /// （C3DF-FixSelfIntersect/ZJ）共同编译本文件。
+    /// Single source of truth: Civil3DFactory (node fix_self_intersections) and products\waterbox
+    /// (C3DF-FixSelfIntersect/ZJ) both compile this file.
     /// </summary>
     public static class SelfIntersectionCore
     {
         const double Tol = 1e-9;
-        const double DupTol = 1e-6;      // 顶点重合判定
-        const int MaxPasses = 200;       // 逐个回环消，防病态图形转不停
+        const double DupTol = 1e-6;      // vertex coincidence tolerance
+        const int MaxPasses = 200;       // loops are removed one by one; guard against pathological shapes looping forever
 
-        /// <summary>一处自交：第 SegA 段与第 SegB 段交于 Point。</summary>
+        /// <summary>One self-intersection: segment SegA and segment SegB cross at Point.</summary>
         public sealed class Hit
         {
             public int SegA;
@@ -39,28 +39,29 @@ namespace Civil3DFactory.Geometry
         {
             public int VerticesBefore;
             public int VerticesAfter;
-            public double AreaBefore;        // 闭合线才有意义（带符号面积的绝对值）
+            public double AreaBefore;        // meaningful only for closed lines (absolute value of signed area)
             public double AreaAfter;
             public double LengthBefore;
             public double LengthAfter;
             public int DuplicateVerticesRemoved;
-            public int HitsFound;            // 修复前检出的交点数
+            public int HitsFound;            // intersections detected before repair
             public int LoopsRemoved;
             public List<double> RemovedLoopAreas = new List<double>();
             public List<double> RemovedLoopLengths = new List<double>();
-            public List<Point2d> Intersections = new List<Point2d>();   // 修复前的交点位置
-            public bool Changed;             // 几何真的改了
-            public bool Clean;               // 收工时不再自交
-            public bool NeedsManual;         // 被 max_drop_ratio 拦下，未改动
+            public List<Point2d> Intersections = new List<Point2d>();   // intersection positions before repair
+            public bool Changed;             // geometry actually changed
+            public bool Clean;               // no self-intersection left at the end
+            public bool NeedsManual;         // blocked by max_drop_ratio, unchanged
             public string ManualReason;
         }
 
         // ============================================================
-        //  检测：全部段两两求交，相邻段（含闭合线首末段）只排除共享顶点那个交点，
-        //  不排除整对——相邻弧段能在第二点真相交，相邻直线段能整段回折重叠，
-        //  这两类 Civil 加曲面边界都拒收，2026-09-01 前的版本整对跳过全漏判。
-        //  直线×直线自己算（快且精确，平行时再查共线重叠），
-        //  涉及弧段走 CurveCurveIntersector2d。
+        //  Detection: intersect every pair of segments; for adjacent segments (including first/last of a closed line) only the
+        //  intersection at the shared vertex is excluded, not the whole pair -- adjacent arcs can truly cross at a second point,
+        //  and adjacent straight segments can fold back and overlap entirely; Civil refuses both as surface boundaries,
+        //  and versions before 2026-09-01 skipped whole pairs and missed them all.
+        //  Line x line is computed here (fast and exact; collinear overlap checked when parallel),
+        //  anything involving arcs goes through CurveCurveIntersector2d.
         // ============================================================
         public static List<Hit> Detect(Polyline pl)
         {
@@ -68,8 +69,8 @@ namespace Civil3DFactory.Geometry
             return Detect(pl, out dup);
         }
 
-        /// <summary>检测 + 报告有几个重复顶点（零长段）。重复顶点不产生 Hit，
-        /// 但 Civil 加边界同样拒收，调用方要把 duplicateVertices>0 当「脏」处理。</summary>
+        /// <summary>Detect + report the number of duplicate vertices (zero-length segments). Duplicate vertices produce no Hit,
+        /// but Civil refuses them as boundaries just the same; callers must treat duplicateVertices>0 as dirty.</summary>
         public static List<Hit> Detect(Polyline pl, out int duplicateVertices)
         {
             var pts = new List<Point2d>();
@@ -90,7 +91,7 @@ namespace Civil3DFactory.Geometry
             {
                 for (int j = i + 1; j < segCount; j++)
                 {
-                    // 相邻段共享一个顶点：交在共享点不算自交，其余交点都算
+                    // Adjacent segments share one vertex: crossing at the shared point is not a self-intersection, every other crossing is
                     bool adjacent = (j == i + 1) || (closed && i == 0 && j == segCount - 1);
                     Point2d shared = default;
                     if (adjacent)
@@ -121,7 +122,7 @@ namespace Civil3DFactory.Geometry
                 return found;
             }
 
-            // 含弧段：用 AutoCAD 的曲线求交器，失败就退回弦线近似（宁可漏报也不误判）
+            // With arcs: use AutoCAD's curve intersector; on failure fall back to chord approximation (better to miss than to misjudge)
             try
             {
                 Curve2d c1 = MakeCurve(a1, a2, ba);
@@ -146,18 +147,18 @@ namespace Civil3DFactory.Geometry
             if (Math.Abs(bulge) < Tol) return new LineSegment2d(a, b);
             Center(a, b, bulge, out Point2d o, out double r);
             double sa = (a - o).Angle, sb = (b - o).Angle;
-            // CircularArc2d 按逆时针从 start 到 end；顺时针弧调换端点
+            // CircularArc2d runs counter-clockwise from start to end; swap the endpoints for clockwise arcs
             return bulge > 0 ? new CircularArc2d(o, r, sa, sb, Vector2d.XAxis, false)
                              : new CircularArc2d(o, r, sb, sa, Vector2d.XAxis, false);
         }
 
-        /// <summary>线段求交（含端点，排除共线重叠——共线重叠交给去重顶点那步）。</summary>
+        /// <summary>Segment intersection (endpoints included, collinear overlap excluded -- that is handed to the duplicate-vertex step).</summary>
         static bool LineLine(Point2d p1, Point2d p2, Point2d p3, Point2d p4, out Point2d hit)
         {
             hit = default;
             Vector2d r = p2 - p1, s = p4 - p3;
             double den = r.X * s.Y - r.Y * s.X;
-            if (Math.Abs(den) < 1e-12) return false;      // 平行或共线
+            if (Math.Abs(den) < 1e-12) return false;      // parallel or collinear
             Vector2d w = p3 - p1;
             double t = (w.X * s.Y - w.Y * s.X) / den;
             double u = (w.X * r.Y - w.Y * r.X) / den;
@@ -166,10 +167,10 @@ namespace Civil3DFactory.Geometry
             return true;
         }
 
-        /// <summary>共线（或近平行）线段的重叠检测：LineLine 对平行/共线一律 return false，
-        /// 但「边上折返」「毛刺回折」这类整段重叠正是 Civil 加边界报错的常客。
-        /// 判定：两端点到对方所在直线距离都小于容差、且参数区间重叠长度超过容差。
-        /// 命中报重叠区间的中点，交给去回环机器当普通交点处理（回环面积≈0，必被丢弃）。</summary>
+        /// <summary>Overlap test for collinear (or nearly parallel) segments: LineLine always returns false for parallel/collinear,
+        /// yet full-segment overlaps such as a fold-back along an edge or a burr are exactly what Civil's boundary errors complain about.
+        /// Criterion: both endpoints lie within tolerance of the other segment's line, and the parameter intervals overlap by more than the tolerance.
+        /// A hit reports the midpoint of the overlap, handed to the loop remover as an ordinary intersection (loop area ~ 0, always dropped).</summary>
         static bool CollinearOverlap(Point2d a1, Point2d a2, Point2d b1, Point2d b2, out Point2d hit)
         {
             hit = default;
@@ -178,15 +179,15 @@ namespace Civil3DFactory.Geometry
             if (len < DupTol) return false;
             double d1 = Math.Abs((b1 - a1).X * r.Y - (b1 - a1).Y * r.X) / len;
             double d2 = Math.Abs((b2 - a1).X * r.Y - (b2 - a1).Y * r.X) / len;
-            if (d1 > DupTol || d2 > DupTol) return false;         // 平行但不共线
+            if (d1 > DupTol || d2 > DupTol) return false;         // parallel but not collinear
             double len2 = len * len;
             double t3 = ((b1 - a1).X * r.X + (b1 - a1).Y * r.Y) / len2;
             double t4 = ((b2 - a1).X * r.X + (b2 - a1).Y * r.Y) / len2;
             double lo = Math.Max(0, Math.Min(t3, t4));
             double hi = Math.Min(1, Math.Max(t3, t4));
-            if ((hi - lo) * len < DupTol) return false;           // 只在端点碰一下，不算重叠
-            // 交点优先取「落在对方段内部的端点」——修复的刀口正好切在折返顶点上，
-            // 一轮收敛；两段完全互相覆盖时才退回重叠区间中点。
+            if ((hi - lo) * len < DupTol) return false;           // touching only at an endpoint is not an overlap
+            // Prefer the endpoint that lies inside the other segment as the intersection -- the repair cut then lands exactly on the
+            // fold-back vertex and converges in one pass; fall back to the overlap midpoint only when the two segments cover each other fully.
             double margin = DupTol / len;
             if (t3 > margin && t3 < 1 - margin) hit = b1;
             else if (t4 > margin && t4 < 1 - margin) hit = b2;
@@ -195,8 +196,8 @@ namespace Civil3DFactory.Geometry
         }
 
         // ============================================================
-        //  修复：逐个回环消，直到不再自交
-        //  返回新 Polyline（调用方入库、删旧线）；本来就干净或没敢动时返回 null。
+        //  Repair: remove loops one at a time until no self-intersection remains
+        //  Returns a new Polyline (caller appends it and erases the old one); returns null when already clean or when not daring to change.
         // ============================================================
         public static Polyline Repair(Polyline src, double maxDropRatio, out RepairReport rep)
         {
@@ -218,10 +219,10 @@ namespace Civil3DFactory.Geometry
             if (hits.Count == 0)
             {
                 rep.Clean = true;
-                if (dupRemoved == 0) return null;        // 完全没事可做
+                if (dupRemoved == 0) return null;        // nothing to do at all
             }
 
-            // 被丢弃量的上限：闭合按面积、开放按长度
+            // Upper bound on the dropped amount: by area for closed, by length for open
             double budget = (closed ? rep.AreaBefore : rep.LengthBefore) * maxDropRatio;
             double dropped = 0;
 
@@ -237,14 +238,14 @@ namespace Civil3DFactory.Geometry
                 SplitBulge(pts[i], pts[(i + 1) % n], bulges[i], P, out double bi1, out double bi2);
                 SplitBulge(pts[j], pts[(j + 1) % n], bulges[j], P, out double bj1, out double bj2);
 
-                // 候选 A：丢掉中间那圈 —— v0..vi, P, vj+1..
+                // Candidate A: drop the inner loop -- v0..vi, P, vj+1..
                 var ptsA = new List<Point2d>();
                 var bulA = new List<double>();
                 for (int k = 0; k <= i; k++) { ptsA.Add(pts[k]); bulA.Add(k == i ? bi1 : bulges[k]); }
                 ptsA.Add(P); bulA.Add(bj2);
                 for (int k = j + 1; k < n; k++) { ptsA.Add(pts[k]); bulA.Add(bulges[k]); }
 
-                // 候选 B：那圈本身 —— P, vi+1..vj, 回到 P（必闭合）
+                // Candidate B: the loop itself -- P, vi+1..vj, back to P (always closed)
                 var ptsB = new List<Point2d>();
                 var bulB = new List<double>();
                 ptsB.Add(P); bulB.Add(bi2);
@@ -261,7 +262,7 @@ namespace Civil3DFactory.Geometry
                 }
                 else
                 {
-                    keepA = true;                                   // 开放线的回环是套索，一律丢
+                    keepA = true;                                   // a loop on an open line is a lasso, always dropped
                     dropAmount = Math.Abs(SignedArea(ptsB, bulB, true));
                     if (dropAmount < Tol) dropAmount = TotalLength(ptsB, bulB, true);
                 }
@@ -269,10 +270,10 @@ namespace Civil3DFactory.Geometry
                 if (dropped + dropAmount > budget)
                 {
                     rep.NeedsManual = true;
-                    rep.ManualReason = "第 " + (rep.LoopsRemoved + 1) + " 个回环要丢弃 "
+                    rep.ManualReason = "Loop " + (rep.LoopsRemoved + 1) + " would drop "
                         + dropAmount.ToString("0.###") + (closed ? " m²" : "")
-                        + "，超过允许比例（上限 " + budget.ToString("0.###")
-                        + "），已停手未改动——请人工确认是回环还是设计本意。";
+                        + ", exceeding the allowed ratio (limit " + budget.ToString("0.###")
+                        + "); stopped without changes -- please confirm manually whether it is a loop or design intent.";
                     rep.Changed = false;
                     return null;
                 }
@@ -289,7 +290,7 @@ namespace Civil3DFactory.Geometry
                 if (pts.Count < (closed ? 3 : 2))
                 {
                     rep.NeedsManual = true;
-                    rep.ManualReason = "消到顶点不足，线本身可能是退化图形，已停手未改动。";
+                    rep.ManualReason = "Too few vertices left after removal; the line itself may be degenerate. Stopped without changes.";
                     rep.Changed = false;
                     return null;
                 }
@@ -310,7 +311,7 @@ namespace Civil3DFactory.Geometry
             return res;
         }
 
-        // ---- 顶点表读取 + 闭合规范化 + 去重复点 ----
+        // ---- Read vertex table + normalise closure + remove duplicate points ----
         static int Load(Polyline pl, List<Point2d> pts, List<double> bulges, ref bool closed)
         {
             for (int k = 0; k < pl.NumberOfVertices; k++)
@@ -318,7 +319,7 @@ namespace Civil3DFactory.Geometry
                 pts.Add(pl.GetPoint2dAt(k));
                 bulges.Add(pl.GetBulgeAt(k));
             }
-            // 捕捉画闭：Closed=false 但首末重合，按闭合处理（否则收口段会被当自交漏判）
+            // Snap-closed: Closed=false but first and last coincide; treat as closed (otherwise the closing segment escapes self-intersection detection)
             if (!closed && pts.Count >= 4 &&
                 pts[0].GetDistanceTo(pts[pts.Count - 1]) < DupTol)
             {
@@ -329,14 +330,14 @@ namespace Civil3DFactory.Geometry
             return RemoveDuplicates(pts, bulges, closed);
         }
 
-        /// <summary>相邻重合顶点会造出零长段，检测时全是假阳性，先清掉。</summary>
+        /// <summary>Adjacent coincident vertices create zero-length segments, all false positives in detection; clear them first.</summary>
         static int RemoveDuplicates(List<Point2d> pts, List<double> bulges, bool closed)
         {
             int removed = 0;
             for (int k = pts.Count - 1; k > 0; k--)
             {
                 if (pts[k].GetDistanceTo(pts[k - 1]) >= DupTol) continue;
-                if (Math.Abs(bulges[k - 1]) > Tol) continue;      // 整圆弧段，留着
+                if (Math.Abs(bulges[k - 1]) > Tol) continue;      // full-circle arc segment, keep it
                 pts.RemoveAt(k);
                 bulges.RemoveAt(k);
                 removed++;
@@ -352,12 +353,12 @@ namespace Civil3DFactory.Geometry
             return removed;
         }
 
-        // ---- 面积（含弧段弓形修正）：逆时针为正 ----
+        // ---- Area (with circular-segment correction for arcs): counter-clockwise positive ----
         static double SignedArea(List<Point2d> pts, List<double> bulges, bool closed)
         {
             int n = pts.Count;
-            // 闭合 2 顶点带弧是合法的透镜/弓形，面积全在弧段修正里；按 n<3 归零会把
-            // 这种回环的丢弃量记成 0，max_drop_ratio 护栏被穿透（2026-09-01 实测）
+            // A closed 2-vertex line with arcs is a legal lens / circular segment whose area lies entirely in the arc correction; zeroing
+            // it for n<3 would record the drop amount of such a loop as 0 and pierce the max_drop_ratio guard (observed 2026-09-01)
             if (n < 2 || (!closed && n < 3)) return 0;
             double a = 0;
             for (int k = 0; k < n; k++)
@@ -378,7 +379,7 @@ namespace Civil3DFactory.Geometry
                 if (c < Tol) continue;
                 double theta = 4 * Math.Atan(Math.Abs(b));
                 double r = c * (1 + b * b) / (4 * Math.Abs(b));
-                double seg = r * r / 2 * (theta - Math.Sin(theta));   // 弓形面积
+                double seg = r * r / 2 * (theta - Math.Sin(theta));   // circular segment area
                 a += Math.Sign(b) * seg;
             }
             return a;
@@ -403,7 +404,7 @@ namespace Civil3DFactory.Geometry
             return len;
         }
 
-        // ---- 弧段在 P 处劈开后的两个 bulge（圆心公式与 OffsetConeCore.BuildSeg 一致）----
+        // ---- The two bulges of an arc segment split at P (center formula matches OffsetConeCore.BuildSeg) ----
         static void SplitBulge(Point2d a, Point2d b, double bulge, Point2d p,
             out double b1, out double b2)
         {
@@ -421,7 +422,7 @@ namespace Civil3DFactory.Geometry
         static void Center(Point2d a, Point2d b, double bulge, out Point2d o, out double r)
         {
             Vector2d c = b - a;
-            double d = c.Length * (1 + bulge * bulge) / (4 * bulge);   // 带符号
+            double d = c.Length * (1 + bulge * bulge) / (4 * bulge);   // signed
             o = a + c.GetNormal().RotateBy(Math.PI / 2 - 2 * Math.Atan(bulge)) * d;
             r = Math.Abs(d);
         }

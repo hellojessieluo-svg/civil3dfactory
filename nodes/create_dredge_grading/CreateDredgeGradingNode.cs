@@ -13,38 +13,38 @@ using CivDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 疏浚放坡设计面节点（闭合边界 → 底高程 + 1:m 放坡）。
+    /// Dredge grading design surface node (closed boundary -> bottom elevation + 1:m side slope).
     ///
-    /// 模型：边界多段线是**放坡起点线（上口线）**，不是坡脚线。
-    /// 逐区把边界围出的范围挖到 bottom_elev，从边界按 1:m 向内下放坡：
+    /// Model: the boundary polyline is the **top-of-slope line (crest)**, not the toe line.
+    /// Per region, the area enclosed by the boundary is cut to bottom_elev, sloping inward and downward from the boundary at 1:m:
     ///
-    ///     z(P) = max(bottom_elev, z_top(最近边界点) − dist(P, 边界) / m)
+    ///     z(P) = max(bottom_elev, z_top(nearest boundary point) - dist(P, boundary) / m)
     ///
-    /// 用「到边界的距离场」而不是逐点沿法线偏移，凹角和窄条不会自交，
-    /// 坡脚线自动是边界的内偏移包络。放坡带宽 band = (z_top − bottom) × m，
-    /// 带宽以内密采(slope_step)，带宽以外是平底、稀采(flat_step)。
+    /// Using a "distance-to-boundary field" instead of per-point normal offsets means concave corners and narrow strips never self-intersect,
+    /// and the toe line is automatically the inward offset envelope of the boundary. Slope band width band = (z_top - bottom) x m;
+    /// dense sampling inside the band (slope_step), flat bottom with sparse sampling outside (flat_step).
     ///
-    /// 起坡高程 z_top 三选一：
-    ///   start_elev 给值      → 整圈固定（例：与已挖区相接，起坡 4.0）
-    ///   start_elev_cap 给值  → min(原地形, cap)，只压高的一侧
-    ///   都不给              → 取原地形曲面（默认，坡顶自然接地）
+    /// Top-of-slope elevation z_top, one of three:
+    ///   start_elev given      -> fixed around the whole ring (e.g. adjoining an already-dredged area, start at 4.0)
+    ///   start_elev_cap given  -> min(existing ground, cap), only clamps the high side
+    ///   neither               -> existing ground surface (default, the crest meets the ground naturally)
     ///
-    /// 全局参数 + regions 逐区覆盖 = 参数模型；配套 survey_dredge_regions 盘点出参数骨架，
-    /// calculate_surface_volume 的 regions 批量模式算方量。
+    /// Global parameters + per-region overrides in regions = parametric model; survey_dredge_regions produces the parameter skeleton,
+    /// and the regions batch mode of calculate_surface_volume computes the volumes.
     /// </summary>
     public static partial class Ops
     {
         const string DredgeAppName = "C3DF_DREDGE";
 
-        // ==================== 共享几何工具（survey_dredge_regions 同用） ====================
+        // ==================== Shared geometry helpers (also used by survey_dredge_regions) ====================
 
-        /// <summary>边界环：等步长采样点 + 每点起坡高程 + 线段空间索引。</summary>
+        /// <summary>Boundary ring: equal-step sample points + top-of-slope elevation per point + segment spatial index.</summary>
         sealed class DredgeRing
         {
             public List<Point2d> P = new List<Point2d>();
-            public List<double> Z = new List<double>();   // 每点起坡高程（BuildIndex 前填好）
-            public List<double> M = new List<double>();   // 每点坡比 1:m 的 m（z_segments 可逐段给，缺省=全区值）
-            public double TotalLen;                       // 环全长（点按等弧长采样，点 i 的弧长 = TotalLen*i/Count）
+            public List<double> Z = new List<double>();   // top-of-slope elevation per point (fill before BuildIndex)
+            public List<double> M = new List<double>();   // m of slope 1:m per point (z_segments may give it per segment; default = region value)
+            public double TotalLen;                       // total ring length (points sampled at equal arc length; arc length of point i = TotalLen*i/Count)
             public double MinX, MinY, MaxX, MaxY;
 
             double _cell;
@@ -66,7 +66,7 @@ namespace Civil3DFactory
                 }
             }
 
-            /// <summary>建线段索引。cell 必须 ≥ 最大放坡带宽，否则 Nearest 的 3×3 邻域会漏段。</summary>
+            /// <summary>Build the segment index. cell must be >= the maximum slope band width, otherwise the 3x3 neighbourhood of Nearest misses segments.</summary>
             public void BuildIndex(double cell)
             {
                 _cell = Math.Max(cell, 1.0);
@@ -99,14 +99,14 @@ namespace Civil3DFactory
             int CX(double x) { int i = (int)Math.Floor((x - MinX) / _cell); return i < 0 ? 0 : (i >= _nx ? _nx - 1 : i); }
             int CY(double y) { int i = (int)Math.Floor((y - MinY) / _cell); return i < 0 ? 0 : (i >= _ny ? _ny - 1 : i); }
 
-            /// <summary>最近边界距离与该处起坡高程。3×3 邻域内无线段返回 false（= 离边界比 cell 还远）。</summary>
+            /// <summary>Nearest boundary distance and the top-of-slope elevation there. Returns false when no segment is in the 3x3 neighbourhood (= farther from the boundary than cell).</summary>
             public bool Nearest(double px, double py, out double dist, out double zTop)
             {
                 double m;
                 return NearestZM(px, py, out dist, out zTop, out m);
             }
 
-            /// <summary>同 Nearest，另带最近点处的坡比 m（M 没填时回 0）。</summary>
+            /// <summary>Same as Nearest, also returning the slope m at the nearest point (0 when M is not filled).</summary>
             public bool NearestZM(double px, double py, out double dist, out double zTop, out double mLoc)
             {
                 dist = double.MaxValue; zTop = 0.0; mLoc = 0.0;
@@ -146,7 +146,7 @@ namespace Civil3DFactory
             }
         }
 
-        /// <summary>按步长把闭合多段线（含弧段）采成点环。</summary>
+        /// <summary>Sample a closed polyline (arcs included) into a point ring by step.</summary>
         static DredgeRing DredgeBuildRing(Polyline pl, double step)
         {
             var r = new DredgeRing();
@@ -170,7 +170,7 @@ namespace Civil3DFactory
             return r;
         }
 
-        /// <summary>有向面积：正 = 逆时针。CAD 的 Polyline.Area 取绝对值，判不了绕向。</summary>
+        /// <summary>Signed area: positive = counter-clockwise. CAD's Polyline.Area is absolute and cannot tell the winding.</summary>
         static double DredgeSignedArea(List<Point2d> p)
         {
             double s = 0.0;
@@ -181,12 +181,12 @@ namespace Civil3DFactory
         }
 
         /// <summary>
-        /// 起坡高程口径：一条边界上不是每段都一样。
-        ///   Bottom              设计底高程
-        ///   HasStart/Start      整圈固定起坡高程
-        ///   HasCap/Cap          起坡高程上限 min(地形, cap)——与已挖区（如荷花疏浚区）相接那种
-        ///   Interfaces/Tol/Elev 分界线：边界离这些线 Tol 以内的段起坡高程压到 Elev（缺省 = Bottom，
-        ///                       即该段不放坡）——交叉口与通道相接的那几段，坡由通道自己出
+        /// Top-of-slope elevation rules: not every segment of a boundary is the same.
+        ///   Bottom              design bottom elevation
+        ///   HasStart/Start      fixed top-of-slope elevation around the whole ring
+        ///   HasCap/Cap          top-of-slope cap min(ground, cap): for adjoining already-dredged areas (e.g. lotus dredging zones)
+        ///   Interfaces/Tol/Elev interface lines: boundary segments within Tol of these lines get their top elevation clamped to Elev (default = Bottom,
+        ///                       i.e. no slope on that segment): the segments where an intersection meets a channel, whose slope comes from the channel itself
         /// </summary>
         sealed class DredgeZSpec
         {
@@ -194,22 +194,22 @@ namespace Civil3DFactory
             public double SlopeM;
             public bool HasStart; public double Start;
             public bool HasCap; public double Cap;
-            public CivSurface StartSurface;          // 起坡高程曲面（如已设计的通道面），缺省用原地形
+            public CivSurface StartSurface;          // top-of-slope reference surface (e.g. the designed channel surface); default existing ground
             public List<Curve> Interfaces;
             public double InterfaceTol;
             public double InterfaceElev;
-            public string Mode;                      // 汇报用：起坡高程口径
-            public List<DredgeZSeg> Segs;            // 逐段顶高程模式（环弧长），给了就是权威、盖过分界线口径
+            public string Mode;                      // for reporting: top-of-slope elevation rule
+            public List<DredgeZSeg> Segs;            // per-segment top elevation mode (ring arc length); if given it is authoritative and overrides the interface rule
         }
 
-        /// <summary>顶高程分段：环弧长 [S0,S1] 内按 Mode 取顶。
-        /// 模式：现状/ground=跟原地形；上限/cap=min(地形,Value)；定值/fixed=Value；压底/bottom=底高程不放坡。</summary>
+        /// <summary>Top elevation segment: within ring arc length [S0,S1] the top is taken by Mode.
+        /// Modes: ground = follow existing ground; cap = min(ground, Value); fixed = Value; bottom = bottom elevation, no slope.</summary>
         sealed class DredgeZSeg
         {
             public double S0, S1;
             public string Mode;
             public double Value;
-            public double M;    // 本段坡比 1:m 的 m；0 = 用全区值
+            public double M;    // m of slope 1:m for this segment; 0 = use the region value
         }
 
         static List<DredgeZSeg> DredgeParseZSegs(JsonArray arr)
@@ -223,19 +223,19 @@ namespace Civil3DFactory
                 string mode = GetString(o, "mode", "").Trim().ToLowerInvariant();
                 switch (mode)
                 {
-                    case "现状": case "ground": mode = "ground"; break;
-                    case "上限": case "cap": mode = "cap"; break;
-                    case "定值": case "fixed": mode = "fixed"; break;
-                    case "压底": case "bottom": mode = "bottom"; break;
+                    case "Ground": case "ground": mode = "ground"; break;
+                    case "Cap": case "cap": mode = "cap"; break;
+                    case "Fixed": case "fixed": mode = "fixed"; break;
+                    case "Bottom": case "bottom": mode = "bottom"; break;
                     default:
                         throw new InvalidOperationException(
-                            "z_segments.mode '" + mode + "' 不认识（支持 现状/上限/定值/压底）。");
+                            "Unknown z_segments.mode '" + mode + "' (supported: ground/cap/fixed/bottom).");
                 }
                 if ((mode == "cap" || mode == "fixed") && o["value"] == null)
-                    throw new InvalidOperationException("z_segments 模式 '" + mode + "' 必须给 value。");
+                    throw new InvalidOperationException("z_segments mode '" + mode + "' requires value.");
                 double sm = GetDouble(o, "m", 0.0);
                 if (sm < 0 || sm > 50)
-                    throw new InvalidOperationException("z_segments.m 出界(0~50)。");
+                    throw new InvalidOperationException("z_segments.m out of range (0~50).");
                 list.Add(new DredgeZSeg
                 {
                     S0 = GetDouble(o, "s0", 0.0),
@@ -249,8 +249,8 @@ namespace Civil3DFactory
         }
 
         /// <summary>
-        /// 全局参数 + 逐区 spec 合并成本区实际参数。survey_dredge_regions 与 create_dredge_grading
-        /// 共用这一个合并口径——盘点时试算的那套参数，就是建面时用的那套，不会两边漂。
+        /// Merge global parameters + per-region spec into the region's effective parameters. survey_dredge_regions and create_dredge_grading
+        /// share this single merge rule, so the parameters trialled during the survey are exactly the ones used to build the surface; no drift.
         /// </summary>
         static DredgeZSpec DredgeMergeZSpec(JsonObject a, JsonObject spec, double gBottom, double gSlope,
             CivSurface startSurface, List<Curve> interfaces)
@@ -291,9 +291,9 @@ namespace Civil3DFactory
         }
 
         /// <summary>
-        /// 按 spec 填 ring.Z（起坡高程）。取值顺序：
-        /// 固定值 → start_surface → 原地形 → 都采不到就退到底高程；再套 cap，再套分界线，最后不低于底高程。
-        /// offSurface = 两个曲面都采不到的点数，onInterface = 被分界线压过的点数。
+        /// Fill ring.Z (top-of-slope elevation) per spec. Order of precedence:
+        /// fixed value -> start_surface -> existing ground -> bottom elevation if neither samples; then apply cap, then interface lines, finally never below bottom.
+        /// offSurface = number of points neither surface could sample; onInterface = number of points clamped by interface lines.
         /// </summary>
         static void DredgeFillRingZ(DredgeRing ring, CivSurface ground, DredgeZSpec spec,
             out int offSurface, out int onInterface)
@@ -307,7 +307,7 @@ namespace Civil3DFactory
                 var p3 = new Point3d(ring.P[i].X, ring.P[i].Y, 0);
                 double z;
 
-                // 逐段顶高程模式（环弧长）：命中即权威，不再走全局口径与分界线
+                // Per-segment top elevation mode (ring arc length): a hit is authoritative; global rule and interface lines are skipped
                 DredgeZSeg seg = null;
                 if (spec.Segs != null)
                 {
@@ -343,7 +343,7 @@ namespace Civil3DFactory
                     double zs;
                     if (spec.StartSurface != null && GridTrySample(spec.StartSurface, p3, out zs)) z = zs;
                     else if (ground != null && GridTrySample(ground, p3, out zs)) z = zs;
-                    else { offSurface++; z = spec.Bottom; }   // 采不到就当没坡，宁可少挖不乱挖
+                    else { offSurface++; z = spec.Bottom; }   // unsampled = no slope; better to under-cut than cut wildly
                     if (spec.HasCap && z > spec.Cap) z = spec.Cap;
                 }
 
@@ -354,13 +354,13 @@ namespace Civil3DFactory
                     onInterface++;
                 }
 
-                if (z < spec.Bottom) z = spec.Bottom;   // 地面已低于设计底：该处不放坡
+                if (z < spec.Bottom) z = spec.Bottom;   // ground already below design bottom: no slope here
                 ring.Z.Add(z);
                 ring.M.Add(spec.SlopeM);
             }
         }
 
-        /// <summary>起坡参照面采样：优先 start_surface，退回原地形。</summary>
+        /// <summary>Sample the top-of-slope reference: start_surface first, fall back to existing ground.</summary>
         static bool GroundAt(CivSurface ground, DredgeZSpec spec, Point3d p3, out double z)
         {
             if (spec.StartSurface != null && GridTrySample(spec.StartSurface, p3, out z)) return true;
@@ -385,7 +385,7 @@ namespace Civil3DFactory
             return false;
         }
 
-        /// <summary>收集分界线：给定图层上的全部曲线（多段线/直线/圆弧都收）。</summary>
+        /// <summary>Collect interface lines: every curve on the given layers (polylines/lines/arcs).</summary>
         static List<Curve> DredgeCollectInterfaces(Transaction tr, Database db, JsonArray layers)
         {
             var list = new List<Curve>();
@@ -405,7 +405,7 @@ namespace Civil3DFactory
 
         struct DredgeText { public Point2d P; public string S; public string Layer; }
 
-        /// <summary>收集图上的单行/多行文字，供按「文字落在边界内」自动给分区起名。</summary>
+        /// <summary>Collect single/multi-line texts in the drawing, to auto-name regions by "text inside boundary".</summary>
         static List<DredgeText> DredgeCollectTexts(Transaction tr, Database db, string layerFilter)
         {
             var list = new List<DredgeText>();
@@ -428,7 +428,7 @@ namespace Civil3DFactory
 
                 if (all)
                 {
-                    // 缺省口径：C3DF-* 是本厂各标注节点的产物（网格高程等），不当区名
+                    // Default rule: C3DF-* layers are the output of this factory's annotation nodes (grid elevations etc.), not region names
                     if (ent.Layer.StartsWith("C3DF-", StringComparison.OrdinalIgnoreCase)) continue;
                 }
                 else if (!string.Equals(ent.Layer, layerFilter, StringComparison.OrdinalIgnoreCase)) continue;
@@ -438,7 +438,7 @@ namespace Civil3DFactory
             return list;
         }
 
-        /// <summary>按图层 + 可选句柄白名单收集闭合多段线（边界）。</summary>
+        /// <summary>Collect closed polylines (boundaries) by layer + optional handle whitelist.</summary>
         static List<ObjectId> DredgeCollectBoundaries(Transaction tr, Database db, string layer, JsonArray handleWhitelist)
         {
             HashSet<string> want = null;
@@ -470,11 +470,11 @@ namespace Civil3DFactory
                 new TypedValue((int)DxfCode.ExtendedDataAsciiString, kind));
         }
 
-        /// <summary>必需的数值参数：缺了就报参数名，别静默用 0。</summary>
+        /// <summary>Required numeric parameter: report the name when missing instead of silently using 0.</summary>
         static double DredgeNeedDouble(JsonObject a, string key)
         {
             if (a[key] == null)
-                throw new InvalidOperationException("缺少必需参数 '" + key + "'。");
+                throw new InvalidOperationException("Missing required parameter '" + key + "'.");
             return GetDouble(a, key, 0.0);
         }
 
@@ -486,7 +486,7 @@ namespace Civil3DFactory
             return true;
         }
 
-        // ==================== 节点主体 ====================
+        // ==================== Node body ====================
 
         static JsonNode RunNodeCreateDredgeGrading(JsonObject a, Document doc)
         {
@@ -494,18 +494,18 @@ namespace Civil3DFactory
             string surfName = Need(a, "surface");
             double gBottom = DredgeNeedDouble(a, "bottom_elev");
             double gSlope = DredgeNeedDouble(a, "slope_ratio_m");
-            if (gSlope <= 0) throw new InvalidOperationException("slope_ratio_m 必须大于 0（1:m 的 m）。");
+            if (gSlope <= 0) throw new InvalidOperationException("slope_ratio_m must be greater than 0 (the m of 1:m).");
 
             string startSurfName = GetString(a, "start_surface", null);
 
             double sampleStep = GetDouble(a, "sample_step", 2.0);
             double slopeStep = GetDouble(a, "slope_step", 2.0);
             double flatStep = GetDouble(a, "flat_step", 20.0);
-            if (sampleStep <= 0) throw new InvalidOperationException("sample_step 必须大于 0。");
-            if (slopeStep <= 0) throw new InvalidOperationException("slope_step 必须大于 0。");
+            if (sampleStep <= 0) throw new InvalidOperationException("sample_step must be greater than 0.");
+            if (slopeStep <= 0) throw new InvalidOperationException("slope_step must be greater than 0.");
             if (flatStep < slopeStep) flatStep = slopeStep;
 
-            string prefix = GetString(a, "surface_prefix", "疏浚设计-");
+            string prefix = GetString(a, "surface_prefix", "DredgeDesign-");
             string surfLayer = GetString(a, "surface_layer", "C3DF-DREDGE-SURFACE");
             string crestLayer = GetString(a, "crest_layer", "C3DF-DREDGE-TOP");
             string toeLayer = GetString(a, "toe_layer", "C3DF-DREDGE-TOE");
@@ -528,27 +528,27 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 ObjectId gsId = FindSurfaceId(tr, civ, surfName);
-                if (gsId.IsNull) throw new InvalidOperationException("找不到原地形曲面 '" + surfName + "'。");
+                if (gsId.IsNull) throw new InvalidOperationException("Existing ground surface '" + surfName + "' not found.");
                 var ground = (CivSurface)tr.GetObject(gsId, OpenMode.ForRead);
 
                 CivSurface startSurface = null;
                 if (!string.IsNullOrEmpty(startSurfName))
                 {
                     ObjectId ssId = FindSurfaceId(tr, civ, startSurfName);
-                    if (ssId.IsNull) throw new InvalidOperationException("找不到起坡高程曲面 '" + startSurfName + "'。");
+                    if (ssId.IsNull) throw new InvalidOperationException("Top-of-slope surface '" + startSurfName + "' not found.");
                     startSurface = (CivSurface)tr.GetObject(ssId, OpenMode.ForRead);
                 }
 
                 List<ObjectId> bndIds = DredgeCollectBoundaries(tr, db, bndLayer, handles);
                 if (bndIds.Count == 0)
                     throw new InvalidOperationException(
-                        "图层 '" + bndLayer + "' 上没有闭合多段线" +
-                        (handles != null && handles.Count > 0 ? "（或句柄白名单一个都没命中）" : "") + "。");
+                        "No closed polyline on layer '" + bndLayer + "'" +
+                        (handles != null && handles.Count > 0 ? " (or none of the whitelisted handles matched)" : "") + ".");
 
                 List<DredgeText> texts = DredgeCollectTexts(tr, db, labelLayer);
                 List<Curve> interfaces = DredgeCollectInterfaces(tr, db, interfaceLayers);
                 if (interfaceLayers != null && interfaceLayers.Count > 0 && interfaces.Count == 0)
-                    warnings.Add((JsonNode)"interface_layers 给了但那些图层上一条曲线都没有，分界线口径没生效。");
+                    warnings.Add((JsonNode)"interface_layers given but those layers contain no curve; the interface rule had no effect.");
 
                 if (clearExisting) cleared = DredgeClearOld(tr, db, civ, prefix);
 
@@ -571,16 +571,16 @@ namespace Civil3DFactory
                     DredgeRing ring = DredgeBuildRing(pl, sampleStep);
                     if (ring.Count < 3)
                     {
-                        warnings.Add((JsonNode)("边界 " + handle + " 采样点不足，跳过。"));
+                        warnings.Add((JsonNode)("Boundary " + handle + " has too few sample points, skipped."));
                         continue;
                     }
 
-                    // 区名：先看落在边界内的文字，取不到再用序号
+                    // Region name: text inside the boundary first, else the index
                     string label = null;
                     foreach (DredgeText t in texts)
                         if (GridPointInPolygon(t.P, ring.P)) { label = t.S; break; }
 
-                    // 逐区参数：句柄优先匹配，其次区名，都没有就用全局
+                    // Per-region parameters: match by handle first, then region name, else global
                     JsonObject spec = DredgeFindSpec(regionSpecs, handle, label);
                     string id = spec != null ? GetString(spec, "id", null) : null;
                     if (string.IsNullOrEmpty(id)) id = label;
@@ -590,9 +590,9 @@ namespace Civil3DFactory
                     double bottom = zspec.Bottom;
                     double m = zspec.SlopeM;
                     if (m <= 0)
-                        throw new InvalidOperationException("分区 '" + id + "' 的 slope_ratio_m 必须大于 0。");
+                        throw new InvalidOperationException("slope_ratio_m of region '" + id + "' must be greater than 0.");
 
-                    // ---- 起坡高程 ----
+                    // ---- Top-of-slope elevation ----
                     int offSurface, onInterface;
                     DredgeFillRingZ(ring, ground, zspec, out offSurface, out onInterface);
 
@@ -605,7 +605,7 @@ namespace Civil3DFactory
                         if (z > zMax) zMax = z;
                     }
                     if (offSurface > 0)
-                        rw.Add((JsonNode)(offSurface + "/" + ring.Count + " 个边界采样点落在原地形曲面外，按设计底高程处理（该段不放坡）"));
+                        rw.Add((JsonNode)(offSurface + "/" + ring.Count + " boundary sample points fall outside the existing ground surface; treated as design bottom (no slope there)"));
 
                     string sName = prefix + id;
                     string uniq = sName;
@@ -661,7 +661,7 @@ namespace Civil3DFactory
                     }
                 }
 
-                // regions 里点名了却在图上没找到的，明着报出来，别静默
+                // Regions named in regions but not found in the drawing are reported explicitly, never silently
                 if (regionSpecs != null)
                 {
                     foreach (JsonNode n in regionSpecs)
@@ -681,7 +681,7 @@ namespace Civil3DFactory
                                 (ro["label"] != null && string.Equals(ro["label"].ToString(), key, StringComparison.OrdinalIgnoreCase)))
                             { used = true; break; }
                         }
-                        if (!used) warnings.Add((JsonNode)("regions 里的 '" + key + "' 在图上没有对应边界，已忽略。"));
+                        if (!used) warnings.Add((JsonNode)("'" + key + "' in regions has no matching boundary in the drawing, ignored."));
                     }
                 }
 
@@ -708,9 +708,9 @@ namespace Civil3DFactory
             public List<string> Notes = new List<string>();
         }
 
-        /// <summary>成面公共段（create_dredge_grading 与 dredge_from_feature_lines 共用）：
-        /// 环(Z/M 已填好) → 放坡带索引 → 环点+坡脚点+网格点 → TIN+外边界裁剪 → 坡顶/坡脚线。
-        /// 同名旧曲面原位删除重建。</summary>
+        /// <summary>Shared surface-building stage (used by create_dredge_grading and dredge_from_feature_lines):
+        /// ring (Z/M filled) -> slope band index -> ring points + toe points + grid points -> TIN + outer boundary clip -> crest/toe lines.
+        /// An old surface with the same name is deleted and rebuilt in place.</summary>
         static DredgeSurfaceOut DredgeBuildSurface(Transaction tr, Database db, CivDoc civ, BlockTableRecord btr,
             DredgeRing ring, double bottom, string sName,
             ObjectId lySurf, ObjectId lyCrest, ObjectId lyToe, bool drawCrest, bool drawToe,
@@ -726,11 +726,11 @@ namespace Civil3DFactory
             }
             outp.BandMax = bandMax;
             if (bandMax <= 1e-6)
-                outp.Notes.Add("整圈起坡高程都不高于设计底高程，本区是纯平底（无放坡带）");
+                outp.Notes.Add("Top-of-slope elevation is nowhere above the design bottom; this region is a pure flat bottom (no slope band)");
 
             ring.BuildIndex(Math.Max(bandMax * 1.05, Math.Max(flatStep, 5.0)));
 
-            // ---- 面点：边界环 + 坡脚环 + 放坡带密采 + 平底稀采 ----
+            // ---- Surface points: boundary ring + toe ring + dense slope band + sparse flat bottom ----
             var pts = new Point3dCollection();
             for (int i = 0; i < ring.Count; i++)
                 pts.Add(new Point3d(ring.P[i].X, ring.P[i].Y, ring.Z[i]));
@@ -744,8 +744,8 @@ namespace Civil3DFactory
                 if (band <= 1e-6) continue;
                 double px = ring.P[i].X + nx[i] * band;
                 double py = ring.P[i].Y + ny[i] * band;
-                // 校核：真正的坡脚点必须在区内、且到边界距离确实等于本地带宽。
-                // 凹角处沿法线偏移会跑出界或压到对岸，这一步把它们剔掉。
+                // Check: a true toe point must be inside the region and its distance to the boundary must equal the local band width.
+                // At concave corners a normal offset runs outside or onto the opposite side; this step removes those.
                 if (!GridPointInPolygon(new Point2d(px, py), ring.P)) continue;
                 double d, zt;
                 if (!ring.Nearest(px, py, out d, out zt)) continue;
@@ -770,20 +770,20 @@ namespace Civil3DFactory
 
                     double d, zTop, mLoc;
                     double z;
-                    if (!ring.NearestZM(x, y, out d, out zTop, out mLoc)) z = bottom;   // 离边界比索引格还远 = 平底
+                    if (!ring.NearestZM(x, y, out d, out zTop, out mLoc)) z = bottom;   // farther from the boundary than the index cell = flat bottom
                     else
                     {
                         z = zTop - d / (mLoc > 0 ? mLoc : 5.0);
                         if (z < bottom) z = bottom;
                     }
-                    // 平底区只留稀疏格点，放坡带内全留
+                    // keep only sparse grid points on the flat bottom, all points inside the slope band
                     if (z <= bottom + 1e-9 && (ix % coarse != 0 || iy % coarse != 0)) continue;
                     pts.Add(new Point3d(x, y, z));
                     gridPts++;
                 }
             }
 
-            // ---- 建 TIN + 外边界裁剪 ----
+            // ---- Build TIN + clip by outer boundary ----
             ObjectId oldId = FindSurfaceId(tr, civ, sName);
             if (!oldId.IsNull)
             {
@@ -805,10 +805,10 @@ namespace Civil3DFactory
             }
             catch (System.Exception ex)
             {
-                outp.Notes.Add("外边界裁剪失败，曲面按凸包三角化：" + ex.Message);
+                outp.Notes.Add("Outer boundary clip failed; surface triangulated by convex hull: " + ex.Message);
             }
 
-            // ---- 坡顶线（边界的 3D 版）与坡脚线 ----
+            // ---- Crest line (3D version of the boundary) and toe line ----
             if (drawCrest)
             {
                 var cp = new Polyline3d(Poly3dType.SimplePoly, bpts, true);
@@ -831,7 +831,7 @@ namespace Civil3DFactory
             }
             else if (drawToe)
             {
-                outp.Notes.Add("坡脚点不足 3 个，未画坡脚线（放坡带太窄或全区平底）");
+                outp.Notes.Add("Fewer than 3 toe points; toe line not drawn (slope band too narrow or whole region flat)");
             }
 
             outp.ToePoints = toePts.Count;
@@ -840,7 +840,7 @@ namespace Civil3DFactory
             return outp;
         }
 
-        /// <summary>逐区参数查表：句柄精确匹配优先，其次区名（文字）。</summary>
+        /// <summary>Per-region parameter lookup: exact handle match first, then region name (text).</summary>
         static JsonObject DredgeFindSpec(JsonArray specs, string handle, string label)
         {
             if (specs == null) return null;
@@ -864,7 +864,7 @@ namespace Civil3DFactory
             return null;
         }
 
-        /// <summary>逐点内法线（单位向量），绕向由有向面积定。</summary>
+        /// <summary>Inward normal (unit vector) per point; winding determined by signed area.</summary>
         static void DredgeInwardNormals(DredgeRing ring, out double[] nx, out double[] ny)
         {
             int n = ring.Count;
@@ -878,13 +878,13 @@ namespace Civil3DFactory
                 double len = Math.Sqrt(vx * vx + vy * vy);
                 if (len <= 1e-12) { nx[i] = 0; ny[i] = 0; continue; }
                 vx /= len; vy /= len;
-                // 逆时针环的内侧是左法线 (-vy, vx)
+                // for a counter-clockwise ring the inside is the left normal (-vy, vx)
                 nx[i] = ccw ? -vy : vy;
                 ny[i] = ccw ? vx : -vx;
             }
         }
 
-        /// <summary>清上次产物：本节点前缀的曲面 + 带 C3DF_DREDGE XData 的线。</summary>
+        /// <summary>Clean previous output: surfaces with this node's prefix + lines carrying C3DF_DREDGE XData.</summary>
         static int DredgeClearOld(Transaction tr, Database db, CivDoc civ, string prefix)
         {
             int n = 0;

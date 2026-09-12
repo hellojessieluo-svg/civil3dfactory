@@ -12,9 +12,9 @@ using Autodesk.AutoCAD.ApplicationServices;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 由 node.json 契约现场生成的参数对话框：
-    /// inputs 给下拉（从当前图纸列名字），parameters 按类型给相应编辑器。
-    /// 上次填过的值按节点存到 %LOCALAPPDATA%\Civil3DFactory\ui\，下次直接带出来。
+    /// Parameter dialog generated on the fly from the node.json contract:
+    /// inputs get dropdowns (names listed from the current drawing), parameters get an editor matching their type.
+    /// Previously entered values are stored per node under %LOCALAPPDATA%\Civil3DFactory\ui\ and restored next time.
     /// </summary>
     public sealed class NodeParamsForm : Form
     {
@@ -29,10 +29,10 @@ namespace Civil3DFactory
         sealed class ArgRow
         {
             public NodeArgDef Def;
-            /// <summary>契约类型的语义解析结果，决定长什么控件。</summary>
+            /// <summary>Semantic parse of the contract type; decides which control is built.</summary>
             public NodeArgType Type;
             public Control Editor;
-            /// <summary>取值方式：bool | number | integer | json | text | path。</summary>
+            /// <summary>How the value is read: bool | number | integer | json | text | path.</summary>
             public string Kind;
             public string LiteralDefault;
         }
@@ -65,7 +65,7 @@ namespace Civil3DFactory
             if (_fitTable != null) _fitTable();
         }
 
-        // ───────────────────────── 界面 ─────────────────────────
+        // ───────────────────────── UI ─────────────────────────
 
         Control BuildHeader()
         {
@@ -82,8 +82,8 @@ namespace Civil3DFactory
 
             OpDef op;
             string desc = Ops.Registry.TryGetValue(_node.Id, out op) && op != null ? op.Description : "";
-            if (_node.Effect == "persist") desc = "【会落盘/写文件】" + desc;
-            else if (_node.Effect == "modify") desc = "【会修改当前图纸】" + desc;
+            if (_node.Effect == "persist") desc = "[Writes files] " + desc;
+            else if (_node.Effect == "modify") desc = "[Modifies the current drawing] " + desc;
 
             var hint = new Label
             {
@@ -110,7 +110,7 @@ namespace Civil3DFactory
                 ColumnCount = 3,
                 GrowStyle = TableLayoutPanelGrowStyle.AddRows
             };
-            // AutoSize + 百分比列会按内容撑宽把第三列挤出可视区，所以按容器宽度封顶
+            // AutoSize + percentage columns grow with content and push the third column out of view, so cap at the container width
             _fitTable = delegate
             {
                 int width = host.ClientSize.Width - host.Padding.Horizontal;
@@ -125,7 +125,7 @@ namespace Civil3DFactory
             {
                 table.Controls.Add(new Label
                 {
-                    Text = "该节点没有参数，直接执行即可。",
+                    Text = "This node has no parameters; just run it.",
                     AutoSize = true,
                     Margin = new Padding(3, 8, 3, 8)
                 }, 0, 0);
@@ -137,7 +137,7 @@ namespace Civil3DFactory
             int row = 0;
             foreach (NodeArgDef arg in _node.Args)
             {
-                // flow: 标记的只是流水线数据依赖，节点执行时不读，别摆出来占位置
+                // flow: entries are only pipeline data dependencies, not read at run time; do not show them
                 if (arg.Parsed != null && arg.Parsed.FlowOnly) continue;
 
                 ArgRow r = BuildRow(arg);
@@ -181,19 +181,19 @@ namespace Civil3DFactory
             if (r.Type != null && r.Type.Kind == "pick")
                 return WithSideButton(r, PickButtonText(r.Type), delegate { PickInto(r); });
 
-            // 约定：节点同时有 x / y 两个数值参数时，在 x 那行给一个拾取按钮，一次填两格。
-            // 插入点几乎都是这么成对出现的，为此单开契约字段不值得。
+            // Convention: when a node has both x and y numeric parameters, the x row gets a pick button that fills both at once.
+            // Insertion points almost always come as such a pair; a dedicated contract field is not worth it.
             if (_hasXyPair && string.Equals(r.Def.Key, "x", StringComparison.OrdinalIgnoreCase))
-                return WithSideButton(r, "图中拾取", delegate { PickXy(); });
+                return WithSideButton(r, "Pick in drawing", delegate { PickXy(); });
 
             if (r.Kind == "path")
-                return WithSideButton(r, "浏览…", delegate { Browse(r); });
+                return WithSideButton(r, "Browse...", delegate { Browse(r); });
 
             r.Editor.Dock = DockStyle.Fill;
             return r.Editor;
         }
 
-        /// <summary>编辑器右侧挂一个动作按钮（浏览 / 拾取），多行编辑器按钮顶在右上。</summary>
+        /// <summary>Attaches an action button (browse / pick) to the right of the editor; for multi-line editors it sits at the top right.</summary>
         Control WithSideButton(ArgRow r, string text, EventHandler onClick)
         {
             int height = Math.Max(r.Editor.Height, 24);
@@ -212,7 +212,7 @@ namespace Civil3DFactory
             };
             if (height > 26)
             {
-                // 多行框：按钮不跟着拉长，贴右上角
+                // multi-line box: the button does not stretch, it hugs the top-right corner
                 button.Dock = DockStyle.None;
                 button.Anchor = AnchorStyles.Top | AnchorStyles.Right;
                 button.Left = holder.Width - button.Width;
@@ -241,14 +241,14 @@ namespace Civil3DFactory
         {
             switch (t.PickKind)
             {
-                case "points": return "图中连点";
-                case "entities": return "图中框选";
-                case "distance": return "图中量取";
+                case "points": return "Pick points";
+                case "entities": return "Select objects";
+                case "distance": return "Measure distance";
             }
-            return "图中拾取";
+            return "Pick in drawing";
         }
 
-        // ───────────────────────── 图中拾取 ─────────────────────────
+        // ───────────────────────── Pick in drawing ─────────────────────────
 
         void PickInto(ArgRow r)
         {
@@ -257,10 +257,10 @@ namespace Civil3DFactory
             SetEditorText(r, value is JsonValue ? value.ToString() : value.ToJsonString());
         }
 
-        /// <summary>拾取一点，同时填进 x 和 y 两行。</summary>
+        /// <summary>Picks one point and fills both the x and y rows.</summary>
         void PickXy()
         {
-            JsonNode value = EntityPicker.PickPoint(this, _doc, "插入点");
+            JsonNode value = EntityPicker.PickPoint(this, _doc, "insertion point");
             JsonArray xy = value as JsonArray;
             if (xy == null || xy.Count < 2) return;
 
@@ -273,7 +273,7 @@ namespace Civil3DFactory
             }
         }
 
-        /// <summary>节点是否有成对的 x / y 数值参数。</summary>
+        /// <summary>Whether the node has a paired x / y numeric parameter.</summary>
         bool DetectXyPair()
         {
             bool hasX = false, hasY = false;
@@ -297,7 +297,7 @@ namespace Civil3DFactory
             {
                 case "enum":
                     {
-                        // 值域是契约写死的，只读下拉，选不出契约外的东西
+                        // the value set is fixed by the contract: read-only dropdown, nothing outside the contract can be chosen
                         var combo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Height = 24 };
                         if (t.Optional) combo.Items.Add("");
                         if (t.EnumValues != null)
@@ -311,7 +311,7 @@ namespace Civil3DFactory
                     {
                         List<string> candidates = Ops.UiListNames(t.ListSource, _doc);
 
-                        // 要选多个（如「哪几个图层是中心线」）就给复选清单，勾完直接成数组
+                        // multi-select (e.g. "which layers are centrelines") gets a checked list; the ticks become the array directly
                         if (t.IsArray)
                         {
                             if (candidates.Count > 0)
@@ -327,7 +327,7 @@ namespace Civil3DFactory
                                 r.Kind = "json";
                                 return r;
                             }
-                            // 图里列不出候选（比如还没建图层）就退回手编 JSON，不能把人挡死
+                            // if no candidates can be listed from the drawing (e.g. layers not created yet), fall back to hand-edited JSON; never block the user
                             r.Editor = new TextBox
                             {
                                 Multiline = true,
@@ -339,7 +339,7 @@ namespace Civil3DFactory
                             return r;
                         }
 
-                        // 候选从当前图纸现列；列不出来也允许手打，不能因为列不出就挡住执行
+                        // candidates are listed live from the current drawing; typing is still allowed, a failed listing must not block execution
                         var combo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Height = 24 };
                         foreach (string n in candidates) combo.Items.Add(n);
                         if (combo.Items.Count > 0)
@@ -362,7 +362,7 @@ namespace Civil3DFactory
                             WordWrap = false
                         };
                         if (t.IsArray) r.Editor.Height = 48;
-                        // 拾取回来的形态决定怎么收：句柄是字符串，距离是数字，点/多选是 JSON
+                        // the shape of the picked value decides how it is stored: handles are strings, distances numbers, points/multi-selects JSON
                         if (t.PickKind == "entity") r.Kind = "text";
                         else if (t.PickKind == "distance") r.Kind = "number";
                         else r.Kind = "json";
@@ -370,7 +370,7 @@ namespace Civil3DFactory
                     }
 
                 case "bool":
-                    r.Editor = new CheckBox { Text = "启用", Height = 24, AutoSize = false };
+                    r.Editor = new CheckBox { Text = "Enabled", Height = 24, AutoSize = false };
                     r.Kind = "bool";
                     return r;
 
@@ -388,7 +388,7 @@ namespace Civil3DFactory
                     return r;
 
                 case "json":
-                    // 数组 / 结构化参数：直接编 JSON，避免为每种结构做专用控件
+                    // array / structured parameters: edit JSON directly instead of building a control per structure
                     r.Editor = new TextBox
                     {
                         Multiline = true,
@@ -402,7 +402,7 @@ namespace Civil3DFactory
 
             r.Editor = new TextBox { Height = 24 };
             r.Kind = "text";
-            // 契约里写死取值的枚举（如 selection:"all"）直接当默认值填上
+            // enums with a fixed value in the contract (e.g. selection:"all") are filled in as the default
             if (!string.Equals(type, "string", StringComparison.OrdinalIgnoreCase)) r.LiteralDefault = type;
             return r;
         }
@@ -411,11 +411,11 @@ namespace Civil3DFactory
         {
             var panel = new Panel { Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(12, 8, 12, 8) };
 
-            var run = new Button { Text = "执行", Width = 90, Height = 30, Dock = DockStyle.Right };
-            var cancel = new Button { Text = "取消", Width = 90, Height = 30, Dock = DockStyle.Right };
+            var run = new Button { Text = "Run", Width = 90, Height = 30, Dock = DockStyle.Right };
+            var cancel = new Button { Text = "Cancel", Width = 90, Height = 30, Dock = DockStyle.Right };
             var spacer = new Panel { Width = 8, Dock = DockStyle.Right };
-            var copy = new Button { Text = "复制工单 JSON", Width = 130, Height = 30, Dock = DockStyle.Left };
-            var reset = new Button { Text = "清空", Width = 70, Height = 30, Dock = DockStyle.Left };
+            var copy = new Button { Text = "Copy work-order JSON", Width = 130, Height = 30, Dock = DockStyle.Left };
+            var reset = new Button { Text = "Clear", Width = 70, Height = 30, Dock = DockStyle.Left };
 
             run.Click += delegate { OnRun(); };
             cancel.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
@@ -434,7 +434,7 @@ namespace Civil3DFactory
             return panel;
         }
 
-        // ───────────────────────── 取值 ─────────────────────────
+        // ───────────────────────── Reading values ─────────────────────────
 
         void OnRun()
         {
@@ -445,9 +445,9 @@ namespace Civil3DFactory
             if (missing.Count > 0)
             {
                 DialogResult ans = MessageBox.Show(
-                    "以下必填参数为空：\r\n  " + string.Join("\r\n  ", missing.ToArray())
-                    + "\r\n\r\n仍然执行吗？（节点内部可能有自己的缺省值）",
-                    "参数不完整", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                    "The following required parameters are empty:\r\n  " + string.Join("\r\n  ", missing.ToArray())
+                    + "\r\n\r\nRun anyway? (The node may have its own internal defaults.)",
+                    "Incomplete parameters", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
                 if (ans != DialogResult.Yes) return;
             }
 
@@ -484,7 +484,7 @@ namespace Civil3DFactory
                             double d;
                             if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out d))
                             {
-                                Complain(r, "需要一个数字");
+                                Complain(r, "must be a number");
                                 return false;
                             }
                             if (!InRange(r, d)) return false;
@@ -496,7 +496,7 @@ namespace Civil3DFactory
                             int i;
                             if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out i))
                             {
-                                Complain(r, "需要一个整数");
+                                Complain(r, "must be an integer");
                                 return false;
                             }
                             if (!InRange(r, i)) return false;
@@ -509,7 +509,7 @@ namespace Civil3DFactory
                             try { node = JsonNode.Parse(text); }
                             catch (System.Exception ex)
                             {
-                                Complain(r, "不是合法 JSON：" + ex.Message);
+                                Complain(r, "is not valid JSON: " + ex.Message);
                                 return false;
                             }
                             args[r.Def.Key] = node;
@@ -523,19 +523,19 @@ namespace Civil3DFactory
             return true;
         }
 
-        /// <summary>契约里写了 {min..max} 的数值参数，在这里就拦住，不用等节点跑一半才报错。</summary>
+        /// <summary>Numeric parameters with {min..max} in the contract are caught here, instead of failing halfway through the node.</summary>
         bool InRange(ArgRow r, double v)
         {
             NodeArgType t = r.Type;
             if (t == null) return true;
             if (t.Min.HasValue && v < t.Min.Value)
             {
-                Complain(r, "不能小于 " + t.Min.Value.ToString("0.###", CultureInfo.InvariantCulture));
+                Complain(r, "must not be less than " + t.Min.Value.ToString("0.###", CultureInfo.InvariantCulture));
                 return false;
             }
             if (t.Max.HasValue && v > t.Max.Value)
             {
-                Complain(r, "不能大于 " + t.Max.Value.ToString("0.###", CultureInfo.InvariantCulture));
+                Complain(r, "must not be greater than " + t.Max.Value.ToString("0.###", CultureInfo.InvariantCulture));
                 return false;
             }
             return true;
@@ -543,7 +543,7 @@ namespace Civil3DFactory
 
         void Complain(ArgRow r, string message)
         {
-            MessageBox.Show("参数 " + r.Def.Key + " " + message, "参数有误",
+            MessageBox.Show("Parameter " + r.Def.Key + " " + message, "Invalid parameter",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
             r.Editor.Focus();
         }
@@ -589,7 +589,7 @@ namespace Civil3DFactory
             var combo = r.Editor as ComboBox;
             if (combo != null)
             {
-                // 只读下拉设 Text 不生效，得按项匹配；匹配不上就留空不选
+                // setting Text on a read-only dropdown has no effect; match by item, and leave it unselected if nothing matches
                 if (combo.DropDownStyle == ComboBoxStyle.DropDownList)
                 {
                     int index = -1;
@@ -640,12 +640,12 @@ namespace Civil3DFactory
                     WriteIndented = true,
                     Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
                 }));
-                MessageBox.Show("已复制，可直接粘进工单的 ops 数组。", "复制工单 JSON",
+                MessageBox.Show("Copied; paste it straight into the ops array of a work order.", "Copy work-order JSON",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (System.Exception ex)
             {
-                MessageBox.Show("复制失败：" + ex.Message, "复制工单 JSON",
+                MessageBox.Show("Copy failed: " + ex.Message, "Copy work-order JSON",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
@@ -654,9 +654,9 @@ namespace Civil3DFactory
         {
             foreach (ArgRow r in _rows)
             {
-                // 可选参数的 =值 只是把实现里的缺省抄给人看（显示在类型提示里），不预填：
-                // 留空才是"让节点走自己的默认"，预填反而把值写死进工单。
-                // 必填参数的 =值 照旧预填，那是契约主张的起始值。
+                // an optional parameter's =value only shows the implementation default to the user (in the type hint) and is not pre-filled:
+                // leaving it blank means "let the node use its own default"; pre-filling would hard-code the value into the work order.
+                // a required parameter's =value is still pre-filled; that is the starting value the contract asserts.
                 string preset = r.Type != null && !r.Type.Optional ? r.Type.Default : null;
                 if (preset == null) preset = r.LiteralDefault;
 
@@ -672,7 +672,7 @@ namespace Civil3DFactory
             }
         }
 
-        // ───────────────────────── 记忆上次的值 ─────────────────────────
+        // ───────────────────────── Remembering last values ─────────────────────────
 
         string StorePath()
         {
@@ -713,12 +713,12 @@ namespace Civil3DFactory
         }
 
         /// <summary>
-        /// 历史值是不是旧插件留下的脏数据。
+        /// Whether a stored value is dirty data left by an old plugin build.
         ///
-        /// 契约加新类型串（如 list:dwg.layer）时，还没换的旧插件不认识它，会走兜底分支
-        /// 把整个类型串当"字面默认值"填进框；人一点执行就跟着存进了历史文件，
-        /// 之后即便插件换新、下拉恢复正常，也会被这份脏历史顶回去。
-        /// 只要读回来的值就是类型串本身、或带着新语法的前缀，一律丢弃。
+        /// When the contract gains a new type string (e.g. list:dwg.layer), an old plugin that does not know it takes the fallback branch
+        /// and fills the whole type string into the box as a "literal default"; one click on Run saves it to the history file,
+        /// and even after the plugin is updated and the dropdown works again, that dirty history keeps overriding it.
+        /// Any value read back that equals the type string itself, or carries a new-syntax prefix, is discarded.
         /// </summary>
         static bool LooksLikeTypeString(ArgRow r, JsonNode v)
         {
@@ -733,7 +733,7 @@ namespace Civil3DFactory
                 || text.StartsWith("enum[", StringComparison.Ordinal);
         }
 
-        /// <summary>没有历史值时，用节点自己的 test.json 里的示例参数打底。</summary>
+        /// <summary>With no history, seed from the sample parameters in the node's own test.json.</summary>
         JsonObject SeedFromNodeTest()
         {
             try
@@ -770,7 +770,7 @@ namespace Civil3DFactory
             catch { return null; }
         }
 
-        /// <summary>界面右侧显示的类型提示。</summary>
+        /// <summary>Type hint shown on the right of the UI.</summary>
         static string TypeHint(NodeArgDef arg)
         {
             if (arg.Parsed != null) return arg.Parsed.Hint;

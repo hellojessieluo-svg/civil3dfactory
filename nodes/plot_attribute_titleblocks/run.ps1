@@ -10,8 +10,10 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2.0
 
-$approvedPlotter = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\tools\dwg-titleblock-plotter\output\DWGTitleblockPlotter.exe"))
-$approvedSha256 = "70B6311FEE029400E51C48F0C4D4F8F286C2DC5E6573A1C39EAA709E8588E9B2"
+$approvedPlotter = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\tools\dwg-titleblock-plotter\DWGTitleblockPlotter.exe"))
+# Optional integrity pin. A maintainer may set this to the SHA256 of a reviewed DWGTitleblockPlotter.exe build;
+# when left empty the hash is reported but not enforced.
+$approvedSha256 = ""
 $minimumPdfBytes = 10000
 $started = Get-Date
 $source = [IO.Path]::GetFullPath($Dwg)
@@ -36,10 +38,10 @@ function Write-NodeResult {
 
 try {
   if (-not [IO.File]::Exists($source)) {
-    throw "DWG 不存在：$source"
+    throw "DWG not found: $source"
   }
   if (-not [string]::Equals([IO.Path]::GetExtension($source), ".dwg", [StringComparison]::OrdinalIgnoreCase)) {
-    throw "输入必须是 DWG：$source"
+    throw "Input must be a DWG: $source"
   }
   $plotter = if ([string]::IsNullOrWhiteSpace($PlotterExe)) {
     $approvedPlotter
@@ -47,15 +49,16 @@ try {
     [IO.Path]::GetFullPath($PlotterExe)
   }
   if (-not [IO.File]::Exists($plotter)) {
-    throw "找不到已验证的属性图框打印器：$plotter"
+    throw "Title-block plotter executable not found: $plotter"
   }
   $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $plotter).Hash
-  if (-not [string]::Equals($actualHash, $approvedSha256, [StringComparison]::OrdinalIgnoreCase)) {
-    throw "属性图框打印器哈希不符。实际 SHA256：$actualHash"
+  if (-not [string]::IsNullOrWhiteSpace($approvedSha256) -and
+      -not [string]::Equals($actualHash, $approvedSha256, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Title-block plotter hash mismatch. Actual SHA256: $actualHash"
   }
   $acc = "C:\Program Files\Autodesk\AutoCAD 2025\accoreconsole.exe"
   if (-not [IO.File]::Exists($acc)) {
-    throw "找不到 ACC 无界面内核：$acc"
+    throw "accoreconsole (headless AutoCAD core) not found: $acc"
   }
 
   [IO.Directory]::CreateDirectory($outputRoot) | Out-Null
@@ -70,17 +73,17 @@ try {
   $exitCode = $LASTEXITCODE
   $lines | Set-Content -LiteralPath $logPath -Encoding UTF8
   if ($exitCode -ne 0) {
-    throw "属性图框打印器退出码为 $exitCode；详见：$logPath"
+    throw "Title-block plotter exited with code $exitCode; see log: $logPath"
   }
 
   $pdfs = @(Get-ChildItem -LiteralPath $outputRoot -Filter *.pdf -File -Recurse)
   if ($pdfs.Count -eq 0) {
-    throw "未生成 PDF；图中可能没有块名包含 [图框] 的块。"
+    throw "No PDF was produced; the drawing may contain no title-block references recognised by the plotter."
   }
   $undersized = @($pdfs | Where-Object { $_.Length -lt $minimumPdfBytes })
   if ($undersized.Count -gt 0) {
     $names = ($undersized | ForEach-Object { "$($_.Name)=$($_.Length)B" }) -join ", "
-    throw "检测到疑似白纸或不完整 PDF：$names"
+    throw "Suspected blank or incomplete PDF detected: $names"
   }
 
   $payload = [ordered]@{

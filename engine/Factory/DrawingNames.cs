@@ -13,9 +13,9 @@ using CivDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 参数对话框用：按 node.json 的 inputs 类型，列出当前图纸里可选的对象名。
-    /// 写成 Ops 的分部类是为了直接复用 Civ()/ModelSpace() 这些既有私有辅助。
-    /// 任何一步失败都退化成空列表——界面上仍可手工输入名字，不能因为列不出来就挡住执行。
+    /// For the parameter dialog: lists the selectable object names in the current drawing by node.json input type.
+    /// Written as a partial class of Ops so it can reuse the existing private helpers such as Civ()/ModelSpace().
+    /// Any failure degrades to an empty list; the UI still accepts a typed name, and a failed listing must never block execution.
     /// </summary>
     public static partial class Ops
     {
@@ -101,12 +101,12 @@ namespace Civil3DFactory
             return names;
         }
 
-        /// <summary>纯 CAD 侧的命名表：图层、块、文字/标注样式、线型、布局、打印样式表。</summary>
+        /// <summary>Plain-CAD name tables: layers, blocks, text/dim styles, linetypes, layouts, plot style tables.</summary>
         static List<string> DwgNames(string key, Document doc)
         {
             var names = new List<string>();
 
-            // 打印样式表来自 CAD 的搜索路径，不在图纸里，单独处理
+            // plot style tables come from the CAD search path, not the drawing; handled separately
             if (key == "dwg.ctb" || key == "dwg.plotstyle")
             {
                 try
@@ -138,7 +138,7 @@ namespace Civil3DFactory
                             foreach (ObjectId id in (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead))
                             {
                                 var r = tr.GetObject(id, OpenMode.ForRead) as BlockTableRecord;
-                                // 模型/布局空间和匿名块不是可插入的图框块，别塞进下拉里
+                                // model/paper space and anonymous blocks are not insertable title blocks; keep them out of the dropdown
                                 if (r == null || r.IsLayout || r.IsAnonymous) continue;
                                 Add(names, r.Name);
                             }
@@ -184,7 +184,7 @@ namespace Civil3DFactory
             return names;
         }
 
-        /// <summary>Civil 3D 的样式 / 标注集 / 带状集 / 代码集。每一类单独 try，缺哪类都不影响其余。</summary>
+        /// <summary>Civil 3D styles / label sets / band sets / code sets. Each category has its own try so a missing one does not affect the rest.</summary>
         static List<string> StyleNames(string key, Document doc)
         {
             var names = new List<string>();
@@ -219,7 +219,7 @@ namespace Civil3DFactory
             return names;
         }
 
-        /// <summary>契约里的样式源键 → Civil 3D 的样式集合。加新键只要在这里补一行。</summary>
+        /// <summary>Contract style source key -> Civil 3D style collection. Adding a key is one more line here.</summary>
         static System.Collections.IEnumerable StyleSource(CivDoc civ, string key)
         {
             try

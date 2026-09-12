@@ -1,4 +1,4 @@
-#nullable disable   // 本文件被 Civil3DFactory（可空关）与 WaterBox（可空开）两个工程共同编译，按关处理
+#nullable disable   // This file is compiled by both Civil3DFactory (nullable off) and WaterBox (nullable on); treat as off
 
 using System;
 using System.Collections.Generic;
@@ -11,11 +11,11 @@ using CivRegion = Autodesk.Civil.DatabaseServices.BaselineRegion;
 namespace Civil3DFactory.Geometry
 {
     /// <summary>
-    /// 走廊区间对齐路线起终点的算法核心（换中线后道路与路线起终点一致）。
-    /// 逐基线取其路线的 [起点站号, 终点站号]：首区间起点拉到路线起点、
-    /// 末区间终点拉到路线终点、中间区间边界收进范围内，然后 Rebuild 走廊。
-    /// 唯一真源：Civil3DFactory（节点 sync_corridor_range）与 products\waterbox
-    /// （C3DF-SyncCorridorRange/QZ）共同编译本文件。
+    /// Core for aligning corridor regions to the alignment start/end (after a centerline swap the corridor matches the alignment ends).
+    /// For each baseline take its alignment's [start station, end station]: pull the first region's start to the alignment start,
+    /// the last region's end to the alignment end, clamp the middle region boundaries into range, then Rebuild the corridor.
+    /// Single source of truth: compiled by both Civil3DFactory (node sync_corridor_range) and products\waterbox
+    /// (C3DF-SyncCorridorRange/QZ).
     /// </summary>
     public static class CorridorRangeCore
     {
@@ -41,7 +41,7 @@ namespace Civil3DFactory.Geometry
 
         const double Tol = 1e-6;
 
-        /// <summary>corridor 必须已 ForWrite 打开。</summary>
+        /// <summary>corridor must already be open ForWrite.</summary>
         public static SyncResult SyncToAlignments(CivCorr corridor, Transaction tr)
         {
             var result = new SyncResult { CorridorName = corridor.Name };
@@ -56,8 +56,8 @@ namespace Civil3DFactory.Geometry
                 catch { }
                 if (al == null)
                 {
-                    sync.AlignmentName = "(取不到基线路线)";
-                    sync.Warnings.Add("基线拿不到路线对象，跳过。");
+                    sync.AlignmentName = "(baseline alignment unavailable)";
+                    sync.Warnings.Add("Baseline has no alignment object, skipped.");
                     continue;
                 }
                 sync.AlignmentName = al.Name;
@@ -66,17 +66,17 @@ namespace Civil3DFactory.Geometry
                 sync.AlignEnd = e;
                 if (e - s < Tol)
                 {
-                    sync.Warnings.Add("路线长度为零，跳过。");
+                    sync.Warnings.Add("Alignment length is zero, skipped.");
                     continue;
                 }
 
-                // 区间按起点站号排序后调整
+                // Sort regions by start station, then adjust
                 var regions = new List<CivRegion>();
                 foreach (CivRegion rg in bl.BaselineRegions) regions.Add(rg);
                 sync.Regions = regions.Count;
                 if (regions.Count == 0)
                 {
-                    sync.Warnings.Add("基线没有区间（Region），跳过。");
+                    sync.Warnings.Add("Baseline has no region, skipped.");
                     continue;
                 }
                 regions.Sort((x, y) => x.StartStation.CompareTo(y.StartStation));
@@ -91,21 +91,21 @@ namespace Civil3DFactory.Geometry
                     double ne = i == regions.Count - 1 ? e : Math.Min(Math.Max(re, s), e);
                     if (ne - ns < Tol)
                     {
-                        sync.Warnings.Add("区间 " + (i + 1) + " 调整后长度为零（原 "
-                            + rs.ToString("0.###") + "~" + re.ToString("0.###") + "），未动。");
+                        sync.Warnings.Add("Region " + (i + 1) + " would have zero length after adjustment (was "
+                            + rs.ToString("0.###") + "~" + re.ToString("0.###") + "), untouched.");
                         continue;
                     }
                     if (Math.Abs(ns - rs) < Tol && Math.Abs(ne - re) < Tol) continue;
                     try
                     {
-                        // 收缩时先动不越界的那端，避免瞬时 start>end
+                        // When shrinking, move the end that stays in range first to avoid a momentary start>end
                         if (ns <= re) { SetStart(rg, ns); SetEnd(rg, ne); }
                         else { SetEnd(rg, ne); SetStart(rg, ns); }
                         sync.RegionsAdjusted++;
                     }
                     catch (System.Exception ex)
                     {
-                        sync.Warnings.Add("区间 " + (i + 1) + " 站号写入失败：" + ex.Message);
+                        sync.Warnings.Add("Region " + (i + 1) + " station write failed: " + ex.Message);
                     }
                 }
             }

@@ -12,15 +12,15 @@ using CivilDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// create_design_profiles（S03）：给每条通道建地面线 + 设计线。
+    /// create_design_profiles (S03): create the existing ground profile + design profile for every channel.
     ///
-    /// 设计线不是纯平坡：端部地面高于设计底高程时，按 end_slope（默认 1:10）放坡上去接现状地形，
-    /// 坡长 = 高差 × end_slope。这条规律是从既有模型的 PVI 反算出来的：
-    ///   1(E) 起点 3.7793 / 坡长 7.793、1(W) 3.6441 / 6.441、B1 4.2847 / 12.847、
-    ///   1(E) 终点 4.7178 / 17.178 —— 四处全是 1:10。
-    /// 端部地面本来就在底高程附近的（3#、Y2、Y3、4#），自动退化成全线平坡。
+    /// The design profile is not purely flat: where the ground at an end is above the design bottom elevation, it ramps up at end_slope (default 1:10) to meet existing ground;
+    /// ramp length = height difference x end_slope. This rule was back-calculated from the PVIs of the existing model:
+    ///   1(E) start 3.7793 / ramp 7.793, 1(W) 3.6441 / 6.441, B1 4.2847 / 12.847,
+    ///   1(E) end 4.7178 / 17.178: all four are 1:10.
+    /// Channels whose end ground is already near the bottom elevation (3#, Y2, Y3, 4#) degrade automatically to a flat profile.
     ///
-    /// 端部地面高程从原地形曲面取（FindElevationAtXY），不写死。
+    /// End ground elevations are taken from the existing ground surface (FindElevationAtXY), not hard-coded.
     /// </summary>
     public static partial class Ops
     {
@@ -33,9 +33,9 @@ namespace Civil3DFactory
             double designElev = GetDouble(a, "design_elev", 3.0);
             double endSlope = GetDouble(a, "end_slope", 10.0);      // 1:endSlope
             if (endSlope <= 1e-6) endSlope = 10.0;
-            double tol = GetDouble(a, "ramp_tolerance", 0.05);      // 高差小于它就不放坡
-            string gTpl = GetString(a, "ground_name", "{channel}-地面");
-            string dTpl = GetString(a, "design_name", "{channel}-设计");
+            double tol = GetDouble(a, "ramp_tolerance", 0.05);      // no ramp when the height difference is below this
+            string gTpl = GetString(a, "ground_name", "{channel}-EG");
+            string dTpl = GetString(a, "design_name", "{channel}-FG");
             string gStyle = GetString(a, "ground_style", null);
             string dStyle = GetString(a, "design_style", null);
             string labelSet = GetString(a, "label_set", null);
@@ -53,19 +53,19 @@ namespace Civil3DFactory
             {
                 CivilDoc civ = Civ(db);
                 ObjectId sfId = FindSurfaceId(tr, civ, surfName);
-                if (sfId.IsNull) throw new InvalidOperationException("找不到曲面 '" + surfName + "'。");
+                if (sfId.IsNull) throw new InvalidOperationException("Surface '" + surfName + "' not found.");
                 var tin = tr.GetObject(sfId, OpenMode.ForRead) as CivTin;
-                if (tin == null) throw new InvalidOperationException("'" + surfName + "' 不是 TIN 曲面。");
+                if (tin == null) throw new InvalidOperationException("'" + surfName + "' is not a TIN surface.");
 
                 ObjectId gStyleId = FindStyleId(tr, civ.Styles.ProfileStyles, gStyle);
                 ObjectId dStyleId = FindStyleId(tr, civ.Styles.ProfileStyles, dStyle);
                 ObjectId labelId = FindStyleId(tr,
                     civ.Styles.LabelSetStyles.ProfileLabelSetStyles, labelSet);
 
-                // 认中心线的办法：它得有配套的 {名}_左 / {名}_右 宽度目标（S02 的产物）。
-                // 不能只靠"没有 _左/_右 后缀"排除 —— 图里可能残留旧模型的偏移路线
-                // （如 路线(3)-左-25.000、1(E)#-Left-25.000），它们不带这个后缀，
-                // 会被误当中心线，白建一堆纵断面（实测多建了 12 条）。
+                // How a centerline is recognised: it must have matching {name}_L / {name}_R width targets (output of S02).
+                // Excluding by "no _L/_R suffix" alone is not enough: offset alignments of an old model may linger in the drawing
+                // (e.g. Alignment(3)-Left-25.000, 1(E)#-Left-25.000); they lack the suffix,
+                // would be mistaken for centerlines and produce a pile of useless profiles (12 extra in practice).
                 var allNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var byId = new List<CivAlign>();
                 foreach (ObjectId aid in civ.GetAlignmentIds())
@@ -83,10 +83,10 @@ namespace Civil3DFactory
                         if (only.Contains(al.Name)) targets.Add(al);
                         continue;
                     }
-                    if (al.Name.EndsWith("_左", StringComparison.Ordinal) ||
-                        al.Name.EndsWith("_右", StringComparison.Ordinal)) continue;
-                    if (!allNames.Contains(al.Name + "_左") && !allNames.Contains(al.Name + "_右"))
-                    { notes.Add("跳过 " + al.Name + "：没有配套的 _左/_右 宽度目标，不认为是中心线"); continue; }
+                    if (al.Name.EndsWith("_L", StringComparison.Ordinal) ||
+                        al.Name.EndsWith("_R", StringComparison.Ordinal)) continue;
+                    if (!allNames.Contains(al.Name + "_L") && !allNames.Contains(al.Name + "_R"))
+                    { notes.Add("Skipped " + al.Name + ": no matching _L/_R width targets, not treated as a centerline"); continue; }
                     targets.Add(al);
                 }
 
@@ -97,39 +97,39 @@ namespace Civil3DFactory
                     string dName = dTpl.Replace("{channel}", ch);
                     double s0 = al.StartingStation, s1 = al.EndingStation;
 
-                    // 已有同名纵断面：先删（纵断面没有"改名腾位再删"的必要，
-                    // 它是本节点自己的产物，重跑即重建）
+                    // Existing profile with the same name: delete first (no need for the "rename, then delete" dance;
+                    // it is this node's own output, rerun = rebuild)
                     foreach (ObjectId pid in al.GetProfileIds())
                     {
                         var p = tr.GetObject(pid, OpenMode.ForRead) as CivProfile;
                         if (p == null) continue;
                         if (p.Name != gName && p.Name != dName) continue;
                         if (!replaceExisting)
-                        { notes.Add(ch + " 已有纵断面 " + p.Name + "，未替换"); continue; }
+                        { notes.Add(ch + " already has profile " + p.Name + ", not replaced"); continue; }
                         try { ((CivProfile)tr.GetObject(pid, OpenMode.ForWrite)).Erase(); }
-                        catch (System.Exception ex) { notes.Add(ch + " 删旧纵断面失败：" + ex.Message); }
+                        catch (System.Exception ex) { notes.Add(ch + " failed to delete old profile: " + ex.Message); }
                     }
 
                     try { CivProfile.CreateFromSurface(gName, al.ObjectId, sfId, db.Clayer, gStyleId, labelId); }
                     catch (System.Exception ex)
-                    { notes.Add(ch + " 建地面线失败：" + ex.Message); }
+                    { notes.Add(ch + " failed to create ground profile: " + ex.Message); }
 
-                    // 两端地面高程
+                    // Ground elevation at both ends
                     double gStart = CdpGround(tin, al, s0);
                     double gEnd = CdpGround(tin, al, s1);
 
                     ObjectId dId;
                     try { dId = CivProfile.CreateByLayout(dName, al.ObjectId, db.Clayer, dStyleId, labelId); }
                     catch (System.Exception ex)
-                    { notes.Add(ch + " 建设计线失败：" + ex.Message); continue; }
+                    { notes.Add(ch + " failed to create design profile: " + ex.Message); continue; }
 
                     var design = tr.GetObject(dId, OpenMode.ForWrite) as CivProfile;
-                    if (design == null) { notes.Add(ch + " 设计线取不到对象"); continue; }
+                    if (design == null) { notes.Add(ch + " design profile object cannot be retrieved"); continue; }
 
-                    // 放不放坡是**逐端的设计决定**，不能由地形推。
-                    // 实测既有模型：1(E) 两端放、1(W) 与 B1 只放起点、3#/Y2/Y3/4# 两端都不放——
-                    // 而后四条两端地面也在 3.9~5.0m，照地形推会全放坡，与设计不符。
-                    // 所以默认不放，由 ramps 参数逐条指定，例：{"1(E)":["start","end"],"B1":["start"]}
+                    // Whether to ramp is a **per-end design decision**, not inferred from terrain.
+                    // Existing model: 1(E) ramps at both ends, 1(W) and B1 only at the start, 3#/Y2/Y3/4# at neither;
+                    // yet the last four also have end ground at 3.9~5.0 m, so terrain inference would ramp them all, contrary to the design.
+                    // So default is no ramp; the ramps parameter specifies per channel, e.g. {"1(E)":["start","end"],"B1":["start"]}
                     bool wantS = false, wantE = false;
                     JsonObject ramps = a["ramps"] as JsonObject;
                     if (ramps != null && ramps.ContainsKey(ch))
@@ -139,26 +139,26 @@ namespace Civil3DFactory
                             foreach (JsonNode n in arr)
                             {
                                 string v = n == null ? "" : n.ToString().Trim().ToLowerInvariant();
-                                if (v == "start" || v == "起点") wantS = true;
-                                else if (v == "end" || v == "终点") wantE = true;
-                                else if (v == "both" || v == "两端") { wantS = true; wantE = true; }
+                                if (v == "start" || v == "Start") wantS = true;
+                                else if (v == "end" || v == "End") wantE = true;
+                                else if (v == "both" || v == "Both") { wantS = true; wantE = true; }
                             }
                     }
 
                     double rampS = 0.0, rampE = 0.0;
                     bool hasS = wantS && !double.IsNaN(gStart) && gStart - designElev > tol;
                     bool hasE = wantE && !double.IsNaN(gEnd) && gEnd - designElev > tol;
-                    if (wantS && !hasS) notes.Add(ch + " 起点要求放坡，但地面 " +
-                        (double.IsNaN(gStart) ? "采不到" : Math.Round(gStart, 3) + " 高出不足 " + tol + "m") + "，按平接处理");
-                    if (wantE && !hasE) notes.Add(ch + " 终点要求放坡，但地面 " +
-                        (double.IsNaN(gEnd) ? "采不到" : Math.Round(gEnd, 3) + " 高出不足 " + tol + "m") + "，按平接处理");
+                    if (wantS && !hasS) notes.Add(ch + " start ramp requested, but ground " +
+                        (double.IsNaN(gStart) ? "could not be sampled" : Math.Round(gStart, 3) + " is less than " + tol + " m above") + "; treated as flat");
+                    if (wantE && !hasE) notes.Add(ch + " end ramp requested, but ground " +
+                        (double.IsNaN(gEnd) ? "could not be sampled" : Math.Round(gEnd, 3) + " is less than " + tol + " m above") + "; treated as flat");
                     if (hasS) rampS = (gStart - designElev) * endSlope;
                     if (hasE) rampE = (gEnd - designElev) * endSlope;
-                    // 两端坡长加起来超过路线全长就放弃放坡，退回平坡
+                    // If the two ramps together exceed the alignment length, give up ramping and fall back to flat
                     if (rampS + rampE >= (s1 - s0))
                     {
-                        notes.Add(ch + " 端部坡长合计 " + Math.Round(rampS + rampE, 2) +
-                                  "m 超过路线全长，退回平坡");
+                        notes.Add(ch + " total end ramp length " + Math.Round(rampS + rampE, 2) +
+                                  " m exceeds the alignment length, fell back to flat");
                         hasS = hasE = false; rampS = rampE = 0.0;
                     }
 
@@ -179,7 +179,7 @@ namespace Civil3DFactory
                         else design.PVIs.AddPVI(s1, designElev);
                     }
                     catch (System.Exception ex)
-                    { notes.Add(ch + " 写 PVI 失败：" + ex.Message); continue; }
+                    { notes.Add(ch + " failed to write PVIs: " + ex.Message); continue; }
 
                     made.Add(new JsonObject
                     {
@@ -207,7 +207,7 @@ namespace Civil3DFactory
             };
         }
 
-        /// <summary>取路线某桩号中心点处的曲面高程；采不到返回 NaN。</summary>
+        /// <summary>Surface elevation at the alignment centre point of a station; NaN if it cannot be sampled.</summary>
         static double CdpGround(CivTin tin, CivAlign al, double station)
         {
             double e = 0, n = 0;

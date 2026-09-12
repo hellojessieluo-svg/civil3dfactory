@@ -1,13 +1,13 @@
 {
   "node": "create_connected_alignment",
   "version": 1,
-  "fixture": "tests/dwg/route-to-quantity-base.dwg",
-  "prerequisite": "offset_alignment（两条分段偏移路线，交叉口留缺口）",
+  "fixture": "examples/channel-demo.dwg",
+  "prerequisite": "offset_alignment (two segmented offset alignments leaving a gap at the intersection)",
   "assertions": [
-    "data.length > 0（长度为 0 视为几何不合，op 内已抛错）",
-    "data.length 接近 radius × 转角弧度（单圆弧 Arc 组）",
-    "拖动父路线后连接路线自动跟随（GUI 验证项）"
+    "data.length > 0 (length 0 means invalid geometry; the op already throws)",
+    "data.length is close to radius x deflection angle in radians (single Arc group)",
+    "dragging a parent alignment makes the connected alignment follow (GUI check)"
   ],
   "status": "awaiting_real_dwg_regression",
-  "first_real_use": "项目B初设 次水道设计.dwg 交叉口转角（2026-08-23）"
+  "first_real_use": "Intersection corners of a secondary-channel design drawing (2026-08-23)"
 }

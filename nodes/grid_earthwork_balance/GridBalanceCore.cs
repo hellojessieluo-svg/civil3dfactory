@@ -7,22 +7,22 @@ using Autodesk.AutoCAD.Geometry;
 namespace Civil3DFactory.Geometry
 {
     /// <summary>
-    /// 网格土方平衡核心（唯一真源）：在体积曲面上撒格 → 格间运输问题（精确最小运距×方量）
-    /// → 运距分档直方图 + 聚合调配箭头。
+    /// Grid earthwork balance core (single source of truth): scatter a grid over the volume surface -> cell-to-cell transportation problem (exact minimum haul distance x volume)
+    /// -> haul-distance histogram + aggregated haul arrows.
     ///
-    /// 两个入口共用：工厂节点 grid_earthwork_balance（AI 走 civil3dfactory.ps1）、
-    /// WaterBox 命令 C3DF-GridBalance/PH（同事手动）。改算法只改这里。
+    /// Shared by two entry points: factory node grid_earthwork_balance (AI via civil3dfactory.ps1) and
+    /// WaterBox command C3DF-GridBalance/PH (manual use by colleagues). Algorithm changes go here only.
     ///
-    /// 口径约定：
-    ///  - 采样值 dz = 对比面(设计) − 基准面(现状)，dz&lt;0 挖、dz&gt;0 填（与 bounded_volumes 一致）；
-    ///  - 统计格（细）管量与色块，求解格（粗）管调配——量的真值靠 TIN 配平，格距只影响运距分辨率；
-    ///  - 挖填不平衡的差额挂虚拟节点（大 M 运距），只吃剩余量，不进直方图不画箭头。
+    /// Conventions:
+    ///  - sampled dz = comparison surface (design) - base surface (existing); dz&lt;0 cut, dz&gt;0 fill (same as bounded_volumes);
+    ///  - statistics cells (fine) carry volumes and colour blocks, solver cells (coarse) carry the hauls -- the volume truth is balanced to the TIN, cell size only affects haul-distance resolution;
+    ///  - the cut/fill imbalance goes to a virtual node (big-M distance) that only absorbs the remainder; it enters neither the histogram nor the arrows.
     /// </summary>
     public static class GridBalanceCore
     {
         public struct Cell
         {
-            public double X, Y, Vol;   // Vol 恒为正，挖填分列表存
+            public double X, Y, Vol;   // Vol is always positive; cut and fill are kept in separate lists
             public Cell(double x, double y, double v) { X = x; Y = y; Vol = v; }
         }
 
@@ -33,28 +33,28 @@ namespace Civil3DFactory.Geometry
 
         public sealed class Result
         {
-            public List<Cell> CutCells = new List<Cell>();   // 细格（配平后）
+            public List<Cell> CutCells = new List<Cell>();   // fine cells (after balancing)
             public List<Cell> FillCells = new List<Cell>();
             public int CellsInside, CellsOffSurface, CellsNearZero;
-            public double GridCut, GridFill;                 // 配平前网格积分
-            public double TinCut, TinFill;                   // GetBoundedVolumes 真值（由调用方传入）
+            public double GridCut, GridFill;                 // grid integral before balancing
+            public double TinCut, TinFill;                   // GetBoundedVolumes truth (passed in by the caller)
             public double ClosureCutPct, ClosureFillPct;     // |grid-tin|/tin ×100
-            public double SolverStep;                        // 求解格距（可能比统计格距粗）
-            public List<Flow> Flows = new List<Flow>();      // 真实调配（不含虚拟）
+            public double SolverStep;                        // solver cell size (may be coarser than the statistics cell size)
+            public List<Flow> Flows = new List<Flow>();      // real hauls (virtual excluded)
             public double InternalMoved, AvgDist, Shortfall, Surplus, ObjVolDist;
             public double[] BandEdges = new double[0]; public double[] BandVols = new double[0];
             public long SolveMs;
         }
 
-        // ---------------- 1. 撒格 ----------------
+        // ---------------- 1. Scatter the grid ----------------
 
-        /// <summary>格心落在环内的细格。sampler 返回 dz（NaN=曲面外）。</summary>
+        /// <summary>Fine cells whose centre falls inside the ring. sampler returns dz (NaN = off surface).</summary>
         public static Result BuildCells(IList<Point2d> ring, double step,
                                         Func<double, double, double> sampler,
                                         double minDepth = 0.01)
         {
-            if (ring == null || ring.Count < 3) throw new InvalidOperationException("边界环点数不足 3。");
-            if (step <= 0) throw new InvalidOperationException("格距必须大于 0。");
+            if (ring == null || ring.Count < 3) throw new InvalidOperationException("Boundary ring has fewer than 3 points.");
+            if (step <= 0) throw new InvalidOperationException("Cell size must be greater than 0.");
             double x0 = double.MaxValue, x1 = double.MinValue, y0 = double.MaxValue, y1 = double.MinValue;
             foreach (Point2d p in ring)
             {
@@ -65,7 +65,7 @@ namespace Civil3DFactory.Geometry
             double cellArea = step * step;
             int nx = (int)Math.Ceiling((x1 - x0) / step), ny = (int)Math.Ceiling((y1 - y0) / step);
             if ((long)nx * ny > 4_000_000)
-                throw new InvalidOperationException("包围盒 " + nx + "×" + ny + " 格太多，加大格距。");
+                throw new InvalidOperationException("Bounding box " + nx + "x" + ny + " has too many cells; increase the cell size.");
             for (int i = 0; i < nx; i++)
             {
                 double cx = x0 + (i + 0.5) * step;
@@ -99,7 +99,7 @@ namespace Civil3DFactory.Geometry
             return inside;
         }
 
-        /// <summary>把网格积分配平到 TIN 真值（等比缩放，保空间分布）。</summary>
+        /// <summary>Balance the grid integral to the TIN truth (proportional scaling, spatial distribution preserved).</summary>
         public static void Reconcile(Result r, double tinCut, double tinFill)
         {
             r.TinCut = tinCut; r.TinFill = tinFill;
@@ -119,9 +119,9 @@ namespace Civil3DFactory.Geometry
             }
         }
 
-        // ---------------- 2. 求解格聚粗 ----------------
+        // ---------------- 2. Coarsen the solver grid ----------------
 
-        /// <summary>挖+填节点总数超 maxNodes 时按整数倍聚粗；返回求解格距。</summary>
+        /// <summary>When cut+fill nodes exceed maxNodes, coarsen by an integer factor; returns the solver cell size.</summary>
         public static double Coarsen(Result r, double step, int maxNodes,
                                      out List<Cell> cut, out List<Cell> fill)
         {
@@ -150,11 +150,11 @@ namespace Civil3DFactory.Geometry
             return outp;
         }
 
-        // ---------------- 3. 运输问题（SSP 最小费用流，精确） ----------------
+        // ---------------- 3. Transportation problem (SSP min-cost flow, exact) ----------------
 
         /// <summary>
-        /// supply=挖格、demand=填格；差额侧补一个大 M 虚拟节点吃剩余（不进结果 Flows）。
-        /// 连续最短路+势能，稠密 Dijkstra；规模由 Coarsen 控制。
+        /// supply = cut cells, demand = fill cells; the deficit side gets a big-M virtual node that absorbs the remainder (not in the result Flows).
+        /// Successive shortest paths + potentials, dense Dijkstra; size is controlled by Coarsen.
         /// </summary>
         public static void Solve(Result r, List<Cell> cut, List<Cell> fill)
         {
@@ -169,7 +169,7 @@ namespace Civil3DFactory.Geometry
             }
 
             double totC = SumV(cut), totF = SumV(fill);
-            // 距离上界 → 大 M
+            // distance upper bound -> big M
             double maxD = 0;
             var sx = new double[m + 1]; var sy = new double[m + 1]; var sv = new double[m + 1];
             var tx = new double[n + 1]; var ty = new double[n + 1]; var tv = new double[n + 1];
@@ -183,20 +183,20 @@ namespace Civil3DFactory.Geometry
                 }
             double bigM = (maxD + 1) * 10;
 
-            int M = m, N = n;   // 含虚拟后的规模
+            int M = m, N = n;   // sizes including the virtual node
             bool vSrc = false, vSnk = false;
             if (totF > totC + 1e-6) { vSrc = true; sv[m] = totF - totC; M = m + 1; r.Shortfall = totF - totC; }
             else if (totC > totF + 1e-6) { vSnk = true; tv[n] = totC - totF; N = n + 1; r.Surplus = totC - totF; }
 
-            // 距离函数（虚拟节点一律 bigM）
+            // distance function (virtual nodes always bigM)
             Func<int, int, double> cost = (i, j) =>
                 (vSrc && i == m) || (vSnk && j == n) ? bigM : Dist(sx[i], sy[i], tx[j], ty[j]);
 
-            int V = M + N;                       // 节点：0..M-1 源，M..M+N-1 汇
+            int V = M + N;                       // nodes: 0..M-1 sources, M..M+N-1 sinks
             var pot = new double[V];
             var remS = new double[M]; Array.Copy(sv, remS, M);
             var remT = new double[N]; Array.Copy(tv, remT, N);
-            // 流量稀疏存：每源一个 j→flow 字典
+            // sparse flow storage: one j->flow dictionary per source
             var flow = new Dictionary<int, double>[M];
             for (int i = 0; i < M; i++) flow[i] = new Dictionary<int, double>();
 
@@ -206,11 +206,11 @@ namespace Civil3DFactory.Geometry
 
             while (remainTotal > 1e-6)
             {
-                if (++guard > guardMax) throw new InvalidOperationException("求解迭代超限（" + guardMax + "），中止。");
+                if (++guard > guardMax) throw new InvalidOperationException("Solver iteration limit exceeded (" + guardMax + "), aborted.");
                 for (int k = 0; k < V; k++) { dist[k] = double.MaxValue; prev[k] = -1; done[k] = false; }
                 for (int i = 0; i < M; i++) if (remS[i] > 1e-9) dist[i] = 0;
 
-                // 稠密 Dijkstra（约化费用）
+                // dense Dijkstra (reduced costs)
                 for (int it = 0; it < V; it++)
                 {
                     int u = -1; double best = double.MaxValue;
@@ -218,17 +218,17 @@ namespace Civil3DFactory.Geometry
                     if (u < 0) break;
                     done[u] = true;
                     if (u < M)
-                    {   // 源 u → 全部汇（正向弧，容量∞）
+                    {   // source u -> all sinks (forward arcs, infinite capacity)
                         for (int j = 0; j < N; j++)
                         {
                             double rc = cost(u, j) + pot[u] - pot[M + j];
-                            if (rc < -1e-7) rc = 0;   // 数值噪声
+                            if (rc < -1e-7) rc = 0;   // numerical noise
                             double nd = dist[u] + rc;
                             if (nd < dist[M + j] - 1e-12) { dist[M + j] = nd; prev[M + j] = u; }
                         }
                     }
                     else
-                    {   // 汇 u-M → 有流的源（反向弧）
+                    {   // sink u-M -> sources with flow (reverse arcs)
                         int j = u - M;
                         for (int i = 0; i < M; i++)
                         {
@@ -242,30 +242,30 @@ namespace Civil3DFactory.Geometry
                     }
                 }
 
-                // 选最近的缺口汇
+                // pick the nearest sink with a deficit
                 int target = -1; double bestT = double.MaxValue;
                 for (int j = 0; j < N; j++)
                     if (remT[j] > 1e-9 && dist[M + j] < bestT) { bestT = dist[M + j]; target = M + j; }
-                if (target < 0) throw new InvalidOperationException("还有缺口但已无可达路径——不该发生。");
+                if (target < 0) throw new InvalidOperationException("Deficit remains but no reachable path -- should not happen.");
 
-                // 回溯路径，找瓶颈
+                // trace back the path and find the bottleneck
                 double push = remT[target - M];
                 int node = target;
                 while (true)
                 {
                     int p = prev[node];
                     if (p < 0) { if (node < M) push = Math.Min(push, remS[node]); break; }
-                    if (node >= M) { /* 源→汇正向弧 无上限 */ }
+                    if (node >= M) { /* source->sink forward arc, unbounded */ }
                     else
-                    {   // 汇→源反向弧，受既有流限制
+                    {   // sink->source reverse arc, limited by existing flow
                         int j = p - M;
                         push = Math.Min(push, flow[node][j]);
                     }
                     node = p;
                 }
-                if (push <= 1e-9) throw new InvalidOperationException("增广量为 0——数值异常。");
+                if (push <= 1e-9) throw new InvalidOperationException("Augmenting amount is 0 -- numerical anomaly.");
 
-                // 施加
+                // apply
                 node = target;
                 while (true)
                 {
@@ -286,13 +286,13 @@ namespace Civil3DFactory.Geometry
                 remT[target - M] -= push;
                 remainTotal -= push;
 
-                // 势能更新
+                // update potentials
                 for (int k = 0; k < V; k++)
                     if (dist[k] < double.MaxValue) pot[k] += Math.Min(dist[k], bestT);
                     else pot[k] += bestT;
             }
 
-            // 汇总（剔除虚拟）
+            // summarise (virtual excluded)
             double moved = 0, vd = 0;
             for (int i = 0; i < m; i++)
                 foreach (var kv in flow[i])
@@ -313,7 +313,7 @@ namespace Civil3DFactory.Geometry
         static double Dist(double ax, double ay, double bx, double by)
         { double dx = ax - bx, dy = ay - by; return Math.Sqrt(dx * dx + dy * dy); }
 
-        // ---------------- 4. 直方图与箭头聚合 ----------------
+        // ---------------- 4. Histogram and arrow aggregation ----------------
 
         public static void Histogram(Result r, double[] edges)
         {
@@ -327,7 +327,7 @@ namespace Civil3DFactory.Geometry
             }
         }
 
-        /// <summary>按源/汇各自落显示格聚合，量大在前截 maxArrows 支。</summary>
+        /// <summary>Aggregate by the display cell of source / sink; largest volumes first, truncated to maxArrows.</summary>
         public static List<Flow> AggregateArrows(Result r, double displayStep, int maxArrows)
         {
             var d = new Dictionary<string, double[]>();  // [Σv, Σv·sx, Σv·sy, Σv·tx, Σv·ty, Σv·dist]
@@ -349,7 +349,7 @@ namespace Civil3DFactory.Geometry
             return list;
         }
 
-        // ---------------- 5. 画图（两个入口共用） ----------------
+        // ---------------- 5. Drawing (shared by both entry points) ----------------
 
         public const string LayerCut = "C3DF-BALANCE-CUT";
         public const string LayerFill = "C3DF-BALANCE-FILL";
@@ -368,12 +368,12 @@ namespace Civil3DFactory.Geometry
             };
             ObjectId id = lt.Add(rec);
             tr.AddNewlyCreatedDBObject(rec, true);
-            // 不设 Transparency：accoreconsole 下 set_Transparency 抛 eNoDatabase（入库后也抛），
-            // 纯装饰不值得绕，要透明让用户在图层管理器里自己开。transparencyPct 参数留着占位。
+            // No Transparency: under accoreconsole set_Transparency throws eNoDatabase (even after appending);
+            // pure decoration, not worth a workaround -- users can enable it in the layer manager. transparencyPct stays as a placeholder.
             return id;
         }
 
-        /// <summary>幂等：把本工具四个图层上的旧实体清光（只清自己画的图层）。</summary>
+        /// <summary>Idempotent: wipe old entities on this tool's four layers (only the layers it draws on).</summary>
         public static int ClearOwnLayers(Transaction tr, Database db)
         {
             int erased = 0;
@@ -396,7 +396,7 @@ namespace Civil3DFactory.Geometry
             int cnt = 0;
             foreach (var c in cells)
             {
-                // Solid 顶点序是 Z 字形：左下、右下、左上、右上
+                // Solid vertex order is Z-shaped: lower-left, lower-right, upper-left, upper-right
                 var s = new Solid(
                     new Point3d(c.X - h, c.Y - h, 0), new Point3d(c.X + h, c.Y - h, 0),
                     new Point3d(c.X - h, c.Y + h, 0), new Point3d(c.X + h, c.Y + h, 0))
@@ -448,7 +448,7 @@ namespace Civil3DFactory.Geometry
             tr.AddNewlyCreatedDBObject(t, true);
         }
 
-        /// <summary>直方图文本行（两个入口的命令行/回执共用同一格式）。</summary>
+        /// <summary>Histogram text lines (same format for the command line / receipt of both entry points).</summary>
         public static List<string> HistogramLines(Result r)
         {
             var lines = new List<string>();

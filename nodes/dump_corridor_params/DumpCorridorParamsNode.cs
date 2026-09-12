@@ -20,11 +20,11 @@ using PBool = Autodesk.Civil.Runtime.ParamBool;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// dump_corridor_params：把走廊模型的全部设计参数摊平成 JSON——
-    /// 走廊 → 基线 → 区域 → 装配 → 子装配 → 每个参数的显示名和当前值。
+    /// dump_corridor_params: flatten all design parameters of a corridor model into JSON:
+    /// corridor -> baseline -> region -> assembly -> subassembly -> display name and current value of every parameter.
     ///
-    /// 用途：把散在各装配里的设计参数（底高程、边坡、宽度…）抽出来，
-    /// 作为"参数表驱动模型"的现状快照和回写目标清单。只读，不动图。
+    /// Purpose: pull the design parameters scattered across assemblies (bottom elevation, side slope, width...)
+    /// as a snapshot and write-back target list for "parameter-table-driven models". Read-only, drawing untouched.
     /// </summary>
     public static partial class Ops
     {
@@ -190,8 +190,8 @@ namespace Civil3DFactory
             return arr;
         }
 
-        /// <summary>取路线的设计纵断面（ProfileType.FG）：名字 + 全部 PVI 的桩号/高程。
-        /// 疏浚底高程就落在这里，不在装配参数上。</summary>
+        /// <summary>Design profile (ProfileType.FG) of the alignment: name + station/elevation of every PVI.
+        /// The dredge bottom elevation lives here, not in assembly parameters.</summary>
         static JsonNode DcpProfile(Transaction tr, ObjectId alId)
         {
             if (alId.IsNull) return null;
@@ -241,7 +241,7 @@ namespace Civil3DFactory
         delegate ObjectId DcpIdFn();
 
         static string DcpSafe(DcpStrFn f)
-        { try { return f() ?? ""; } catch (System.Exception) { return "(取值失败)"; } }
+        { try { return f() ?? ""; } catch (System.Exception) { return "(value unavailable)"; } }
 
         static double DcpNum(DcpNumFn f)
         { try { return f(); } catch (System.Exception) { return 0.0; } }
@@ -261,7 +261,7 @@ namespace Civil3DFactory
                 if (asm != null) return asm.Name;
                 return TryGetName(o) ?? "";
             }
-            catch (System.Exception) { return "(取名失败)"; }
+            catch (System.Exception) { return "(name unavailable)"; }
         }
     }
 }

@@ -1,17 +1,17 @@
 {
   "node": "calculate_surface_volume",
   "version": 1,
-  "fixture": "tests/dwg/surface-volume-sample.dwg",
+  "fixture": "examples/channel-demo.dwg",
   "prerequisite": null,
   "fixture_requirements": [
-    "模型空间包含基准地形曲面 BaseSurface 与疏浚设计曲面 DesignSurface"
+    "Model space contains the existing-ground surface BaseSurface and the dredge design surface DesignSurface"
   ],
   "assertions": [
     "data.cut_volume >= 0",
     "data.fill_volume >= 0",
     "data.net_volume == data.fill_volume - data.cut_volume",
     "data.volume_report_json != null",
-    "export_excel == true 时 data.excel_file 存在"
+    "when export_excel == true data.excel_file exists"
   ],
   "status": "ready"
 }

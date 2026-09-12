@@ -1,7 +1,7 @@
 {
   "node": "create_sheet_region",
   "version": 1,
-  "fixture": "tests/dwg/road-to-section-drawings-base.dwg",
+  "fixture": "examples/channel-demo.dwg",
   "prerequisite": "existing alignment",
   "assertions": [
     "data.count > 0",

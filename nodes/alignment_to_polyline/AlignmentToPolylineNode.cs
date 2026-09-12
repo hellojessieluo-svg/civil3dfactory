@@ -15,16 +15,16 @@ using CivilDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 把 Civil 3D 路线（Alignment）的平面几何转成一条普通 LWPOLYLINE，
-    /// 用于出纯 CAD 图纸——收图方没有 Civil 3D，路线对象过去就是一坨代理图元。
+    /// Convert the plan geometry of a Civil 3D Alignment into a plain LWPOLYLINE,
+    /// for pure-CAD deliverables: the recipient has no Civil 3D, so alignment objects would arrive as proxy entities.
     ///
-    /// 几何是**精确**的，不是采样近似：
-    ///   直线段  → 直线段（bulge = 0）
-    ///   圆弧段  → 带 bulge 的段，bulge = tan(Δ/4)，顺时针取负（AutoCAD 约定正 = 逆时针）
-    ///   缓和曲线 → 只有它按 spiral_step 采样（缓和曲线在多段线里没有精确表达）
-    /// 结果里回报多段线长度与路线长度的差值 length_delta，用来验证转换没跑偏。
+    /// The geometry is **exact**, not a sampled approximation:
+    ///   line segment   -> line segment (bulge = 0)
+    ///   arc segment    -> bulged segment, bulge = tan(delta/4), negative for clockwise (AutoCAD convention: positive = counter-clockwise)
+    ///   spiral         -> the only one sampled, by spiral_step (a spiral has no exact polyline representation)
+    /// The result reports length_delta, the difference between polyline length and alignment length, to verify the conversion did not drift.
     ///
-    /// 反方向的节点是 create_alignment（多段线 → 路线）。
+    /// The reverse node is create_alignment (polyline -> alignment).
     /// </summary>
     public static partial class Ops
     {
@@ -36,7 +36,7 @@ namespace Civil3DFactory
             string name = GetString(a, "alignment", null);
             string handle = GetString(a, "handle", null);
             if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(handle))
-                throw new InvalidOperationException("需要 alignment（路线名）或 handle（路线句柄）。");
+                throw new InvalidOperationException("alignment (alignment name) or handle (alignment handle) is required.");
 
             string layerName = GetString(a, "layer", "C3DF-CL");
             short colorIndex = (short)Math.Max(0, Math.Min(256, (int)GetDouble(a, "color_index", 3)));
@@ -60,13 +60,13 @@ namespace Civil3DFactory
                 {
                     al = tr.GetObject(ResolveHandle(db, handle), OpenMode.ForRead) as CivAlign;
                     if (al == null)
-                        throw new InvalidOperationException("句柄 " + handle + " 不是路线对象。");
+                        throw new InvalidOperationException("Handle " + handle + " is not an alignment.");
                 }
                 else
                 {
                     al = FindAlignment(tr, civ, name);
                     if (al == null)
-                        throw new InvalidOperationException("图中没有名为 " + name + " 的路线。");
+                        throw new InvalidOperationException("No alignment named " + name + " in the drawing.");
                 }
 
                 string alName = al.Name;
@@ -81,7 +81,7 @@ namespace Civil3DFactory
                 CivEntityColl ents = al.Entities;
                 int entCount = ents.Count;
                 if (entCount <= 0)
-                    throw new InvalidOperationException("路线 " + alName + " 没有几何实体，无法转换。");
+                    throw new InvalidOperationException("Alignment " + alName + " has no geometry entities; cannot convert.");
 
                 for (int i = 0; i < entCount; i++)
                 {
@@ -106,7 +106,7 @@ namespace Civil3DFactory
                         }
                         else if (sub.SubEntityType == CivSubType.Spiral)
                         {
-                            // 缓和曲线：多段线没有对应几何，只能按步长采样
+                            // Spiral: no polyline equivalent, sample by step
                             double s0 = sub.StartStation, s1 = sub.EndStation;
                             double span = s1 - s0;
                             int steps = Math.Max(2, (int)Math.Ceiling(Math.Abs(span) / spiralStep));
@@ -133,7 +133,7 @@ namespace Civil3DFactory
                 }
 
                 if (verts.Count == 0)
-                    throw new InvalidOperationException("路线 " + alName + " 没有可转换的子实体。");
+                    throw new InvalidOperationException("Alignment " + alName + " has no convertible sub-entities.");
                 if (hasTail) { verts.Add(tail); bulges.Add(0.0); }
 
                 ObjectId layerId = A2PEnsureLayer(tr, db, layerName, colorIndex, linetype, linetypeFile);
@@ -187,7 +187,7 @@ namespace Civil3DFactory
                 };
                 res["layer"] = layerName;
                 res["color_index"] = colorByLayer ? -1 : (int)colorIndex;
-                res["linetype"] = ltId.IsNull ? "(未加载,退回ByLayer)" : linetype;
+                res["linetype"] = ltId.IsNull ? "(not loaded, fell back to ByLayer)" : linetype;
                 res["linetype_scale"] = ltScale;
                 res["source_erased"] = erased;
 
@@ -197,7 +197,7 @@ namespace Civil3DFactory
             return res;
         }
 
-        /// <summary>取线型；图里没有就从线型文件加载。加载失败不抛，交给调用方退回 ByLayer。</summary>
+        /// <summary>Get a linetype; load it from the linetype file if absent. Load failure does not throw; the caller falls back to ByLayer.</summary>
         static ObjectId A2PResolveLinetype(Transaction tr, Database db, string name, string file)
         {
             if (string.IsNullOrWhiteSpace(name)) return ObjectId.Null;
@@ -213,7 +213,7 @@ namespace Civil3DFactory
             return ObjectId.Null;
         }
 
-        /// <summary>取图层；没有就建，并按给定颜色/线型建。已存在的图层不改它的现有设置。</summary>
+        /// <summary>Get a layer; create it with the given color/linetype if absent. Existing layers keep their settings.</summary>
         static ObjectId A2PEnsureLayer(Transaction tr, Database db, string name,
             short colorIndex, string linetype, string linetypeFile)
         {

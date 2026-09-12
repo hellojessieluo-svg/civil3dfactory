@@ -12,19 +12,19 @@ using CivLabelGroup = Autodesk.Civil.DatabaseServices.LabelGroup;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 节点 restore_sample_line_labels：把被删光的采样线标签（桩号名字）重建回来。
+    /// Node restore_sample_line_labels: rebuild sample line labels (station names) that were erased.
     ///
-    /// 为什么有这个零件（2026-08-27 项目B初设 2-主通道计算.dwg）：图面上采样线还在、
-    /// 采样线组还在，但 11 个 SampleLineLabelGroup 实体一个不剩——跟项目C那次
-    /// 「导出前清图面 ERASE 采样线族」同源（见记忆 c3d-sample-lines-traps）。
-    /// 关键 API 事实：**SampleLine 上没有 LabelStyleId**，只有控制线本身外观的 StyleId；
-    /// 标签是挂在组上的独立实体 SampleLineLabelGroup，靠
-    /// SampleLineLabelGroup.Create(组Id, 标签样式Id) 重建，一组一个。
-    /// 所以「给每条线重新赋标签样式」这条路走不通，别再试。
+    /// Why this part exists (2026-08-27, project B preliminary design, main channel calc dwg): the sample lines and
+    /// their groups were still there, but all 11 SampleLineLabelGroup entities were gone -- same cause as project C's
+    /// "ERASE the sample line family to clean the sheet before export" (see memory c3d-sample-lines-traps).
+    /// Key API fact: **SampleLine has no LabelStyleId**, only the StyleId that controls the line's own look;
+    /// labels are separate SampleLineLabelGroup entities attached to the group, rebuilt via
+    /// SampleLineLabelGroup.Create(groupId, labelStyleId), one per group.
+    /// So "re-assign a label style to each line" is a dead end; do not try it again.
     ///
-    /// 验收判据写进回执并当场断言：重建后标签组数 = 采样线组数，
-    /// 且各组 SubEntityCount 合计 = 采样线总数。不到数就抛异常不提交，
-    /// 防「安静地成功」（ok=true 但图上还是没字）。
+    /// Acceptance criteria are reported and asserted on the spot: label groups after rebuild = sample line groups,
+    /// and the sum of SubEntityCount = total sample lines. If short, throw and do not commit,
+    /// to prevent a "silent success" (ok=true but still no text in the drawing).
     /// </summary>
     public static partial class Ops
     {
@@ -46,10 +46,10 @@ namespace Civil3DFactory
                 ObjectId styleId = FindStyleAnywhere(tr, civ, styleName, SampleLineLabelCats);
                 if (styleId.IsNull)
                     throw new InvalidOperationException(
-                        "图里没有采样线标签样式 '" + styleName + "'（大小写敏感）。"
-                        + "先用 list_styles 看 LabelStyles.SampleLineLabelStyles.LabelStyles 有哪些。");
+                        "Sample line label style '" + styleName + "' not found in the drawing (case sensitive). "
+                        + "Use list_styles to see what is under LabelStyles.SampleLineLabelStyles.LabelStyles.");
 
-                // 盘点全部采样线组（模型空间扫，与 entity_stats 同源，不依赖路线挂接）
+                // Inventory all sample line groups (model space scan, same as entity_stats, independent of alignment linkage)
                 var groups = new List<ObjectId>();
                 foreach (ObjectId id in ModelSpace(db, tr))
                 {
@@ -68,8 +68,8 @@ namespace Civil3DFactory
                     groups.Add(id);
                 }
                 if (groups.Count == 0)
-                    throw new InvalidOperationException("没找到采样线组"
-                        + (onlyAlignment == null ? "。" : "（路线 '" + onlyAlignment + "'）。"));
+                    throw new InvalidOperationException("No sample line group found"
+                        + (onlyAlignment == null ? "." : " (alignment '" + onlyAlignment + "')."));
 
                 var rows = new JsonArray();
                 int created = 0, skipped = 0, expectedLines = 0;
@@ -123,7 +123,7 @@ namespace Civil3DFactory
                     return res;
                 }
 
-                // ---- 当场验收：数不对就不提交 ----
+                // ---- On-the-spot acceptance: do not commit if the counts are off ----
                 int labelGroups = 0;
                 long subEntities = 0;
                 foreach (ObjectId gid in groups)
@@ -139,11 +139,11 @@ namespace Civil3DFactory
                 res["sub_entities_after"] = subEntities;
 
                 if (labelGroups < groups.Count)
-                    throw new InvalidOperationException("标签组只建出 " + labelGroups
-                        + " 个，应有 " + groups.Count + " 个——不提交。");
+                    throw new InvalidOperationException("Only " + labelGroups + " label groups were created"
+                        + ", expected " + groups.Count + " -- not committing.");
                 if (subEntities != expectedLines)
-                    throw new InvalidOperationException("标签条目 " + subEntities
-                        + " 条 ≠ 采样线 " + expectedLines + " 条——不提交。");
+                    throw new InvalidOperationException("Label entries " + subEntities
+                        + " != sample lines " + expectedLines + " -- not committing.");
 
                 tr.Commit();
                 return res;

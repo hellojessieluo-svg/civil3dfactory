@@ -14,8 +14,8 @@ namespace Civil3DFactory
     public static partial class Ops
     {
         /// <summary>
-        /// 只读诊断：摊平「材质列表 → 材质 → 样式」和 MaterialSection 实体的样式指向。
-        /// 材质填充在图上到底用哪个样式，API 文档说不清，反射摊出来看事实。
+        /// Read-only diagnostic: flatten "material list -> material -> style" and the style references of MaterialSection entities.
+        /// The API docs do not say which style a material hatch actually uses; reflection lays out the facts.
         /// </summary>
         static JsonNode RunNodeDumpMaterialStyles(JsonObject a, Document doc)
         {
@@ -119,15 +119,15 @@ namespace Civil3DFactory
         {
             if (so is Autodesk.Civil.DatabaseServices.Styles.StyleBase sb)
             {
-                try { return sb.Name; } catch (System.Exception ex) { return "<读名失败:" + ex.GetType().Name + ">"; }
+                try { return sb.Name; } catch (System.Exception ex) { return "<name unreadable:" + ex.GetType().Name + ">"; }
             }
-            return ReflectStr(so, "Name") ?? "<非StyleBase:" + so.GetType().FullName + ">";
+            return ReflectStr(so, "Name") ?? "<not StyleBase:" + so.GetType().FullName + ">";
         }
 
         static string ReflectStr(object o, string prop)
         {
-            // GetProperty(name) 在派生类 new/隐藏同名属性时抛 AmbiguousMatchException，
-            // 逐个扫、第一个能读出来的算数（Civil 的 Style 系就有这毛病）
+            // GetProperty(name) throws AmbiguousMatchException when a derived class hides a property with new;
+            // scan one by one and take the first readable (Civil's Style family has this problem)
             foreach (PropertyInfo p in o.GetType().GetProperties())
             {
                 if (p.Name != prop) continue;

@@ -1,0 +1,13 @@
+{
+  "_comment": "Linear model from centerline C1: ground + design profiles (flat bottom at 3.0), corridor from the demo assembly, corridor (design) surface, sample lines every 50 m, material-based quantities with the @C3DF-CutFill criteria. Saves a copy under tmp/ (in-memory changes are never written to the host drawing).",
+  "ops": [
+    { "op": "create_profiles", "alignment": "C1", "surface": "EG", "design_elev": 3.0 },
+    { "op": "create_corridor", "alignment": "C1", "assembly": "C3DF-Channel", "surface": "EG" },
+    { "op": "create_corridor_surface", "alignment": "C1" },
+    { "op": "create_sample_lines", "alignment": "C1", "surface": "EG", "interval": 50, "swath": 40 },
+    { "op": "compute_quantities", "alignment": "C1", "surface": "EG", "criteria": "@C3DF-CutFill" },
+    { "op": "corridor_stats" },
+    { "op": "view", "mode": "issues" },
+    { "op": "save_dwg", "out": "{{C3DF_ROOT}}/tmp/corridor.dwg", "overwrite": true }
+  ]
+}

@@ -14,19 +14,19 @@ using CivDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 节点 rebind_volume_tables：把绑定失效的体积表原位重绑到所属路线的现材质列表。
+    /// Node rebind_volume_tables: rebind orphaned volume tables in place to the current material list of their alignment.
     ///
-    /// 病根：compute_quantities 重算会清掉旧材质列表重建（新 Guid），图上已插的
-    /// 体积表还攥着旧 Guid——数据是好的、表格全显 0。表格位置不动、样式不动，
-    /// 只换 MaterialListGuid 并重选材质。
-    /// 归属判定：死表按包围盒中心找最近的「带材质列表的路线」，结果里报距离，
-    /// 两条路线都近得可疑时人工核对（distance 字段就是干这个的）。
+    /// Root cause: recomputing with compute_quantities clears and rebuilds the material list (new Guid); volume tables
+    /// already placed in the drawing still hold the old Guid -- the data is fine but the table shows all zeros. Position and style are untouched;
+    /// only MaterialListGuid is swapped and the materials re-selected.
+    /// Ownership: a dead table is matched to the nearest "alignment with a material list" by bounding-box center; the distance is reported,
+    /// so check manually when two alignments are suspiciously close (that is what the distance field is for).
     ///
-    /// ⚠ 能力边界（2026-08-16 项目C实图查实）：本节点只治得了
-    /// SectionViewQuantityTakeoffTable（断面图 QTO 表）。GUI 用 AddTotalVolumeTable
-    /// 插的「总体积表」在托管 API 里被包装成**基类 Table，零成员**——绑定读不到、
-    /// 改不了、内容抽不出（也不派生自 ACAD Table）。那种表只能在界面里删掉重插：
-    /// Analyze → Volumes and Materials → Total Volume Table → 选新材质列表。
+    /// WARNING - scope limit (verified on project C drawings, 2026-08-16): this node can only fix
+    /// SectionViewQuantityTakeoffTable (section view QTO tables). "Total volume tables" inserted from the GUI via AddTotalVolumeTable
+    /// are wrapped in the managed API as the **base class Table with zero members** -- the binding cannot be read,
+    /// changed, or extracted (and it does not derive from the ACAD Table either). Those tables can only be deleted and re-inserted in the GUI:
+    /// Analyze -> Volumes and Materials -> Total Volume Table -> pick the new material list.
     /// </summary>
     public static partial class Ops
     {
@@ -42,7 +42,7 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // 活材质列表登记：guid → (路线名, 列表, 路线包围盒中心)
+                // Registry of live material lists: guid -> (alignment name, list, alignment bounding-box center)
                 var live = new Dictionary<Guid, string>();
                 var byAlign = new List<(string Name, Point3d Center, CivQtoMaterialList Ml)>();
                 foreach (ObjectId alId in civ.GetAlignmentIds())
@@ -64,12 +64,12 @@ namespace Civil3DFactory
                             }
                             catch { c = Point3d.Origin; }
                             byAlign.Add((al.Name, c, ml));
-                            break;   // 一条路线取第一张列表
+                            break;   // one list per alignment: the first
                         }
                     }
                 }
                 if (byAlign.Count == 0)
-                    throw new InvalidOperationException("图里没有任何材质列表，先跑 compute_quantities。");
+                    throw new InvalidOperationException("The drawing has no material list; run compute_quantities first.");
 
                 foreach (ObjectId id in ModelSpace(db, tr))
                 {
@@ -82,7 +82,7 @@ namespace Civil3DFactory
                     if (live.ContainsKey(cur)) { healthy++; continue; }
                     dead++;
 
-                    // 死表：按包围盒中心找最近的带列表路线
+                    // Dead table: find the nearest alignment with a list by bounding-box center
                     Point3d tc;
                     try
                     {
@@ -103,7 +103,7 @@ namespace Civil3DFactory
 
                     t.UpgradeOpen();
                     t.MaterialListGuid = target.Ml.Guid;
-                    // 旧选中材质全是死 Guid，清掉换成新列表的全部材质
+                    // The old selected materials are all dead Guids; clear them and select every material of the new list
                     int matAdded = 0;
                     try
                     {

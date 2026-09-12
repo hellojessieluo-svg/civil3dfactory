@@ -13,58 +13,58 @@ namespace Civil3DFactory
     public static partial class Ops
     {
         /// <summary>
-        /// 堤埝批处理：把指定图层上的每条中线转成路线（起点按沿线 K 桩号文字定向），
-        /// 按图上已画断面线（与中线相交的断面线图层实体）确定采样线位置和真实端点，
-        /// 没有断面线的堤埝按沿线桩号文字兜底。原中线多段线保留不动。
+        /// Dike batch processing: convert every centerline on the given layers into an alignment (direction set by the K-station texts along the line),
+        /// locate sample lines and their real endpoints from the section lines already drawn (section-layer entities crossing the centerline),
+        /// falling back to the station texts along the line for dikes without section lines. The original centerline polylines are left untouched.
         ///
-        /// 本节点只负责“算出每条采样线的端点”，创建采样线组/采样线/设样式/标记采样源
-        /// 统一委托给 create_sample_lines（lines 显式端点模式）——那条路径已实测，
-        /// 且包含“逐条写模式设样式”这一步：漏掉它断面只会生成空壳
-        /// （SectionPoints=0，断面图无地面线，事后无 API 可补算；2026-08-11 踩坑）。
+        /// This node only "computes the endpoints of each sample line"; creating the group/sample lines, setting styles and marking sample sources
+        /// is delegated to create_sample_lines (lines explicit-endpoint mode); that path is proven,
+        /// and includes the "set style per line in write mode" step: without it sections come out as empty shells
+        /// (SectionPoints=0, no ground line in the section view, and no API can recompute it afterwards; burned on 2026-08-11).
         /// </summary>
         static JsonNode RunNodeCreateDikeSampleLines(JsonObject args, Document doc)
         {
             var layersArr = args["centerline_layers"] as JsonArray;
             if (layersArr == null || layersArr.Count == 0)
-                throw new ArgumentException("centerline_layers 必须给至少一个中线图层名。");
+                throw new ArgumentException("centerline_layers must contain at least one centerline layer name.");
             var centerLayers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (JsonNode n in layersArr) centerLayers.Add(n.GetValue<string>());
 
             string surfaceName = Need(args, "surface");
-            string numberLayer = GetString(args, "number_layer", "6堤埝编号");
+            string numberLayer = GetString(args, "number_layer", "DIKE-NO");
             string stationLayer = GetString(args, "station_layer", "0");
             var sectionLayers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var secArr = args["section_layers"] as JsonArray;
             if (secArr != null)
                 foreach (JsonNode n in secArr) sectionLayers.Add(n.GetValue<string>());
             else
-                sectionLayers.Add(GetString(args, "section_layer", "2横断面线"));
+                sectionLayers.Add(GetString(args, "section_layer", "SECTION-LINE"));
             double numberMaxDist = GetDouble(args, "number_max_dist", 150);
             double stationMaxDist = GetDouble(args, "station_max_dist", 60);
             double sectionMargin = GetDouble(args, "section_margin", 120);
             double fallbackSwath = GetDouble(args, "fallback_swath", 50);
-            // rebuild_only：路线已存在（不重建、不改向），只重建采样线组。
-            // 用在走廊建成之后——采样源必须与建组同事务标记，走廊/道路曲面要采样就必须重建组。
+            // rebuild_only: the alignment already exists (not rebuilt, direction unchanged); only the sample line group is rebuilt.
+            // Used after the corridor is built: sample sources must be marked in the same transaction as group creation, so sampling corridor/road surfaces requires rebuilding the group.
             bool rebuildOnly = GetBool(args, "rebuild_only", false);
-            string corridorSuffix = GetString(args, "corridor_suffix", "_走廊");
-            string roadSurfaceSuffix = GetString(args, "road_surface_suffix", "_道路曲面");
+            string corridorSuffix = GetString(args, "corridor_suffix", "_Corridor");
+            string roadSurfaceSuffix = GetString(args, "road_surface_suffix", "_Design");
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
             var stationRegex = new Regex(@"^K(\d+)\+(\d+(?:\.\d+)?)");
 
-            // 第一阶段（只读事务）：收集素材并完成所有基于原图几何的判定。
+            // Phase 1 (read-only transaction): collect inputs and make every decision based on the original drawing geometry.
             var lineIds = new List<ObjectId>();
             var lineInfo = new List<JsonObject>();      // name/layer/length/reversed/station_texts_used
             var lineReversed = new List<bool>();
-            var lineLabelStations = new List<List<double>>();   // 兜底：沿线桩号文字给出的断面里程
+            var lineLabelStations = new List<List<double>>();   // fallback: section stations given by the station texts along the line
             var sectionIds = new List<(ObjectId id, Extents3d ext)>();
             var warnings = new JsonArray();
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 if (FindSurfaceId(tr, civ, surfaceName).IsNull)
-                    throw new InvalidOperationException("图中没有曲面 '" + surfaceName + "'，先跑 import_surface。");
+                    throw new InvalidOperationException("Surface '" + surfaceName + "' not in the drawing; run import_surface first.");
 
                 var centerlines = new List<Polyline>();
                 var numberTexts = new List<(Point3d pos, string text)>();
@@ -104,9 +104,9 @@ namespace Civil3DFactory
                     }
                 }
                 if (centerlines.Count == 0)
-                    throw new InvalidOperationException("指定图层上没有找到中线多段线。");
+                    throw new InvalidOperationException("No centerline polyline found on the given layers.");
 
-                // 编号 ↔ 中线：按距离全局贪心配对（编号数少于中线数也能稳）
+                // number <-> centerline: global greedy pairing by distance (stable even with fewer numbers than centerlines)
                 var pairs = new List<(int li, int ti, double d)>();
                 for (int li = 0; li < centerlines.Count; li++)
                     for (int ti = 0; ti < numberTexts.Count; ti++)
@@ -134,20 +134,20 @@ namespace Civil3DFactory
                     string nm = lineName[li];
                     if (nm == null)
                     {
-                        nm = "堤埝_" + pl.Handle;
-                        warnings.Add("中线 " + pl.Handle + " 附近没有可用编号文字，命名为 " + nm);
+                        nm = "Dike_" + pl.Handle;
+                        warnings.Add("No usable number text near centerline " + pl.Handle + ", named " + nm);
                     }
                     string uniq = nm;
                     int k = 2;
                     while (!usedNames.Add(uniq)) uniq = nm + "_" + k++;
 
-                    // 方向：沿线 K 桩号文字的（线上里程, 标注里程）相关性，负相关=要反向
+                    // Direction: correlation of (distance along line, labelled station) of the K-station texts; negative = reverse
                     var samples = new List<(double geom, double label)>();
                     foreach (var stx in stationTexts)
                     {
                         Point3d cp = pl.GetClosestPointTo(stx.pos, false);
                         if (cp.DistanceTo(stx.pos) > stationMaxDist) continue;
-                        if (stx.station > pl.Length + 50) continue;   // 邻线长里程标注串扰
+                        if (stx.station > pl.Length + 50) continue;   // crosstalk from long-station labels of a neighbouring line
                         samples.Add((pl.GetDistAtPoint(cp), stx.station));
                     }
                     bool reversed = false;
@@ -161,7 +161,7 @@ namespace Civil3DFactory
                         reversed = cov < 0;
                     }
                     else
-                        warnings.Add(uniq + ": 沿线桩号文字不足(" + samples.Count + ")，按画线方向作为路线方向");
+                        warnings.Add(uniq + ": not enough station texts along the line (" + samples.Count + "); drawing direction used as alignment direction");
 
                     var labelStations = new List<double>();
                     foreach (var s in samples)
@@ -189,8 +189,8 @@ namespace Civil3DFactory
                 tr.Commit();
             }
 
-            // 第二阶段：逐条堤埝——事务 A 建路线；只读事务算采样线端点；
-            // 创建统一委托 create_sample_lines（lines 模式）。
+            // Phase 2: per dike: transaction A creates the alignment; a read-only transaction computes sample line endpoints;
+            // creation is delegated to create_sample_lines (lines mode).
             var dikes = new JsonArray();
             int totalSampleLines = 0;
             for (int li = 0; li < lineIds.Count; li++)
@@ -199,8 +199,8 @@ namespace Civil3DFactory
                 string name = dike["name"].GetValue<string>();
                 bool reversed = lineReversed[li];
 
-                // 事务 A：只建路线并提交（路线和采样线组同事务创建曾致断面空壳，见上方注释）。
-                // rebuild_only 时路线必须已存在，直接找。
+                // Transaction A: create the alignment only and commit (creating alignment and sample line group in one transaction once produced empty sections, see note above).
+                // With rebuild_only the alignment must already exist; just look it up.
                 ObjectId alignId;
                 if (rebuildOnly)
                 {
@@ -209,7 +209,7 @@ namespace Civil3DFactory
                         CivAlignment existing = FindAlignment(tf, civ, name);
                         if (existing == null)
                         {
-                            warnings.Add(name + ": rebuild_only 但图中没有该路线，跳过");
+                            warnings.Add(name + ": rebuild_only but the alignment is not in the drawing, skipped");
                             dike["sample_lines"] = 0;
                             dike["mode"] = "skipped";
                             dikes.Add(dike);
@@ -225,10 +225,10 @@ namespace Civil3DFactory
                 {
                     var pl = (Polyline)t2.GetObject(lineIds[li], OpenMode.ForRead);
 
-                    // 覆盖重建同名路线
+                    // Overwrite the alignment with the same name
                     EraseAlignments(t2, civ, name);
 
-                    // 始终用中线的临时副本建路线（EraseExistingEntities 吃掉的是副本），原中线保留
+                    // Always build the alignment from a temporary copy of the centerline (EraseExistingEntities consumes the copy); the original is kept
                     var bt = (BlockTable)t2.GetObject(db.BlockTableId, OpenMode.ForRead);
                     var ms = (BlockTableRecord)t2.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
                     var tmp = (Polyline)pl.Clone();
@@ -244,7 +244,7 @@ namespace Civil3DFactory
                     t2.Commit();
                 }
 
-                // 只读事务：算每条采样线的端点（优先图上断面线，兜底桩号文字）。
+                // Read-only transaction: compute the endpoints of each sample line (section lines first, station texts as fallback).
                 var lineSpecs = new JsonArray();
                 string mode = "sections";
                 int skippedDup = 0;
@@ -257,7 +257,7 @@ namespace Civil3DFactory
                     var min = new Point2d(ext.MinPoint.X - sectionMargin, ext.MinPoint.Y - sectionMargin);
                     var max = new Point2d(ext.MaxPoint.X + sectionMargin, ext.MaxPoint.Y + sectionMargin);
 
-                    // 中线二维分段（忽略 Z——断面线常带地面高程，3D IntersectWith 会全部漏判）
+                    // 2D segments of the centerline (ignore Z: section lines often carry ground elevation, and 3D IntersectWith would miss them all)
                     var plSegs = new List<(Point2d a, Point2d b)>();
                     for (int vi = 0; vi < pl.NumberOfVertices - 1; vi++)
                         plSegs.Add((pl.GetPoint2dAt(vi), pl.GetPoint2dAt(vi + 1)));
@@ -335,7 +335,7 @@ namespace Civil3DFactory
                         stationsMade.Add(station);
                     }
 
-                    // 兜底：没有任何断面线与中线相交时，按沿线桩号文字的里程出垂直采样线
+                    // Fallback: when no section line crosses the centerline, emit perpendicular sample lines at the stations of the station texts
                     if (lineSpecs.Count == 0 && lineLabelStations[li].Count > 0)
                     {
                         mode = "label_stations";
@@ -364,11 +364,11 @@ namespace Civil3DFactory
                             }
                             catch (System.Exception ex)
                             {
-                                warnings.Add(name + " 兜底桩号 " + st.ToString("F1") + " 定位失败: " + ex.Message);
+                                warnings.Add(name + " fallback station " + st.ToString("F1") + " could not be located: " + ex.Message);
                             }
                         }
-                        warnings.Add(name + ": 没有断面线与中线相交，已按 " + lineSpecs.Count
-                            + " 个桩号文字兜底出采样线（每侧 " + fallbackSwath + "）");
+                        warnings.Add(name + ": no section line crosses the centerline; " + lineSpecs.Count
+                            + " station texts used as fallback for sample lines (" + fallbackSwath + " per side)");
                     }
 
                     dike["alignment_start"] = Math.Round(al.StartingStation, 2);
@@ -376,7 +376,7 @@ namespace Civil3DFactory
                     t2.Commit();
                 }
 
-                // 创建：统一委托已实测的 create_sample_lines（lines 显式端点模式）
+                // Creation: delegated to the proven create_sample_lines (lines explicit-endpoint mode)
                 int made = 0;
                 if (lineSpecs.Count > 0)
                 {
@@ -394,7 +394,7 @@ namespace Civil3DFactory
                 else
                 {
                     dike["sampled_sources"] = new JsonArray();
-                    warnings.Add(name + ": 既无相交断面线也无桩号文字，采样线组为空");
+                    warnings.Add(name + ": neither crossing section lines nor station texts; sample line group is empty");
                 }
 
                 dike["sample_lines"] = made;

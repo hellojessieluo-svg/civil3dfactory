@@ -12,9 +12,9 @@ namespace Civil3DFactory
     public static partial class Ops
     {
         /// <summary>
-        /// 测量断面标定与地面线提取（只读）。拆堤链路第一步：先看哪些断面标定得住、
-        /// 桩号间距是多少、堤顶多高，再决定 generate_demolition_design_lines 的参数怎么给。
-        /// 标定与几何算法在 Civil3DFactory/MeasuredSections.cs（三节点共用，源自拆堤插件 V1）。
+        /// Measured-section calibration and ground-line extraction (read-only). First step of the embankment-removal chain: see which sections
+        /// calibrate, what the station spacing is and how high the crest is, then decide the parameters for generate_demolition_design_lines.
+        /// Calibration and geometry live in Civil3DFactory/MeasuredSections.cs (shared by three nodes, derived from the embankment-removal plugin V1).
         /// </summary>
         static JsonNode RunNodeExtractMeasuredSections(JsonObject a, Document doc)
             => ExtractMeasuredSections(a, doc);
@@ -45,13 +45,13 @@ namespace Civil3DFactory
                 List<MeasuredSection> all = Sections.Read(db, tr, opt);
                 if (all.Count == 0)
                     throw new InvalidOperationException(
-                        "模型空间在图层 '" + opt.GroundLayer + "' 上找不到地面线多段线（≥2 顶点）；" +
-                        "先确认 ground_layer 与本图一致。");
+                        "No ground-line polyline (>= 2 vertices) found in model space on layer '" + opt.GroundLayer + "'; " +
+                        "check that ground_layer matches this drawing.");
 
                 List<MeasuredSection> picked = all.Where(s => Sections.Matches(s, filter)).ToList();
                 if (picked.Count == 0)
                     throw new InvalidOperationException(
-                        "共读到 " + all.Count + " 个断面，但没有一个匹配 line_filter；放宽或去掉该参数。");
+                        "Read " + all.Count + " sections, but none matches line_filter; relax or drop that parameter.");
 
                 foreach (MeasuredSection s in picked)
                 {

@@ -2,26 +2,26 @@
   "node": "attach_baseline_profile",
   "version": 1,
   "executor": "engine",
-  "fixture": "(pending: re-point to examples/channel-demo.dwg)",
-  "prerequisite": "设计纵断面被删又补回后，走廊区间/链接码都在但道路曲面评估不出、rebuild_corridor 救不活时用；先跑 list_profiles 确认设计线已存在",
+  "fixture": "examples/channel-demo.dwg",
+  "prerequisite": "Use when a design profile was deleted and re-created: the corridor regions and link codes are intact but the corridor surface cannot be evaluated and rebuild_corridor does not revive it. Run list_profiles first to confirm the design profile exists.",
   "fixture_requirements": [
-    "一个基线 profile 引用悬空的走廊（道路曲面 corridor_stats 报 TargetInvocationException）",
-    "该路线上已补好设计纵断面（FG/Layout 类型）",
-    "一个健康走廊做对照（重挂后曲面 z 范围应与它同口径）"
+    "A corridor whose baseline profile reference dangles (corridor_stats reports TargetInvocationException for the corridor surface)",
+    "A repaired design profile (FG/Layout type) on that alignment",
+    "A healthy corridor for comparison (after reattaching, the surface z range should match it)"
   ],
   "task": {
-    "corridor": "道路[C5](8)",
+    "corridor": "C5_Corridor",
     "alignment": "C5",
-    "profile": "C5_设计线"
+    "profile": "C5_FG"
   },
   "assertions": [
-    "内存改动不落盘：要留成果必须显式 save_dwg",
-    "profile 点名优先；缺省按 create_profile_view 同一套设计线识别规则（FG/Layout）自动挑",
-    "找不到匹配剖面线时抛错并列出该路线现有剖面线名（不静默挂错）",
-    "走廊没有匹配基线（含 alignment 筛选不中）时抛错，不安静成功",
-    "重挂后默认 Rebuild；Rebuild 失败进 rebuild_error 不掩盖挂接成功的事实",
-    "判定修好：corridor_stats 里道路曲面能评估出 general（z 范围与同装配的健康走廊一致）",
-    "幂等性：对健康走廊重跑，挂的还是同一条设计线，曲面 z 范围不变"
+    "In-memory change only: results must be kept with an explicit save_dwg",
+    "An explicitly named profile wins; otherwise the same design-profile detection rules as create_profile_view (FG/Layout) pick one automatically",
+    "When no matching profile is found, throw and list the profiles that exist on that alignment (never attach the wrong one silently)",
+    "When the corridor has no matching baseline (including an alignment filter that matches nothing), throw instead of succeeding quietly",
+    "After reattaching, Rebuild runs by default; a Rebuild failure goes to rebuild_error and does not hide the successful attachment",
+    "Fixed means: corridor_stats can evaluate general for the corridor surface (z range matches a healthy corridor with the same assembly)",
+    "Idempotent: rerunning on a healthy corridor attaches the same design profile and the surface z range is unchanged"
   ],
   "status": "draft_assertions_pending_real_drawing_regression"
 }

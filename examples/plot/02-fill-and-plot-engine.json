@@ -1,0 +1,10 @@
+{
+  "_comment": "Engine-only alternative to the exe tools (works without downloading DWGAttributeEditor / DWGTitleblockPlotter): rewrite one attribute on every title block, save a copy, plot each block window to its own PDF. Sheet windows are 420 x 297 mm at x = 0 / 450 / 900.",
+  "ops": [
+    { "op": "set_block_attributes", "name": "TITLE", "attributes": { "DATE": "2026-09-12", "SHEET_TITLE": "Dredging section, demo" } },
+    { "op": "save_dwg", "out": "{{C3DF_ROOT}}/tmp/title-block-filled.dwg", "overwrite": true },
+    { "op": "plot_pdf", "out": "{{C3DF_ROOT}}/tmp/sheet-01.pdf", "paper": "A3", "window": { "minx": 0,   "miny": 0, "maxx": 420,  "maxy": 297 }, "overwrite": true },
+    { "op": "plot_pdf", "out": "{{C3DF_ROOT}}/tmp/sheet-02.pdf", "paper": "A3", "window": { "minx": 450, "miny": 0, "maxx": 870,  "maxy": 297 }, "overwrite": true },
+    { "op": "plot_pdf", "out": "{{C3DF_ROOT}}/tmp/sheet-03.pdf", "paper": "A3", "window": { "minx": 900, "miny": 0, "maxx": 1320, "maxy": 297 }, "overwrite": true }
+  ]
+}

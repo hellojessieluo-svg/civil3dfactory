@@ -31,19 +31,19 @@ using CivCurveGroupType = Autodesk.Civil.CurbReturnCurveGroupType;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 「一条直线 → 路线 → 偏移 → 纵断面 → 走廊 → 道路曲面 → 采样线 → 工程量」整条链。
+    /// The whole chain: "a straight line -> alignment -> offsets -> profiles -> corridor -> corridor surface -> sample lines -> quantities".
     ///
-    /// 全部操作直接改 /i 传入的**内存中的**图纸数据库，磁盘上的原文件不动；
-    /// 要留下成果必须显式跑 save_dwg（缺省另存新文件，写回原图须 apply:true）。
+    /// Every op edits the **in-memory** drawing database passed via /i; the original file on disk is untouched.
+    /// To keep results you must explicitly run save_dwg (defaults to saving as a new file; pass apply:true to write back to the original).
     ///
-    /// 计算逻辑移植自已实战验证的 RiverQto（Civil3D-009），并保留它踩过的坑：
-    ///   · 建采样线组前清空本路线所有旧组，否则算材质报 "should have been sampled"；
-    ///   · 采样源标记必须与建组同事务，提交后再标记无效；
-    ///   · 准则的曲面槽位名从准则本身读，不能写死（写死会静默失配 → 工程量全 0）。
+    /// The computation logic was ported from the field-tested RiverQto (Civil3D-009), keeping the pitfalls it hit:
+    ///   - clear all old sample line groups on the alignment before creating a new one, otherwise material computation reports "should have been sampled";
+    ///   - the sampled-source flag must be set in the same transaction that creates the group; setting it after commit has no effect;
+    ///   - criteria surface slot names must be read from the criteria itself, never hard-coded (hard-coding fails silently -> all quantities 0).
     /// </summary>
     public static partial class Ops
     {
-        // ===================== 1. 原地形曲面（造一块地形，链路才自足）=====================
+        // ===================== 1. Existing ground surface (build a terrain so the chain is self-contained) =====================
 
         static JsonNode CreateSurfaceGrid(JsonObject a, Document doc)
         {
@@ -51,11 +51,11 @@ namespace Civil3DFactory
             double minx = GetDouble(a, "minx", 0), miny = GetDouble(a, "miny", 0);
             double maxx = GetDouble(a, "maxx", 0), maxy = GetDouble(a, "maxy", 0);
             if (maxx <= minx || maxy <= miny)
-                throw new InvalidOperationException("需要 minx/miny/maxx/maxy，且 max 必须大于 min。");
+                throw new InvalidOperationException("minx/miny/maxx/maxy are required, and max must be greater than min.");
             double step = GetDouble(a, "step", 20);
-            if (step <= 0) throw new InvalidOperationException("step 必须大于 0。");
+            if (step <= 0) throw new InvalidOperationException("step must be greater than 0.");
             double elev = GetDouble(a, "elev", 0);
-            double slopeX = GetDouble(a, "slope_x", 0);   // 每米高差
+            double slopeX = GetDouble(a, "slope_x", 0);   // elevation change per metre
             double slopeY = GetDouble(a, "slope_y", 0);
             double undAmp = GetDouble(a, "undulation_amp", 0);
             double undLen = GetDouble(a, "undulation_len", 200);
@@ -65,7 +65,7 @@ namespace Civil3DFactory
             Database db = doc.Database;
             CivDoc civ = Civ(db);
 
-            // 覆盖重建：先删同名曲面（单独事务提交，避免同事务删了又建导致名字未释放）
+            // Overwrite/rebuild: delete the surface with the same name first (committed in its own transaction, so the name is released before re-creating it)
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 ObjectId old = FindSurfaceId(tr, civ, name);
@@ -106,7 +106,7 @@ namespace Civil3DFactory
                 {
                     ["surface"] = name,
                     ["vertices"] = nx * ny,
-                    ["grid"] = nx + " × " + ny,
+                    ["grid"] = nx + " x " + ny,
                     ["extent"] = string.Format("({0},{1}) - ({2},{3})", minx, miny, maxx, maxy),
                     ["elev_range"] = Math.Round(elev, 3) + " ~ " +
                                      Math.Round(elev + slopeX * (maxx - minx) + slopeY * (maxy - miny), 3)
@@ -114,7 +114,7 @@ namespace Civil3DFactory
             }
         }
 
-        // ===================== 2. 画线 → 定义为路线 =====================
+        // ===================== 2. Draw a line -> define as alignment =====================
 
         static JsonNode CreateAlignment(JsonObject a, Document doc)
         {
@@ -122,19 +122,19 @@ namespace Civil3DFactory
             string handle = GetString(a, "handle", null);
             var ptsArr = a["points"] as JsonArray;
             if (string.IsNullOrEmpty(handle) && (ptsArr == null || ptsArr.Count < 2))
-                throw new InvalidOperationException("要么给 points:[[x,y],[x,y],...]（现画一条），要么给 handle（图中已有的线）。");
+                throw new InvalidOperationException("Give either points:[[x,y],[x,y],...] (draw a new line) or handle (an existing line in the drawing).");
 
             string layer = GetString(a, "layer", "0");
             string style = GetString(a, "style", null);
             string labelSet = GetString(a, "label_set", null);
             string site = GetString(a, "site", null);
-            bool eraseSource = GetBool(a, "erase_source", true);      // 转成路线后删掉那条辅助线
+            bool eraseSource = GetBool(a, "erase_source", true);      // erase the helper line once it becomes an alignment
             bool addCurves = GetBool(a, "add_curves", false);
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
 
-            // 覆盖重建：先删同名路线
+            // Overwrite/rebuild: delete the alignment with the same name first
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 EraseAlignments(tr, civ, name);
@@ -148,7 +148,7 @@ namespace Civil3DFactory
                 if (!string.IsNullOrEmpty(handle))
                 {
                     plId = ResolveHandle(db, handle);
-                    drawnFrom = "图中已有对象 " + handle;
+                    drawnFrom = "existing object " + handle;
                 }
                 else
                 {
@@ -160,7 +160,7 @@ namespace Civil3DFactory
                     {
                         var pair = pn as JsonArray;
                         if (pair == null || pair.Count < 2)
-                            throw new InvalidOperationException("points 里每项必须是 [x, y]。");
+                            throw new InvalidOperationException("Every item in points must be [x, y].");
                         pl.AddVertexAt(i++, new Point2d(
                             pair[0].GetValue<double>(), pair[1].GetValue<double>()), 0, 0, 0);
                     }
@@ -172,7 +172,7 @@ namespace Civil3DFactory
                         pl.Layer = layer;   // layer can only be set after the entity is in the database
                     }
                     plId = pl.ObjectId;
-                    drawnFrom = "现画多段线 " + i + " 点，长 " + Math.Round(pl.Length, 3) + " m";
+                    drawnFrom = "new polyline, " + i + " points, length " + Math.Round(pl.Length, 3) + " m";
                 }
 
                 ObjectId siteId = ObjectId.Null;
@@ -180,7 +180,7 @@ namespace Civil3DFactory
                 {
                     foreach (ObjectId s in civ.GetSiteIds())
                         if (TryGetName(tr.GetObject(s, OpenMode.ForRead)) == site) { siteId = s; break; }
-                    if (siteId.IsNull) throw new InvalidOperationException("找不到场地 '" + site + "'。");
+                    if (siteId.IsNull) throw new InvalidOperationException("Site '" + site + "' not found.");
                 }
 
                 ObjectId styleId = FindStyleId(tr, civ.Styles.AlignmentStyles, style);
@@ -212,7 +212,7 @@ namespace Civil3DFactory
             }
         }
 
-        // ===================== 3. 偏移路线 =====================
+        // ===================== 3. Offset alignments =====================
 
         static JsonNode OffsetAlignment(JsonObject a, Document doc)
         {
@@ -220,10 +220,10 @@ namespace Civil3DFactory
             double dist = GetDouble(a, "distance", 15);
             string style = GetString(a, "style", null);
 
-            // offsets 显式给就用它；否则按 ±distance 左右各一条（名字带 _左/_右 前缀，
-            // 走廊那步就是按这个前缀找偏移目标的，别改）。
-            // 每项可以是数（整条偏移），也可以是对象 {distance, start_station, end_station, name?}
-            // ——带父路线桩号区间即"分段偏移"，交叉口范围让位给连接路线（create_connected_alignment）。
+            // If offsets is given explicitly, use it; otherwise create one on each side at +/-distance (names carry the _L/_R prefix;
+            // the corridor step finds its offset targets by that prefix, do not change it).
+            // Each item may be a number (offset the whole alignment) or an object {distance, start_station, end_station, name?}
+            // -- a parent-alignment station range makes it a "partial offset", leaving the intersection range to a connected alignment (create_connected_alignment).
             var pairs = new List<(string Name, double Dist, double? S0, double? S1)>();
             var arr = a["offsets"] as JsonArray;
             if (arr != null && arr.Count > 0)
@@ -233,13 +233,13 @@ namespace Civil3DFactory
                     if (n is JsonObject o)
                     {
                         JsonNode dn = o["distance"];
-                        if (dn == null) throw new InvalidOperationException("分段偏移对象必须给 distance。");
+                        if (dn == null) throw new InvalidOperationException("A partial-offset object must give distance.");
                         double d = dn.GetValue<double>();
                         double? s0 = o["start_station"] != null ? o["start_station"].GetValue<double>() : (double?)null;
                         double? s1 = o["end_station"] != null ? o["end_station"].GetValue<double>() : (double?)null;
                         if (s0.HasValue != s1.HasValue)
-                            throw new InvalidOperationException("start_station 与 end_station 要么都给要么都不给。");
-                        string side = d < 0 ? "左" : "右";
+                            throw new InvalidOperationException("start_station and end_station must be given together or not at all.");
+                        string side = d < 0 ? "L" : "R";
                         string nm = GetString(o, "name", null);
                         if (string.IsNullOrEmpty(nm))
                             nm = alName + "_" + side + Math.Abs(d) + "m"
@@ -249,16 +249,16 @@ namespace Civil3DFactory
                     else
                     {
                         double d = n.GetValue<double>();
-                        string side = d < 0 ? "左" : "右";
+                        string side = d < 0 ? "L" : "R";
                         pairs.Add((alName + "_" + side + Math.Abs(d) + "m", d, null, null));
                     }
                 }
             }
             else
             {
-                if (dist <= 0) throw new InvalidOperationException("distance 必须大于 0。");
-                pairs.Add((alName + "_左" + dist + "m", -dist, null, null));
-                pairs.Add((alName + "_右" + dist + "m", dist, null, null));
+                if (dist <= 0) throw new InvalidOperationException("distance must be greater than 0.");
+                pairs.Add((alName + "_L" + dist + "m", -dist, null, null));
+                pairs.Add((alName + "_R" + dist + "m", dist, null, null));
             }
 
             Database db = doc.Database;
@@ -267,7 +267,7 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 if (FindAlignment(tr, civ, alName) == null)
-                    throw new InvalidOperationException("找不到路线 '" + alName + "'。");
+                    throw new InvalidOperationException("Alignment '" + alName + "' not found.");
                 var names = new List<string>();
                 foreach (var kv in pairs) names.Add(kv.Name);
                 EraseAlignments(tr, civ, names.ToArray());
@@ -295,11 +295,11 @@ namespace Civil3DFactory
             return new JsonObject { ["parent"] = alName, ["created"] = made };
         }
 
-        // ===================== 3b. 连接路线：两条路线间按半径转角（交叉口） =====================
+        // ===================== 3b. Connected alignment: radius turn between two alignments (intersection) =====================
         //
-        // 原生 CreateConnectedAlignment：进线/出线各给一个连接桩号 + 半径，生成动态连接路线，
-        // 父路线（含动态偏移路线）改动后转角自动跟随。CurveGroupType 固定用 Arc（单圆弧）。
-        // 分段偏移（offset_alignment 的 start/end_station）在交叉口让出的缺口正是给它接的。
+        // Native CreateConnectedAlignment: one connection station on each of the incoming/outgoing alignments + a radius produce a dynamic connected alignment;
+        // the turn follows automatically when the parents (including dynamic offset alignments) change. CurveGroupType is fixed to Arc (single arc).
+        // The gap that partial offsets (offset_alignment start/end_station) leave at the intersection is exactly what it connects.
 
         static JsonNode CreateConnectedAlignmentOp(JsonObject a, Document doc)
         {
@@ -308,11 +308,11 @@ namespace Civil3DFactory
             string outName = Need(a, "out_alignment");
             JsonNode inNode = a["in_station"], outNode = a["out_station"];
             if (inNode == null || outNode == null)
-                throw new InvalidOperationException("需要 in_station / out_station（两条线上的连接桩号）。");
+                throw new InvalidOperationException("in_station / out_station are required (connection stations on the two alignments).");
             double inSta = inNode.GetValue<double>();
             double outSta = outNode.GetValue<double>();
             double radius = GetDouble(a, "radius", 20);
-            if (radius <= 0) throw new InvalidOperationException("radius 必须大于 0。");
+            if (radius <= 0) throw new InvalidOperationException("radius must be greater than 0.");
             string style = GetString(a, "style", null);
             string labelSet = GetString(a, "label_set", null);
             bool big = GetBool(a, "greater_than_180", false);
@@ -329,9 +329,9 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 CivAlignment ain = FindAlignment(tr, civ, inName);
-                if (ain == null) throw new InvalidOperationException("找不到进线 '" + inName + "'。");
+                if (ain == null) throw new InvalidOperationException("Incoming alignment '" + inName + "' not found.");
                 CivAlignment aout = FindAlignment(tr, civ, outName);
-                if (aout == null) throw new InvalidOperationException("找不到出线 '" + outName + "'。");
+                if (aout == null) throw new InvalidOperationException("Outgoing alignment '" + outName + "' not found.");
                 ObjectId styleId = FindStyleId(tr, civ.Styles.AlignmentStyles, style);
                 ObjectId labelId = FindStyleId(tr, civ.Styles.LabelSetStyles.AlignmentLabelSetStyles, labelSet);
 
@@ -346,23 +346,23 @@ namespace Civil3DFactory
                     GreaterThan180 = big,
                     OffsetIn = GetDouble(a, "offset_in", 0),
                     OffsetOut = GetDouble(a, "offset_out", 0),
-                    // API 强制 >0：连接路线沿两条母线各"搭"一小段再起弧。默认压到最小，
-                    // 让连接路线基本就是转角弧本身。
+                    // The API forces >0: the connected alignment "rides" a short tangent along each parent before the arc starts. Default to the minimum,
+                    // so the connected alignment is essentially the turning arc itself.
                     ConnectionOverlapLengthIn = GetDouble(a, "overlap_in", 0.01),
                     ConnectionOverlapLengthOut = GetDouble(a, "overlap_out", 0.01)
                 };
 
-                // 求解器的坑（2026-08-23 项目B实测钉死）：
-                //  ① 进/出顺序挑剔，每个角只有部分流向可解；
-                //  ② OffsetIn/Out 的符号随求解器选择的通行方向翻转，光靠参数钉不住象限——
-                //     同一批里 +15 有时落右侧有时落左侧，弧还可能整体跑到别的角。
-                // 唯一可靠做法：穷举 8 种组合（顺序×两侧符号），建成后用 StationOffset 几何自验
-                // （两端点必须真切在两条母线的**意图侧** ±15 上、且在提示桩号附近），验不过就删掉换下一种。
+                // Solver pitfalls (nailed down on project B, 2026-08-23):
+                //  (1) the in/out order is picky; only some flow directions are solvable at each corner;
+                //  (2) the sign of OffsetIn/Out flips with the travel direction the solver picks, so parameters alone cannot pin the quadrant --
+                //     in one batch +15 sometimes lands on the right, sometimes on the left, and the arc may even jump to another corner.
+                // The only reliable approach: try all 8 combinations (order x side signs), then verify the geometry with StationOffset after creation
+                // (both end points must truly lie on the two parents' **intended** side at +/-15 and near the hinted stations); delete and try the next on failure.
                 double offIn = p.OffsetIn, offOut = p.OffsetOut;
                 double tol = GetDouble(a, "verify_tol", 0.5);
                 double staTol = GetDouble(a, "verify_station_window", 80);
-                // 陆侧判据（第 6 坑）：同一对偏移线交点四周有 4 个可行切弧，侧别+桩号钉不住凸向，
-                // 弧可能凸进水道。切点必须离**另一条**母线也 ≥W（在台田一侧）才算对。
+                // Land-side test (pitfall 6): around the intersection of one pair of offset lines there are 4 feasible tangent arcs; side + station cannot pin the convexity,
+                // so the arc may bulge into the channel. A tangent point must also be >= W away from the **other** parent (on the platform side) to count.
                 double landMin = GetDouble(a, "land_min",
                     Math.Min(Math.Abs(offIn), Math.Abs(offOut)) - 0.5);
 
@@ -378,12 +378,12 @@ namespace Civil3DFactory
                 {
                     double sta = 0, off = 0;
                     try { other.StationOffset(pt.X, pt.Y, ref sta, ref off); }
-                    catch { return true; }   // 超出对方桩号范围＝离得远，天然在陆侧
+                    catch { return true; }   // beyond the other alignment's station range = far away, naturally on the land side
                     return Math.Abs(off) >= landMin;
                 }
 
-                // 弓向判据（第 7 坑）：同一对切点间有正弓/反弓两条弧，端点完全相同，
-                // 端点判据分不出——弧中点必须也在陆侧（离带偏移的父线 ≥ landMin）。
+                // Bulge-direction test (pitfall 7): between one pair of tangent points there are two arcs (bulging either way) with identical end points,
+                // so the end-point test cannot tell them apart -- the arc midpoint must also be on the land side (>= landMin from the offset parent).
                 bool MidLand(CivAlignment cand)
                 {
                     if (landMin <= 0) return true;
@@ -410,7 +410,7 @@ namespace Civil3DFactory
                     p.OutgoingParentAlignmentStation = swap ? inSta : outSta;
                     p.OffsetIn = swap ? sOut : sIn;
                     p.OffsetOut = swap ? sIn : sOut;
-                    string tag = (swap ? "换序" : "原序") + $" in{p.OffsetIn:+0;-0} out{p.OffsetOut:+0;-0}";
+                    string tag = (swap ? "swapped" : "original") + $" in{p.OffsetIn:+0;-0} out{p.OffsetOut:+0;-0}";
                     ObjectId tryId;
                     try
                     {
@@ -419,7 +419,7 @@ namespace Civil3DFactory
                     }
                     catch (System.Exception ex)
                     {
-                        attempts.Add(tag + " 建失败:" + ex.Message);
+                        attempts.Add(tag + " create failed:" + ex.Message);
                         continue;
                     }
                     var cand = (CivAlignment)tr.GetObject(tryId, OpenMode.ForRead);
@@ -428,8 +428,8 @@ namespace Civil3DFactory
                     cand.PointLocation(cand.EndingStation, 0, ref e1, ref n1);
                     var p0 = new Point3d(e0, n0, 0);
                     var p1 = new Point3d(e1, n1, 0);
-                    // 意图：一端切在 ain 的 offIn 侧、另一端切在 aout 的 offOut 侧（两种端点分配都认），
-                    // 且两个切点都在陆侧（离另一条母线 ≥ landMin，弧不许凸进水道）。
+                    // Intent: one end tangent to ain on the offIn side, the other tangent to aout on the offOut side (either end assignment is accepted),
+                    // and both tangent points on the land side (>= landMin from the other parent; the arc must not bulge into the channel).
                     bool okGeom =
                         ((VerifyEnd(p0, ain, offIn, inSta) && VerifyEnd(p1, aout, offOut, outSta)
                           && LandSide(p0, aout) && LandSide(p1, ain)) ||
@@ -442,18 +442,18 @@ namespace Civil3DFactory
                         combo = tag;
                         break;
                     }
-                    attempts.Add(tag + $" 建成但验几何不过(len={Math.Round(cand.Length, 1)})");
+                    attempts.Add(tag + $" created but geometry check failed(len={Math.Round(cand.Length, 1)})");
                     var kill = (CivAlignment)tr.GetObject(tryId, OpenMode.ForWrite);
                     kill.Erase();
                 }
                 if (id.IsNull)
                     throw new InvalidOperationException(
-                        "连接路线 '" + name + "' 8 种组合全部失败或验几何不过：" + attempts.ToJsonString());
+                        "Connected alignment '" + name + "': all 8 combinations failed or did not pass the geometry check: " + attempts.ToJsonString());
 
                 var al = (CivAlignment)tr.GetObject(id, OpenMode.ForRead);
 
-                // 回报实测切点：两端点分别对两条母线做 StationOffset（Civil 带号：负=左）。
-                // 下游用这个当真值重排偏移分段——比在 DXF 里猜多段线方向可靠。
+                // Report the measured tangent points: StationOffset of each end point against each parent (Civil signed: negative = left).
+                // Downstream uses this as ground truth to re-split the offsets -- more reliable than guessing polyline direction in DXF.
                 JsonObject Measure(double sta0)
                 {
                     double e = 0, n = 0;
@@ -496,7 +496,7 @@ namespace Civil3DFactory
             }
         }
 
-        // ===================== 4. 纵断面：地面线 + 平坡设计线 =====================
+        // ===================== 4. Profiles: existing ground + flat design line =====================
 
         static JsonNode CreateProfiles(JsonObject a, Document doc)
         {
@@ -509,8 +509,8 @@ namespace Civil3DFactory
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
-            string groundName = alName + "_地面线";
-            string designName = alName + "_设计线";
+            string groundName = alName + "_EG";
+            string designName = alName + "_FG";
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
@@ -521,9 +521,9 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 CivAlignment al = FindAlignment(tr, civ, alName);
-                if (al == null) throw new InvalidOperationException("找不到路线 '" + alName + "'。");
+                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "' not found.");
                 ObjectId sfId = FindSurfaceId(tr, civ, sfName);
-                if (sfId.IsNull) throw new InvalidOperationException("找不到曲面 '" + sfName + "'。");
+                if (sfId.IsNull) throw new InvalidOperationException("Surface '" + sfName + "' not found.");
 
                 ObjectId gStyle = FindStyleId(tr, civ.Styles.ProfileStyles, groundStyle);
                 ObjectId dStyle = FindStyleId(tr, civ.Styles.ProfileStyles, designStyle);
@@ -548,15 +548,15 @@ namespace Civil3DFactory
             }
         }
 
-        // ===================== 5. 走廊（建 + 设目标）=====================
+        // ===================== 5. Corridor (create + set targets) =====================
 
         static JsonNode CreateCorridor(JsonObject a, Document doc)
         {
             string alName = Need(a, "alignment");
             string asmName = Need(a, "assembly");
             string sfName = Need(a, "surface");
-            string baseline = GetString(a, "baseline", "基准线");
-            string region = GetString(a, "region", "区域1");
+            string baseline = GetString(a, "baseline", "Baseline");
+            string region = GetString(a, "region", "Region1");
             string corridorName = GetString(a, "name", alName + "_Corridor");
 
             Database db = doc.Database;
@@ -571,7 +571,7 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 CivAlignment al = FindAlignment(tr, civ, alName);
-                if (al == null) throw new InvalidOperationException("找不到路线 '" + alName + "'。");
+                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "' not found.");
 
                 ObjectId fgId = ObjectId.Null;
                 foreach (ObjectId pid in al.GetProfileIds())
@@ -580,10 +580,10 @@ namespace Civil3DFactory
                     if (p.ProfileType == CivProfileType.FG) { fgId = pid; break; }
                 }
                 if (fgId.IsNull)
-                    throw new InvalidOperationException("路线 '" + alName + "' 没有设计纵断面，先跑 create_profiles。");
+                    throw new InvalidOperationException("Alignment '" + alName + "' has no design profile; run create_profiles first.");
 
                 ObjectId sfId = FindSurfaceId(tr, civ, sfName);
-                if (sfId.IsNull) throw new InvalidOperationException("找不到曲面 '" + sfName + "'。");
+                if (sfId.IsNull) throw new InvalidOperationException("Surface '" + sfName + "' not found.");
 
                 ObjectId asmId = ObjectId.Null;
                 foreach (ObjectId id in ModelSpace(db, tr))
@@ -591,15 +591,15 @@ namespace Civil3DFactory
                     var asm = tr.GetObject(id, OpenMode.ForRead) as CivAssembly;
                     if (asm != null && asm.Name == asmName) { asmId = id; break; }
                 }
-                if (asmId.IsNull) throw new InvalidOperationException("图中没有装配 '" + asmName + "'（用 civil_env 查名称）。");
+                if (asmId.IsNull) throw new InvalidOperationException("Assembly '" + asmName + "' not found in the drawing (use civil_env to list names).");
 
-                // 左右偏移路线：按名前缀找，不依赖偏移距离
+                // Left/right offset alignments: found by name prefix, independent of the offset distance
                 ObjectId leftId = ObjectId.Null, rightId = ObjectId.Null;
                 foreach (ObjectId aid in civ.GetAlignmentIds())
                 {
                     var x = (CivAlignment)tr.GetObject(aid, OpenMode.ForRead);
-                    if (x.Name.StartsWith(alName + "_左")) leftId = aid;
-                    else if (x.Name.StartsWith(alName + "_右")) rightId = aid;
+                    if (x.Name.StartsWith(alName + "_L")) leftId = aid;
+                    else if (x.Name.StartsWith(alName + "_R")) rightId = aid;
                 }
 
                 ObjectId corridorId = civ.CorridorCollection.Add(
@@ -607,7 +607,7 @@ namespace Civil3DFactory
                 var corridor = (CivCorridor)tr.GetObject(corridorId, OpenMode.ForWrite);
                 corridor.Rebuild();
 
-                // 设目标：曲面槽 → 原地形；偏移槽 → 左右偏移路线
+                // Set targets: surface slots -> existing ground; offset slots -> left/right offset alignments
                 var targets = corridor.GetTargets();
                 var sfIds = new ObjectIdCollection { sfId };
                 var offIds = new ObjectIdCollection();
@@ -644,7 +644,7 @@ namespace Civil3DFactory
             }
         }
 
-        // ===================== 6. 道路曲面 =====================
+        // ===================== 6. Corridor surface =====================
 
         static JsonNode CreateCorridorSurface(JsonObject a, Document doc)
         {
@@ -662,7 +662,7 @@ namespace Civil3DFactory
             {
                 CivCorridor corridor = FindCorridor(tr, db, corridorName);
                 if (corridor == null)
-                    throw new InvalidOperationException("找不到走廊 '" + corridorName + "'，先跑 create_corridor。");
+                    throw new InvalidOperationException("Corridor '" + corridorName + "' not found; run create_corridor first.");
 
                 var valid = new List<string>(corridor.GetLinkCodes());
 
@@ -693,10 +693,10 @@ namespace Civil3DFactory
                     var avail = new JsonArray();
                     foreach (string c in valid) avail.Add(c);
                     throw new InvalidOperationException(
-                        "一个链接代码都没加上。该走廊可用代码: " + avail.ToJsonString());
+                        "No link code could be added. Codes available on this corridor: " + avail.ToJsonString());
                 }
 
-                if (boundary) cs.Boundaries.AddCorridorExtentsBoundary(surfName + "_外边界");
+                if (boundary) cs.Boundaries.AddCorridorExtentsBoundary(surfName + "_OuterBoundary");
                 corridor.Rebuild();
 
                 var res = new JsonObject
@@ -712,7 +712,7 @@ namespace Civil3DFactory
             }
         }
 
-        // ===================== 7. 采样线组 =====================
+        // ===================== 7. Sample line group =====================
 
         static void TraceSampleLineStage(string stage, string detail = "")
         {
@@ -749,14 +749,14 @@ namespace Civil3DFactory
             string groupName = alName + "_SampleLines";
             JsonObject res;
 
-            // 建组前清空本路线**所有**旧采样线组：残组会让算材质取错组，
-            // 报 "mappedSurface should have been sampled"（RiverQto 踩坑 #3，走过大弯路）
+            // Clear **all** old sample line groups on this alignment before creating: leftover groups make material computation pick the wrong group,
+            // reporting "mappedSurface should have been sampled" (RiverQto pitfall #3, cost a long detour)
             int erased = 0;
             if (clearExisting)
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 CivAlignment al = FindAlignment(tr, civ, alName);
-                if (al == null) throw new InvalidOperationException("找不到路线 '" + alName + "'。");
+                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "' not found.");
                 foreach (ObjectId gid in al.GetSampleLineGroupIds())
                 {
                     var g = (CivSampleLineGroup)tr.GetObject(gid, OpenMode.ForWrite);
@@ -769,7 +769,7 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 CivAlignment al = FindAlignment(tr, civ, alName);
-                if (al == null) throw new InvalidOperationException("找不到路线 '" + alName + "'。");
+                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "' not found.");
 
                 ObjectId gid2 = CivSampleLineGroup.Create(groupName, al.ObjectId);
                 var group = (CivSampleLineGroup)tr.GetObject(gid2, OpenMode.ForWrite);
@@ -778,8 +778,8 @@ namespace Civil3DFactory
                 var sampled = new JsonArray();
                 var notSampled = new JsonArray();
 
-                // 两种来源二选一：显式 lines（每条给端点坐标，堤埝等按图上断面线建线的场景），
-                // 或默认按 interval/swath 等间距生成。创建、设样式、标记采样源全走同一条路径。
+                // Two sources, pick one: explicit lines (end-point coordinates per line, for cases like dykes where lines follow section lines in the drawing),
+                // or the default equally spaced generation by interval/swath. Creation, style and sampled-source marking share one path.
                 var linesArr = a["lines"] as JsonArray;
                 int createdCount = 0;
                 string creationMode;
@@ -791,13 +791,13 @@ namespace Civil3DFactory
                         var lo = ln as JsonObject;
                         var ptsA = lo == null ? null : lo["points"] as JsonArray;
                         if (ptsA == null || ptsA.Count < 2)
-                            throw new InvalidOperationException("lines 每项必须含 points:[[x,y],[x,y],...]（至少两点）。");
+                            throw new InvalidOperationException("Every item in lines must contain points:[[x,y],[x,y],...] (at least two points).");
                         var coll = new Point2dCollection();
                         foreach (JsonNode p in ptsA)
                         {
                             var pair = p as JsonArray;
                             if (pair == null || pair.Count < 2)
-                                throw new InvalidOperationException("lines.points 每项必须是 [x, y]。");
+                                throw new InvalidOperationException("Every item in lines.points must be [x, y].");
                             coll.Add(new Point2d(pair[0].GetValue<double>(), pair[1].GetValue<double>()));
                         }
                         string slName = GetString(lo, "name", alName + "_SL" + (createdCount + 1));
@@ -815,8 +815,8 @@ namespace Civil3DFactory
                     for (double st = start; st < end - 0.001; st += interval) stations.Add(st);
                     if (stations.Count == 0 || end - stations[stations.Count - 1] > 0.5) stations.Add(end);
 
-                    // 沿用旧操作台已验证路径：先按左右端点创建全部采样线，
-                    // 再设置采样源；不改命令默认值、不设 Dynamic、不额外 Rebuild。
+                    // Follow the path verified on the old console: create all sample lines from left/right end points first,
+                    // then set the sampled sources; keep command defaults, do not set Dynamic, no extra Rebuild.
                     foreach (double st in stations)
                     {
                         double xL = 0, yL = 0, xR = 0, yR = 0;
@@ -839,7 +839,7 @@ namespace Civil3DFactory
                     foreach (ObjectId sid in group.GetSampleLineIds())
                         ((CivSampleLine)tr.GetObject(sid, OpenMode.ForWrite)).StyleId = slStyle;
 
-                // 与旧操作台一致：线建完后，只设置 IsSampled。
+                // Same as the old console: after the lines are created, only set IsSampled.
                 foreach (CivSectionSource src in group.GetSectionSources())
                 {
                     string st = "";
@@ -877,7 +877,7 @@ namespace Civil3DFactory
             return res;
         }
 
-        // ===================== 8. 算工程量（材质列表）=====================
+        // ===================== 8. Compute quantities (material list) =====================
 
         static JsonNode ComputeQuantities(JsonObject a, Document doc)
         {
@@ -898,28 +898,28 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 CivAlignment al = FindAlignment(tr, civ, alName);
-                if (al == null) throw new InvalidOperationException("找不到路线 '" + alName + "'。");
+                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "' not found.");
 
                 ObjectId slgId = ObjectId.Null;
                 foreach (ObjectId gid in al.GetSampleLineGroupIds()) { slgId = gid; break; }
                 if (slgId.IsNull)
-                    throw new InvalidOperationException("路线 '" + alName + "' 下没有采样线组，先跑 create_sample_lines。");
+                    throw new InvalidOperationException("Alignment '" + alName + "' has no sample line group; run create_sample_lines first.");
 
                 ObjectId critId = FindQtoCriteria(tr, civ, critName);
-                if (critId.IsNull) throw new InvalidOperationException("找不到工程量准则 '" + critName + "'。");
+                if (critId.IsNull) throw new InvalidOperationException("Quantity takeoff criteria '" + critName + "' not found.");
 
                 ObjectId sfId = FindSurfaceId(tr, civ, sfName);
-                if (sfId.IsNull) throw new InvalidOperationException("找不到曲面 '" + sfName + "'。");
+                if (sfId.IsNull) throw new InvalidOperationException("Surface '" + sfName + "' not found.");
 
                 ObjectId roadId = FindCorridorSurfaceId(tr, db, corridorName, roadSurf);
                 if (roadId.IsNull)
-                    throw new InvalidOperationException("找不到道路曲面 '" + roadSurf + "'，先跑 create_corridor_surface。");
+                    throw new InvalidOperationException("Corridor surface '" + roadSurf + "' not found; run create_corridor_surface first.");
 
                 var slg = (CivSampleLineGroup)tr.GetObject(slgId, OpenMode.ForWrite);
 
-                // 预检：要被映射的两个面必须已在组内采样。
-                // 没标的先自动补标——道路曲面被原名重造（新 ObjectId）后，组里的新源
-                // 默认 IsSampled=false，这正是"曲面修好了、体积还是 0"的最后一环。
+                // Pre-check: both surfaces to be mapped must already be sampled in the group.
+                // Unflagged ones are flagged automatically -- after the corridor surface is rebuilt under the same name (new ObjectId), the new source in the group
+                // defaults to IsSampled=false, which is the last link in the "surface fixed but volume still 0" chain.
                 bool egOk = false, roadOk = false;
                 int marked = 0;
                 foreach (CivSectionSource src in slg.GetSectionSources())
@@ -935,12 +935,12 @@ namespace Civil3DFactory
                     else if (isRoad) roadOk = true;
                 }
                 if (!egOk || !roadOk)
-                    throw new InvalidOperationException("采样线组里缺采样源（原地形=" + egOk + ", 道路曲面=" + roadOk +
-                                                        "）。重跑 create_sample_lines 再算。");
+                    throw new InvalidOperationException("Sample line group is missing sampled sources (existing ground=" + egOk + ", corridor surface=" + roadOk +
+                                                        "). Re-run create_sample_lines and compute again.");
 
                 slg.MaterialLists.VolumeCalculationMethodType = CivVolumeMethod.AverageEndArea;
 
-                // 覆盖重建：清空组上全部材质列表（名字自动生成，按名匹配不了）
+                // Overwrite/rebuild: clear all material lists on the group (names are auto-generated, cannot match by name)
                 var toRemove = new List<Guid>();
                 foreach (CivQtoMaterialList ex in slg.MaterialLists) toRemove.Add(ex.Guid);
                 foreach (Guid g in toRemove) slg.MaterialLists.Remove(g);
@@ -948,7 +948,7 @@ namespace Civil3DFactory
                 var slotLog = new JsonArray();
                 using (var mapping = new CivQtoMapping(critId, slgId))
                 {
-                    // 槽位真实名从准则本身读，不写死——写死会静默失配、用错默认面 → 工程量全 0
+                    // Read the real slot names from the criteria itself, never hard-code -- hard-coding fails silently, uses the wrong default surface -> all quantities 0
                     var crit = (CivQtoCriteria)tr.GetObject(critId, OpenMode.ForRead);
                     var surfaceSlots = new List<string>();
                     for (int i = 0; i < crit.Count; i++)
@@ -988,7 +988,7 @@ namespace Civil3DFactory
                             if (slotKinds[slot] == "unknown") unknown.Add(slot);
                         if (unknown.Count > 0)
                             throw new InvalidOperationException(
-                                "工程量准则曲面槽自动映射存在歧义: " + string.Join(", ", unknown));
+                                "Ambiguous automatic mapping of quantity criteria surface slots: " + string.Join(", ", unknown));
                     }
 
                     foreach (string slot in surfaceSlots)
@@ -997,10 +997,10 @@ namespace Civil3DFactory
                             ? slotKinds[slot] == "road"
                             : slot == roadSlot;
                         mapping.MapSurface(slot, isRoad ? roadId : sfId);
-                        slotLog.Add(slot + " → " + (isRoad ? roadSurf : sfName));
+                        slotLog.Add(slot + " -> " + (isRoad ? roadSurf : sfName));
                     }
                     if (!mapping.isMappingCompleted)
-                        throw new InvalidOperationException("准则映射未完成，已映射槽位: " + slotLog.ToJsonString());
+                        throw new InvalidOperationException("Criteria mapping incomplete; mapped slots: " + slotLog.ToJsonString());
 
                     var ml = slg.MaterialLists.ImportCriteria(mapping);
                     var result = slg.GetTotalVolumeResultDataForMaterialList(ml.Guid);
@@ -1025,7 +1025,7 @@ namespace Civil3DFactory
             }
         }
 
-        // ===================== 9. 导出工程量 =====================
+        // ===================== 9. Export quantities =====================
 
         static JsonNode ExportQuantities(JsonObject a, Document doc)
         {
@@ -1041,17 +1041,17 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 CivAlignment al = FindAlignment(tr, civ, alName);
-                if (al == null) throw new InvalidOperationException("找不到路线 '" + alName + "'。");
+                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "' not found.");
 
                 ObjectId slgId = ObjectId.Null;
                 foreach (ObjectId gid in al.GetSampleLineGroupIds()) { slgId = gid; break; }
-                if (slgId.IsNull) throw new InvalidOperationException("路线 '" + alName + "' 下没有采样线组。");
+                if (slgId.IsNull) throw new InvalidOperationException("Alignment '" + alName + "' has no sample line group.");
 
                 var slg = (CivSampleLineGroup)tr.GetObject(slgId, OpenMode.ForRead);
                 Guid mlGuid = Guid.Empty;
                 bool found = false;
                 foreach (CivQtoMaterialList ml in slg.MaterialLists) { mlGuid = ml.Guid; found = true; break; }
-                if (!found) throw new InvalidOperationException("采样线组上没有材质列表，先跑 compute_quantities。");
+                if (!found) throw new InvalidOperationException("The sample line group has no material list; run compute_quantities first.");
 
                 var result = slg.GetTotalVolumeResultDataForMaterialList(mlGuid);
                 int i = 0;
@@ -1066,12 +1066,12 @@ namespace Civil3DFactory
                     });
                     cut = v.CumulativeCutVolume; fill = v.CumulativeFillVolume;
                 }
-                rows.Add(new object[] { "合计", "", Math.Round(cut, 3), Math.Round(fill, 3), "", "" });
+                rows.Add(new object[] { "Total", "", Math.Round(cut, 3), Math.Round(fill, 3), "", "" });
                 tr.Commit();
             }
 
             var files = new JsonArray();
-            foreach (string p in Excel.Write(outdir, "工程量_" + Sanitize(alName), HeadersQto, rows, format))
+            foreach (string p in Excel.Write(outdir, "Quantities_" + Sanitize(alName), HeadersQto, rows, format))
                 files.Add(p);
 
             return new JsonObject
@@ -1086,12 +1086,12 @@ namespace Civil3DFactory
         }
 
         static readonly string[] HeadersQto =
-            { "序号", "桩号", "累计挖方(m³)", "累计填方(m³)", "增量挖方(m³)", "增量填方(m³)" };
+            { "No.", "Station", "Cumulative cut(m³)", "Cumulative fill(m³)", "Incremental cut(m³)", "Incremental fill(m³)" };
 
-        // ===================== 9.5 出图：纵断面图 / 横断面图（模型空间）=====================
-        // 移植自 RiverQto\出图.cs（已实战验证）。摆放沿用那边的定稿方案：
-        // 先让 Civil 3D 草稿创建，再按桩号排序逐张 TransformBy 挪到自定网格
-        // ——Civil 3D 自己的草稿排布会换行/重叠，不可控。锚点 = 断面图底边中点 = sv.Location。
+        // ===================== 9.5 Drawing output: profile views / section views (model space) =====================
+        // Ported from RiverQto's plotting module (field-tested). Placement follows the final scheme there:
+        // let Civil 3D create the draft, then TransformBy each view sorted by station onto a custom grid
+        // -- Civil 3D's own draft layout wraps/overlaps and cannot be controlled. Anchor = midpoint of the view's bottom edge = sv.Location.
 
         static JsonNode CreateProfileView(JsonObject a, Document doc)
         {
@@ -1102,7 +1102,7 @@ namespace Civil3DFactory
             string alName = Need(a, "alignment");
             string style = GetString(a, "style", null);
             string bandSet = GetString(a, "band_set", null);
-            string name = GetString(a, "name", alName + "_纵断面图");
+            string name = GetString(a, "name", alName + "_ProfileView");
             bool eraseExisting = GetBool(a, "erase_existing", true);
             double stationStart = GetDouble(a, "station_start", double.NaN);
             double stationEnd = GetDouble(a, "station_end", double.NaN);
@@ -1112,26 +1112,26 @@ namespace Civil3DFactory
             string designProfileName = GetString(a, "design_profile", null);
             string groundLabelSet = GetString(a, "ground_label_set", null);
             string designLabelSet = GetString(a, "design_label_set", null);
-            // 直接给「主桩号标注样式」（如 @原地形 / @设计高程）比给标签集更准：
-            // 给了就按它建标注组，不再走标签集那条路。
+            // Giving a "major station label style" directly (e.g. @EG / @DesignElevation) is more precise than a label set:
+            // when given, the label group is built from it and the label-set path is skipped.
             string groundLabelStyle = GetString(a, "ground_label_style", null);
             string designLabelStyle = GetString(a, "design_label_style", null);
             double labelIncrement = GetDouble(a, "label_increment", 50);
-            // ProfileView.Create 会按默认标签集带进来一个「线标注组」
-            // （Vertical Alignment Line Label Group，样式 Standard），图上多余，默认清掉
+            // ProfileView.Create brings in a "line label group" from the default label set
+            // (Vertical Alignment Line Label Group, style Standard); it clutters the drawing, cleared by default
             bool dropLineLabels = GetBool(a, "drop_line_labels", true);
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
 
-            // 覆盖重建：删本路线已有的纵断面图
+            // Overwrite/rebuild: delete existing profile views on this alignment
             int erased = 0;
             if (eraseExisting)
             {
                 using (var trDel = db.TransactionManager.StartTransaction())
                 {
                     CivAlignment al0 = FindAlignment(trDel, civ, alName);
-                    if (al0 == null) throw new InvalidOperationException("找不到路线 '" + alName + "'。");
+                    if (al0 == null) throw new InvalidOperationException("Alignment '" + alName + "' not found.");
                     foreach (ObjectId pvId in al0.GetProfileViewIds())
                     {
                         var pv = (Autodesk.Civil.DatabaseServices.ProfileView)trDel.GetObject(pvId, OpenMode.ForWrite);
@@ -1145,9 +1145,9 @@ namespace Civil3DFactory
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 CivAlignment al = FindAlignment(tr, civ, alName);
-                if (al == null) throw new InvalidOperationException("找不到路线 '" + alName + "'。");
+                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "' not found.");
 
-                // 放置点：缺省摆在路线起点正下方 200 m，避开路线本体
+                // Placement: defaults to 200 m directly below the alignment start, clear of the alignment itself
                 double x = GetDouble(a, "x", double.NaN), y = GetDouble(a, "y", double.NaN);
                 if (double.IsNaN(x) || double.IsNaN(y))
                 {
@@ -1161,9 +1161,9 @@ namespace Civil3DFactory
                 ObjectId styleId = FindStyleId(tr, civ.Styles.ProfileViewStyles, style);
                 ObjectId bandId = FindStyleId(tr, civ.Styles.ProfileViewBandSetStyles, bandSet);
 
-                // 图里没有带状图集样式时 bandId 是 Null，带 bandSet 的重载会直接抛
-                // "An ObjectId of ProfileViewBandSetStyle is excepted"——那就走两参重载，
-                // 名字和样式建完再补上。
+                // When the drawing has no band set style, bandId is Null and the bandSet overload throws
+                // "An ObjectId of ProfileViewBandSetStyle is excepted" -- so use the two-argument overload
+                // and set name and style after creation.
                 ObjectId pvId2 = bandId.IsNull
                     ? Autodesk.Civil.DatabaseServices.ProfileView.Create(al.ObjectId, origin)
                     : Autodesk.Civil.DatabaseServices.ProfileView.Create(
@@ -1180,9 +1180,9 @@ namespace Civil3DFactory
                     s1 = Math.Min(al.EndingStation, s1);
                     if (s1 <= s0)
                         throw new InvalidOperationException(
-                            "纵断面桩号范围无效：" + Station(s0) + "～" + Station(s1) + "。");
+                            "Invalid profile station range: " + Station(s0) + " ~ " + Station(s1) + ".");
                     pv2.StationRangeMode = Autodesk.Civil.DatabaseServices.StationRangeType.UserSpecified;
-                    // 先扩大/收缩终点，再设置起点，避免中间状态出现 start > end。
+                    // Extend/shrink the end first, then set the start, so no intermediate state has start > end.
                     pv2.StationEnd = s1;
                     pv2.StationStart = s0;
                 }
@@ -1191,10 +1191,10 @@ namespace Civil3DFactory
                     if (double.IsNaN(elevMin) || double.IsNaN(elevMax)
                         || elevMax <= elevMin)
                         throw new InvalidOperationException(
-                            "纵断面高程范围无效；elev_min / elev_max 必须同时提供且 max > min。");
+                            "Invalid profile elevation range; elev_min / elev_max must both be given and max > min.");
                     pv2.ElevationRangeMode =
                         Autodesk.Civil.DatabaseServices.ElevationRangeType.UserSpecified;
-                    // 先放大上限，再降低下限，避免中间状态 min > max。
+                    // Raise the upper bound first, then lower the lower bound, so no intermediate state has min > max.
                     pv2.ElevationMax = elevMax;
                     pv2.ElevationMin = elevMin;
                 }
@@ -1222,10 +1222,10 @@ namespace Civil3DFactory
                 }
                 if (groundProfileId.IsNull || designProfileId.IsNull)
                     throw new InvalidOperationException(
-                        "路线 '" + alName + "' 无法识别现状地形/设计纵断面；"
-                        + "可显式传 ground_profile / design_profile。");
+                        "Alignment '" + alName + "' cannot identify the existing ground / design profiles;"
+                        + " pass ground_profile / design_profile explicitly.");
 
-                // 标注栏数据源：Profile1=现状地形，Profile2=设计纵断面。
+                // Band data sources: Profile1 = existing ground, Profile2 = design profile.
                 int bandSourcesSet = 0;
                 var topBands = pv2.Bands.GetTopBandItems();
                 foreach (Autodesk.Civil.DatabaseServices.ProfileViewBandItem item in topBands)
@@ -1244,8 +1244,8 @@ namespace Civil3DFactory
                 }
                 pv2.Bands.SetBottomBandItems(bottomBands);
 
-                // ProfileView.Create 会按旧/默认标签集带入若干 ProfileLabelGroup。
-                // 全部清掉，再分别按两个 @ 标签集创建，避免旧标签与新标签叠加。
+                // ProfileView.Create brings in several ProfileLabelGroups from the old/default label set.
+                // Clear them all, then create from the two @ label sets separately, so old and new labels do not stack.
                 int oldProfileLabelGroupsErased = 0;
                 foreach (ObjectId lid in pv2.GetLabelIds())
                 {
@@ -1258,14 +1258,14 @@ namespace Civil3DFactory
                 }
 
                 int groundLabels, designLabels;
-                // 传「无」/"none" = 这条剖面线不挂任何标签（2026-08-26 项目B纵断面：
-                // 用户打回桩号高程标签和折点坡度标签，全部不要）
-                bool groundNone = groundLabelSet == "无" || string.Equals(groundLabelSet, "none", StringComparison.OrdinalIgnoreCase);
-                bool designNone = designLabelSet == "无" || string.Equals(designLabelSet, "none", StringComparison.OrdinalIgnoreCase);
+                // Passing "none" = hang no labels on this profile (project B profiles, 2026-08-26:
+                // the user rejected station/elevation labels and PVI grade labels, none wanted)
+                bool groundNone = string.Equals(groundLabelSet, "none", StringComparison.OrdinalIgnoreCase);
+                bool designNone = string.Equals(designLabelSet, "none", StringComparison.OrdinalIgnoreCase);
                 if (groundNone)
                 {
                     groundLabels = 0;
-                    groundLabelSet = "(无标签)";
+                    groundLabelSet = "(no labels)";
                 }
                 else if (!string.IsNullOrWhiteSpace(groundLabelStyle))
                 {
@@ -1273,7 +1273,7 @@ namespace Civil3DFactory
                     Autodesk.Civil.DatabaseServices.ProfileStationLabelGroup.CreateMajor(
                         pvId2, groundProfileId, sid, labelIncrement);
                     groundLabels = 1;
-                    groundLabelSet = "(直接用样式 " + TryGetName(tr.GetObject(sid, OpenMode.ForRead)) + ")";
+                    groundLabelSet = "(style used directly: " + TryGetName(tr.GetObject(sid, OpenMode.ForRead)) + ")";
                 }
                 else
                 {
@@ -1281,7 +1281,7 @@ namespace Civil3DFactory
                         tr, civ.Styles.LabelSetStyles.ProfileLabelSetStyles, groundLabelSet);
                     if (groundLabelSetId.IsNull)
                         throw new InvalidOperationException(
-                            "找不到原地形标签集，且没给 ground_label_style。");
+                            "Existing ground label set not found and ground_label_style not given.");
                     groundLabelSet = TryGetName(tr.GetObject(groundLabelSetId, OpenMode.ForRead));
                     groundLabels = ApplyProfileLabelSet(tr, pvId2, groundProfileId, groundLabelSetId);
                 }
@@ -1289,7 +1289,7 @@ namespace Civil3DFactory
                 if (designNone)
                 {
                     designLabels = 0;
-                    designLabelSet = "(无标签)";
+                    designLabelSet = "(no labels)";
                 }
                 else if (!string.IsNullOrWhiteSpace(designLabelStyle))
                 {
@@ -1297,7 +1297,7 @@ namespace Civil3DFactory
                     Autodesk.Civil.DatabaseServices.ProfileStationLabelGroup.CreateMajor(
                         pvId2, designProfileId, sid, labelIncrement);
                     designLabels = 1;
-                    designLabelSet = "(直接用样式 " + TryGetName(tr.GetObject(sid, OpenMode.ForRead)) + ")";
+                    designLabelSet = "(style used directly: " + TryGetName(tr.GetObject(sid, OpenMode.ForRead)) + ")";
                 }
                 else
                 {
@@ -1305,23 +1305,23 @@ namespace Civil3DFactory
                         tr, civ.Styles.LabelSetStyles.ProfileLabelSetStyles, designLabelSet);
                     if (designLabelSetId.IsNull)
                         throw new InvalidOperationException(
-                            "找不到设计线标签集，且没给 design_label_style。");
+                            "Design profile label set not found and design_label_style not given.");
                     designLabelSet = TryGetName(tr.GetObject(designLabelSetId, OpenMode.ForRead));
                     designLabels = ApplyProfileLabelSet(tr, pvId2, designProfileId, designLabelSetId);
                 }
 
-                // 「无」还要清挂在剖面线 Profile 对象上的标签组（PVI 桩号高程、切线坡度这些）——
-                // 它们不属于视图，pv2.GetLabelIds() 和视图侧标签集都管不着，视图重建后照样渲染
-                // （2026-08-26 项目B纵断面实测：标签集传「无」图面纹丝不动，就是这批）。
+                // "none" must also clear the label groups hanging on the Profile objects themselves (PVI station/elevation, tangent grade, ...) --
+                // they do not belong to the view; neither pv2.GetLabelIds() nor the view-side label set reaches them, and they render again after the view is rebuilt
+                // (project B profiles, 2026-08-26: label set "none" left the drawing unchanged -- this batch was the cause).
                 int profileLabelGroupsErased = 0;
                 {
                     var killP = new List<ObjectId>();
                     if (groundNone) CollectProfileLabelGroupsInDb(tr, db, groundProfileId, killP);
                     if (designNone) CollectProfileLabelGroupsInDb(tr, db, designProfileId, killP);
-                    // 两个都「无」＝这条路线的纵断面图面彻底无剖面线标签。
-                    // 必须扫路线**全部** Profile：旧设计线（被走廊引用、修复步不动）身上的
-                    // PVI/坡度标签组照样渲染进新视图——只清新采两条线等于没清
-                    // （2026-08-26 项目B实测两轮图面纹丝不动，就是它）。
+                    // Both "none" = the profile view of this alignment gets no profile labels at all.
+                    // Must scan **all** Profiles of the alignment: the PVI/grade label groups on the old design profile
+                    // (referenced by the corridor, untouched by the repair step) still render into the new view -- clearing only the two newly sampled lines does nothing
+                    // (project B, 2026-08-26: two rounds with no visible change, this was why).
                     if (groundNone && designNone)
                     {
                         foreach (ObjectId pid in al.GetProfileIds())
@@ -1338,15 +1338,15 @@ namespace Civil3DFactory
                     }
                 }
 
-                // 清掉线标注组：它挂在剖面线上（不在断面图的标签里），
-                // 上面那轮 pv2.GetLabelIds() 的清场扫不到，所以留到这里单独收拾。
+                // Clear the line label group: it hangs on the profile (not among the view's labels),
+                // so the pv2.GetLabelIds() sweep above misses it; handled separately here.
                 int lineLabelGroupsErased = 0;
                 if (dropLineLabels)
                 {
                     var kill = new List<ObjectId>();
                     CollectLineLabelGroups(tr, pv2.GetLabelIds(), kill);
-                    // 线标注组挂在剖面线上、断面图的标签列表里未必有；
-                    // 再扫一遍模型空间，只收 ProfileViewId 指向本图的那些，不误伤别的图
+                    // The line label group hangs on the profile and may not be in the view's label list;
+                    // scan model space once more, collecting only those whose ProfileViewId points to this view, so other views are untouched
                     CollectLineLabelGroupsInDb(tr, db, pvId2, kill);
                     foreach (ObjectId lid in kill)
                     {
@@ -1371,7 +1371,7 @@ namespace Civil3DFactory
                         Autodesk.Civil.DatabaseServices.ElevationRangeType.UserSpecified
                         ? Math.Round(pv2.ElevationMin, 3) + " ~ "
                           + Math.Round(pv2.ElevationMax, 3)
-                        : "自动",
+                        : "auto",
                     ["profiles_shown"] = profiles,
                     ["band_profile1"] = TryGetName(tr.GetObject(groundProfileId, OpenMode.ForRead)),
                     ["band_profile2"] = TryGetName(tr.GetObject(designProfileId, OpenMode.ForRead)),
@@ -1392,7 +1392,7 @@ namespace Civil3DFactory
             JsonObject a, Document doc, double segmentLength)
         {
             if (segmentLength <= 0)
-                throw new InvalidOperationException("segment_length 必须大于 0。");
+                throw new InvalidOperationException("segment_length must be greater than 0.");
 
             string alName = Need(a, "alignment");
             Database db = doc.Database;
@@ -1402,7 +1402,7 @@ namespace Civil3DFactory
             {
                 CivAlignment al = FindAlignment(tr, civ, alName);
                 if (al == null)
-                    throw new InvalidOperationException("找不到路线 '" + alName + "'。");
+                    throw new InvalidOperationException("Alignment '" + alName + "' not found.");
                 routeStart = al.StartingStation;
                 routeEnd = al.EndingStation;
                 baseX = GetDouble(a, "x", double.NaN);
@@ -1422,7 +1422,7 @@ namespace Civil3DFactory
             int cols = Math.Max(1, (int)GetDouble(a, "segment_cols", 3));
             double gapX = GetDouble(a, "segment_spacing_x", segmentLength + 50);
             double gapY = GetDouble(a, "segment_spacing_y", 220);
-            string baseName = GetString(a, "name", alName + "_纵断面图");
+            string baseName = GetString(a, "name", alName + "_ProfileView");
             var views = new JsonArray();
             int erased = 0;
 
@@ -1444,7 +1444,7 @@ namespace Civil3DFactory
                     : baseName + "-" + (i + 1).ToString("00");
                 JsonObject result = CreateProfileView(child, doc) as JsonObject;
                 if (result == null)
-                    throw new InvalidOperationException("分段纵断面节点未返回对象。");
+                    throw new InvalidOperationException("The segmented profile node returned no object.");
                 erased += result["old_erased"] == null
                     ? 0 : result["old_erased"].GetValue<int>();
                 views.Add(result);
@@ -1481,11 +1481,11 @@ namespace Civil3DFactory
                     ObjectId id = (ObjectId)item;
                     if (TryGetName(tr.GetObject(id, OpenMode.ForRead)) == name) return id;
                 }
-            throw new InvalidOperationException("找不到" + category + " '" + name + "'。");
+            throw new InvalidOperationException(category + " '" + name + "' not found.");
         }
 
-        /// <summary>挑出「线标注组」（Vertical Alignment Line Label Group）——按类型名认，
-        /// 站号/曲线/变坡点那些不动。</summary>
+        /// <summary>Pick the "line label group" (Vertical Alignment Line Label Group) -- identified by type name;
+        /// station/curve/PVI groups are left alone.</summary>
         static void CollectLineLabelGroups(Transaction tr, ObjectIdCollection ids, List<ObjectId> outIds)
         {
             if (ids == null) return;
@@ -1505,11 +1505,11 @@ namespace Civil3DFactory
             }
         }
 
-        /// <summary>模型空间里找本断面图的线标注组：类型名认，归属按 ProfileViewId 反射比对，
-        /// 认不出归属的一律不动（宁可留着，也不删别的图的标注）。</summary>
-        /// <summary>收挂在指定剖面线（Profile 对象）上的所有标签组实体：
-        /// PVI 桩号高程、切线坡度等，类型名含 LabelGroup 且 ProfileId 指向它。
-        /// 这批标签不属于任何视图，视图侧标签集管不着，「无标签」时只能在库里点名删。</summary>
+        /// <summary>Find this profile view's line label groups in model space: identified by type name, ownership compared via ProfileViewId reflection;
+        /// anything whose owner cannot be determined is left alone (better to keep it than delete another view's labels).</summary>
+        /// <summary>Collect all label group entities hanging on the given profile (Profile object):
+        /// PVI station/elevation, tangent grade, etc.; type name contains LabelGroup and ProfileId points to it.
+        /// These labels belong to no view; the view-side label set cannot reach them, so "no labels" must delete them from the database by name.</summary>
         static void CollectProfileLabelGroupsInDb(Transaction tr, Database db,
             ObjectId profileId, List<ObjectId> outIds)
         {
@@ -1553,8 +1553,8 @@ namespace Civil3DFactory
             }
         }
 
-        /// <summary>按名字找纵断面主桩号标注样式（@原地形 这类）；找不到就抛错并列出可用的，
-        /// 绝不退回“集合第一个”——标注样式设错比不设更难发现。</summary>
+        /// <summary>Find a profile major station label style by name (e.g. @EG); throw and list the available ones when not found,
+        /// never fall back to "first in collection" -- a wrong label style is harder to spot than none.</summary>
         static ObjectId NeedProfileLabelStyle(Transaction tr, CivDoc civ, string name)
         {
             object coll = civ.Styles.LabelStyles.ProfileLabelStyles.MajorStationLabelStyles;
@@ -1577,8 +1577,8 @@ namespace Civil3DFactory
             if (!exact.IsNull) return exact;
             if (!ci.IsNull) return ci;
             throw new InvalidOperationException(
-                "找不到纵断面主桩号标注样式 '" + name + "'。图里可用的有：" +
-                (seen.Count == 0 ? "（一个也没有）" : string.Join("、", seen)));
+                "Profile major station label style '" + name + "' not found. Available in the drawing: " +
+                (seen.Count == 0 ? "(none)" : string.Join(", ", seen)));
         }
 
         static int ApplyProfileLabelSet(Transaction tr, ObjectId profileViewId,
@@ -1592,7 +1592,7 @@ namespace Civil3DFactory
                 string kind = item.LabelStyleType.ToString();
                 if (!kind.Equals("ProfileMajorStation", StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException(
-                        "当前 create_profile_view 尚未支持标签集条目类型 '" + kind + "'。");
+                        "create_profile_view does not yet support label set item type '" + kind + "'.");
                 double increment = 50;
                 try { if (item.Increment > 0) increment = item.Increment; } catch { }
                 Autodesk.Civil.DatabaseServices.ProfileStationLabelGroup.CreateMajor(
@@ -1608,32 +1608,32 @@ namespace Civil3DFactory
             string style = GetString(a, "style", null);
             string codeSet = GetString(a, "code_set", null);
             double elevMin = GetDouble(a, "elev_min", 0);
-            double elevMax = GetDouble(a, "elev_max", 0);      // min>=max → 自动高程范围
+            double elevMax = GetDouble(a, "elev_max", 0);      // min>=max -> automatic elevation range
             double offLeft = GetDouble(a, "offset_left", 50);
             double offRight = GetDouble(a, "offset_right", 50);
             int rows = (int)GetDouble(a, "rows", 2);
             int cols = (int)GetDouble(a, "cols", 2);
             double colSpacing = GetDouble(a, "col_spacing", 130);
             double rowSpacing = GetDouble(a, "row_spacing", 45);
-            // 每个 rows×cols 页组之间追加的垂直净距；用于让连续断面组严格落入相邻材料框。
+            // Extra vertical clearance appended between rows x cols page groups, so consecutive section groups fall strictly into adjacent sheet frames.
             double groupSpacing = GetDouble(a, "group_spacing", 0);
-            // 体积表格默认关：建得出来，但会留下没关的写句柄，之后 save_dwg 必报 eWasOpenForWrite
-            // （ForRead 打开断面图去建表则直接硬崩进程）。要表格就把 save_dwg 换成别的落盘方式，
-            // 或者在 GUI 里补。详见 2026-07-26 任务的 踩坑.md 第 8 条。
+            // Volume tables default to off: they can be created, but leave unclosed write handles and save_dwg then always throws eWasOpenForWrite
+            // (opening the section view ForRead to build the table crashes the process outright). If you need tables, replace save_dwg with another way to save,
+            // or add them in the GUI. See item 8 of the pitfalls notes from the 2026-07-26 task.
             bool wantVolTable = GetBool(a, "volume_table", false);
             string corridorName = GetString(a, "corridor", alName + "_Corridor");
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
 
-            // 组名解析：给了 group 用 group；没给先找老约定 <alignment>_SampleLines，
-            // 找不到且路线只有一个组就用它（GUI 手建的组名字五花八门），多个组必须点名。
+            // Group name resolution: use group when given; otherwise look for the old convention <alignment>_SampleLines,
+            // and if not found and the alignment has exactly one group use it (GUI-built groups have arbitrary names); with several groups one must be named.
             string groupName = GetString(a, "group", null);
             using (Transaction trg = db.TransactionManager.StartTransaction())
             {
                 CivAlignment alg = FindAlignment(trg, civ, alName);
                 if (alg == null)
-                    throw new InvalidOperationException("找不到路线 '" + alName + "'。");
+                    throw new InvalidOperationException("Alignment '" + alName + "' not found.");
                 var names = new List<string>();
                 foreach (ObjectId gid in alg.GetSampleLineGroupIds())
                     names.Add(((CivSampleLineGroup)trg.GetObject(gid, OpenMode.ForRead)).Name);
@@ -1644,22 +1644,22 @@ namespace Civil3DFactory
                     else if (names.Count == 1) groupName = names[0];
                     else if (names.Count == 0)
                         throw new InvalidOperationException(
-                            "路线 '" + alName + "' 没有采样线组，先跑 create_sample_lines（或换线后用 refresh_sample_lines）。");
+                            "Alignment '" + alName + "' has no sample line group; run create_sample_lines first (or refresh_sample_lines after changing lines).");
                     else
                         throw new InvalidOperationException(
-                            "路线 '" + alName + "' 有多个采样线组（" + string.Join("、", names) + "），用 group 参数指定一个。");
+                            "Alignment '" + alName + "' has several sample line groups (" + string.Join(", ", names) + "); pick one with the group parameter.");
                 }
                 else if (!names.Contains(groupName))
                 {
                     throw new InvalidOperationException(
-                        "路线 '" + alName + "' 下没有名为 '" + groupName + "' 的采样线组（现有：" +
-                        (names.Count == 0 ? "无" : string.Join("、", names)) + "）。");
+                        "Alignment '" + alName + "' has no sample line group named '" + groupName + "' (existing: " +
+                        (names.Count == 0 ? "none" : string.Join(", ", names)) + ").");
                 }
 
-                // 走廊名解析（与组名同一个病同一个方子）：给了 corridor 用 corridor；
-                // 老约定 <alignment>_Corridor 存在就用它；否则基线挂在本路线上的走廊恰好一个就用它
-                // （GUI 建的走廊名如「道路[Z1](2)」），多个必须点名，一个没有直接报错——
-                // 不然断面建完守卫才发现走廊本体断面为零，白建一堆还把排版拦死。
+                // Corridor name resolution (same disease, same cure as the group name): use corridor when given;
+                // use the old convention <alignment>_Corridor if it exists; otherwise, if exactly one corridor has its baseline on this alignment, use it
+                // (GUI-built corridors have names like "Road[Z1](2)"); several must be named explicitly, none at all is an error --
+                // otherwise the guard only finds out after creation that the corridor body has zero sections, wasting a pile of views and blocking the layout.
                 if (a["corridor"] == null)
                 {
                     string convCorr = alName + "_Corridor";
@@ -1693,28 +1693,28 @@ namespace Civil3DFactory
                     else if (mine.Count == 1) corridorName = mine[0];
                     else if (mine.Count > 1)
                         throw new InvalidOperationException(
-                            "路线 '" + alName + "' 挂着多个走廊（" + string.Join("、", mine) +
-                            "），用 corridor 参数指定一个。");
+                            "Alignment '" + alName + "' has several corridors (" + string.Join(", ", mine) +
+                            "); pick one with the corridor parameter.");
                     else
                         throw new InvalidOperationException(
-                            "路线 '" + alName + "' 没有走廊：找不到 '" + convCorr +
-                            "'，也没有基线挂在这条路线上的走廊。先建走廊再出断面。");
+                            "Alignment '" + alName + "' has no corridor: '" + convCorr +
+                            "' not found, and no corridor has its baseline on this alignment. Build a corridor before creating sections.");
                 }
                 trg.Commit();
             }
 
-            // 项目自定义 SAC 往往产生新的 Link Code，而样式库代码集只有点代码。
-            // 源、Draw、代码集名字都正常，但实际链接代码一个也没映射时，走廊断面仍是空白。
+            // Project-specific SACs often produce new link codes, while the style library's code set only has point codes.
+            // Source, Draw and code set name all look fine, but when not a single link code is mapped, corridor sections stay blank.
             JsonObject codeMappingResult = null;
             var codeMappings = a["code_mappings"] as JsonArray;
             if (codeMappings != null && codeMappings.Count > 0)
             {
                 if (string.IsNullOrEmpty(codeSet))
-                    throw new InvalidOperationException("提供 code_mappings 时必须指定 code_set。");
+                    throw new InvalidOperationException("code_set must be given when code_mappings is provided.");
 
-                // 新增代码条目和设置标签不能挤在同一事务：Civil 3D 对刚 Add 的
-                // CodeSetStyleItem 立刻写 LabelStyleId 会报 eInvalidInput。
-                // 先提交链接样式，再在第二个事务里挂标签。
+                // Adding code items and setting labels cannot share one transaction: Civil 3D throws eInvalidInput
+                // when LabelStyleId is written on a freshly added CodeSetStyleItem.
+                // Commit the link styles first, then attach labels in a second transaction.
                 var styleItems = new JsonArray();
                 var labelItems = new JsonArray();
                 foreach (JsonNode n in codeMappings)
@@ -1749,8 +1749,8 @@ namespace Civil3DFactory
                 var styleFailed = styleResult == null ? null : styleResult["failed"] as JsonArray;
                 if (styleResult == null || (styleFailed != null && styleFailed.Count > 0))
                     throw new InvalidOperationException(
-                        "道路代码集链接样式映射失败：" +
-                        (styleResult == null ? "(无回执)" : styleResult.ToJsonString()));
+                        "Corridor code set link style mapping failed: " +
+                        (styleResult == null ? "(no result)" : styleResult.ToJsonString()));
 
                 JsonObject labelResult = null;
                 if (labelItems.Count > 0)
@@ -1766,8 +1766,8 @@ namespace Civil3DFactory
                         ? null : labelResult["failed"] as JsonArray;
                     if (labelResult == null || (labelFailed != null && labelFailed.Count > 0))
                         throw new InvalidOperationException(
-                            "道路代码集链接标签映射失败：" +
-                            (labelResult == null ? "(无回执)" : labelResult.ToJsonString()));
+                            "Corridor code set link label mapping failed: " +
+                            (labelResult == null ? "(no result)" : labelResult.ToJsonString()));
                 }
                 codeMappingResult = new JsonObject
                 {
@@ -1776,12 +1776,12 @@ namespace Civil3DFactory
                 };
             }
 
-            // 放置基点：缺省摆在路线起点下方 400 m（纵断面图之下，互不压）
+            // Base point: defaults to 400 m below the alignment start (below the profile view, no overlap)
             double bx = GetDouble(a, "x", double.NaN), by = GetDouble(a, "y", double.NaN);
             using (var tr0 = db.TransactionManager.StartTransaction())
             {
                 CivAlignment al0 = FindAlignment(tr0, civ, alName);
-                if (al0 == null) throw new InvalidOperationException("找不到路线 '" + alName + "'。");
+                if (al0 == null) throw new InvalidOperationException("Alignment '" + alName + "' not found.");
                 if (double.IsNaN(bx) || double.IsNaN(by))
                 {
                     double e = 0, n = 0;
@@ -1793,13 +1793,13 @@ namespace Civil3DFactory
             }
             var basePoint = new Point3d(bx, by, 0);
 
-            // 覆盖重建：删本组已有断面图（挂在图上的体积表格随图删）
+            // Overwrite/rebuild: delete existing section views of this group (volume tables attached to the views go with them)
             int erased = 0;
             using (var trDel = db.TransactionManager.StartTransaction())
             {
                 CivSampleLineGroup g = FindSampleLineGroup(trDel, civ, alName, groupName);
                 if (g == null)
-                    throw new InvalidOperationException("找不到采样线组 '" + groupName + "'，先跑 create_sample_lines。");
+                    throw new InvalidOperationException("Sample line group '" + groupName + "' not found; run create_sample_lines first.");
                 foreach (ObjectId slId in g.GetSampleLineIds())
                 {
                     var sl = (CivSampleLine)trDel.GetObject(slId, OpenMode.ForRead);
@@ -1814,7 +1814,7 @@ namespace Civil3DFactory
 
             int count = 0;
             int secStyled = 0;
-            int surfStyled = 0;   // 曲面（地面线）断面设了样式的条数
+            int surfStyled = 0;   // number of surface (ground line) sections that got a style
             int corridorBodySections = 0;
             int corridorSurfaceSections = 0;
             int corridorDisplayOverrides = 0;
@@ -1830,12 +1830,12 @@ namespace Civil3DFactory
                 ObjectId codeSetId = FindStyleId(
                     tr, civ.Styles.CodeSetStyles, codeSet);
 
-                // ★ 代码集**首要**落点：走廊本体自己的 CodeSetStyleId。
-                // 断面在图上怎么渲染（链接线、点标记、以及挂在它们上的标注）读的是这个，
-                // 不是断面源的 StyleId、也不是 Section.StyleId。
-                // 之前只设后两者，走廊仍挂着旧代码集（项目B里是 river-dregde-1-500[recommend]，
-                // 只有 10 条映射、10 个代码没覆盖），所以点标注一直出不来。
-                // （2026-07-28 查实；用户从一开始就指出"代码集挂在道路本体"，我绕了很久才照做）
+                // * The **primary** place for the code set: the corridor's own CodeSetStyleId.
+                // How sections render in the drawing (link lines, point markers and the labels attached to them) reads this,
+                // not the section source's StyleId nor Section.StyleId.
+                // Previously only the latter two were set, so the corridor kept its old code set (on project B: river-dregde-1-500[recommend],
+                // only 10 mappings, 10 codes uncovered) and point labels never appeared.
+                // (Confirmed 2026-07-28; the user said from the start that "the code set hangs on the corridor itself", it took a long detour to follow that)
                 if (!codeSetId.IsNull)
                 {
                     foreach (ObjectId eid in ModelSpace(db, tr))
@@ -1851,12 +1851,12 @@ namespace Civil3DFactory
                             corridorCodeSetSet = true;
                         }
                         catch (System.Exception ex)
-                        { creationNote += " 设走廊代码集失败: " + ex.GetType().Name + ": " + Truncate(ex.Message, 80) + ";"; }
+                        { creationNote += " setting corridor code set failed: " + ex.GetType().Name + ": " + Truncate(ex.Message, 80) + ";"; }
                         break;
                     }
                 }
 
-                // 代码集保险①：源级（走廊源的 Style 槽）
+                // Code set fallback (1): source level (the Style slot of the corridor source)
                 if (!codeSetId.IsNull)
                     foreach (CivSectionSource src in slg.GetSectionSources())
                         if (src.SourceNameOf() == corridorName)
@@ -1871,17 +1871,24 @@ namespace Civil3DFactory
 
                 CivAlignment al = FindAlignment(tr, civ, alName);
                 ObjectId svStyleId = FindStyleId(tr, civ.Styles.SectionViewStyles, style);
-                // 曲面（地面线）断面用的断面样式，建组时就交代，别等事后补
+                // Section style for surface (ground line) sections is specified when the group is created, not patched afterwards
                 ObjectId secStyleId = FindStyleId(tr, civ.Styles.SectionStyles,
                                                   GetString(a, "section_style", null));
-                // 材质断面（挖方等）自己的断面样式；不给就跟曲面断面走同一个
-                ObjectId matStyleId = FindStyleId(tr, civ.Styles.SectionStyles,
-                                                  GetString(a, "material_style", null));
+                // Material sections (cut etc.) render through MaterialSection.StyleId, which may be a ShapeStyle (hatch) or a
+                // SectionStyle; look the name up in ShapeStyles first, then SectionStyles. Omitted = same as the surface sections.
+                ObjectId matStyleId = ObjectId.Null;
+                string matStyleName = GetString(a, "material_style", null);
+                if (!string.IsNullOrEmpty(matStyleName))
+                {
+                    matStyleId = FindStyleIdStrict(tr, civ.Styles.ShapeStyles, matStyleName);
+                    if (matStyleId.IsNull) matStyleId = FindStyleIdStrict(tr, civ.Styles.SectionStyles, matStyleName);
+                    if (matStyleId.IsNull) throw new InvalidOperationException("material_style '" + matStyleName + "' not found in ShapeStyles or SectionStyles.");
+                }
 
-                // 沿用旧操作台已验证路径：五参数草稿创建。
+                // Follow the path verified on the old console: five-argument draft creation.
                 slg.SectionViewGroups.Add(basePoint, al.StartingStation, al.EndingStation,
                                           rangeOpts, placeOpts);
-                creationMode = "5参数(旧操作台基线)";
+                creationMode = "5 args (old console baseline)";
 
                 bool manualElev = elevMin < elevMax;
                 foreach (ObjectId slId in slg.GetSampleLineIds())
@@ -1902,18 +1909,18 @@ namespace Civil3DFactory
                     }
                 }
 
-                // 断面自身的样式，两类来源规则不同（2026-07-28 用新旧断面逐属性对比查实）：
-                //   走廊断面 → StyleId 就是**代码集样式**（Civil 的设计如此）
-                //   曲面断面（地面线）→ StyleId 是**断面样式**（如 Existing Ground / @C3DF-GroundLine）
-                // 以前只设了前者，后者一直停在 Standard，出图就是「样式不对」。
-                // secStyleId 在建组前已求出，这里是事后兜底（8 参数路径失败退回五参数时仍能补上）
+                // The section's own style follows different rules for the two sources (confirmed 2026-07-28 by comparing old and new sections property by property):
+                //   corridor section -> StyleId is the **code set style** (by Civil's design)
+                //   surface section (ground line) -> StyleId is a **section style** (e.g. Existing Ground / @C3DF-GroundLine)
+                // Previously only the former was set; the latter stayed at Standard, and the plot showed the "wrong style".
+                // secStyleId was resolved before the group was built; this is a safety net afterwards (still applied when the 8-arg path fails and falls back to 5 args)
                 foreach (CivSectionSource src in slg.GetSectionSources())
                 {
                     bool isCorridor = src.SourceNameOf() == corridorName;
                     string sourceType = "";
                     try { sourceType = src.SourceType.ToString(); } catch { }
-                    // 三类来源三种样式：走廊断面=代码集样式（Civil 的设计），
-                    // 材质断面（挖方）= material_style，其余曲面断面 = section_style
+                    // Three sources, three styles: corridor section = code set style (Civil's design),
+                    // material section (cut) = material_style, other surface sections = section_style
                     bool isMaterial = sourceType.IndexOf("Material", StringComparison.OrdinalIgnoreCase) >= 0;
                     int sourceSectionCount = 0;
                     ObjectId want = isCorridor ? codeSetId
@@ -1941,15 +1948,15 @@ namespace Civil3DFactory
                 }
                 tr.Commit();
             }
-            if (count == 0) throw new InvalidOperationException("没有生成任何断面图。");
+            if (count == 0) throw new InvalidOperationException("No section views were generated.");
             if (corridorBodySections == 0)
                 throw new InvalidOperationException(
-                    "采样线组虽已建立，但没有生成走廊本体断面；停止出图，避免只画道路曲面的假成功。");
+                    "The sample line group was created but no corridor body sections were generated; stopping, to avoid a false success that only draws the corridor surface.");
 
-            // ★ 第二个事务里刷新断面图组。
-            // 依据：把「创建视图 / 导入标签集 / 更新布局」挤在同一事务里，
-            // Civil 3D 还没完成对象依赖更新，标注就渲染不出来。必须提交后另起事务。
-            // （2026-07-28，来自用户提供的排查文档「推荐的稳定出图顺序」一节）
+            // * Refresh the section view group in a second transaction.
+            // Reason: when "create views / import label set / update layout" are crammed into one transaction,
+            // Civil 3D has not finished updating object dependencies and labels do not render. Commit first, then start another transaction.
+            // (2026-07-28, from the "recommended stable plotting order" section of the user's troubleshooting notes)
             int layoutUpdated = 0;
             using (var tr = db.TransactionManager.StartTransaction())
             {
@@ -1962,22 +1969,22 @@ namespace Civil3DFactory
                         if (m != null) { m.Invoke(g, null); layoutUpdated++; }
                     }
                     catch (System.Exception ex)
-                    { creationNote += " UpdateLayout 失败: " + ex.GetType().Name + ": " + Truncate(ex.Message, 80) + ";"; }
+                    { creationNote += " UpdateLayout failed: " + ex.GetType().Name + ": " + Truncate(ex.Message, 80) + ";"; }
                 }
                 tr.Commit();
             }
 
-            // ★ 显式创建「走廊点标注组」。
-            // 横断面图有个全局开关 eSectionViewCorridorPointLabelOption（走廊点代码标注方法：
-            // Section Label Set / Code Set Style），程序化建图时它停在 Section Label Set，
-            // **只压制 Point 的代码集标注，不影响 Link** —— 正是「链接标注在、点标注全没」的成因。
-            // 该枚举在托管 API 里没有任何成员可读写，设不了；但可以绕过去：
-            // 直接为「每个断面图 × 每个断面」建 SectionCorridorPointLabelGroup，
-            // 等价于界面上选中断面 → 右键 Edit labels 加走廊点标注。
-            // （2026-07-28，用户提出该开关的假设后按此方向查实）
-            // 默认**不建**：实测它走的是 Label Set 分支，只能用 CorridorPointLabelStyles 里的样式
-            // （本图只有 Standard），出来的是 "Subassembly Point Elevation/Offset" 那种通用文字，
-            // 不是代码集里的标注。要的是 Code Set 分支。留作可选，需要时显式打开。
+            // * Explicitly create "corridor point label groups".
+            // Section views have a global switch eSectionViewCorridorPointLabelOption (corridor point code labelling method:
+            // Section Label Set / Code Set Style); programmatic creation leaves it at Section Label Set,
+            // which **suppresses only the Point code set labels, not the Links** -- exactly why "link labels present, point labels all missing".
+            // The enum has no readable/writable member in the managed API, so it cannot be set; but it can be bypassed:
+            // create a SectionCorridorPointLabelGroup directly for "every section view x every section",
+            // equivalent to selecting the section in the UI -> right-click Edit labels -> add corridor point labels.
+            // (2026-07-28, verified along this line after the user proposed the switch hypothesis)
+            // **Not created** by default: in practice it takes the Label Set branch and can only use styles from CorridorPointLabelStyles
+            // (this drawing has only Standard), producing generic "Subassembly Point Elevation/Offset" text,
+            // not the code set labels. The Code Set branch is what we want. Kept as an option, enable explicitly when needed.
             int pointLabelGroups = 0;
             if (GetBool(a, "corridor_point_labels", false))
             using (var tr = db.TransactionManager.StartTransaction())
@@ -1991,9 +1998,9 @@ namespace Civil3DFactory
                         {
                             try
                             {
-                                // 直接建，不预先用 GetAvailableLabelGroupIds 过滤——
-                                // 那个方法返回的是**已存在**的组，不是"可创建"的组，
-                                // 拿它当守卫会把 Create 全拦下（实测 0 个，且不抛异常）。
+                                // Create directly, without pre-filtering with GetAvailableLabelGroupIds --
+                                // that method returns **existing** groups, not "creatable" ones,
+                                // so using it as a guard blocks every Create (measured 0, and no exception).
 #if NET472
                                 throw new NotSupportedException("SectionCorridorPointLabelGroup needs Civil 3D 2023 or newer.");
 #else
@@ -2005,7 +2012,7 @@ namespace Civil3DFactory
                             catch (System.Exception ex)
                             {
                                 if (creationNote.Length < 300)
-                                    creationNote += " 建走廊点标注组失败: " + ex.GetType().Name + ": "
+                                    creationNote += " creating corridor point label group failed: " + ex.GetType().Name + ": "
                                                   + Truncate(ex.Message, 60) + ";";
                             }
                         }
@@ -2013,7 +2020,7 @@ namespace Civil3DFactory
                 tr.Commit();
             }
 
-            // 网格摆放：按桩号排序，列优先，组间向下接续
+            // Grid placement: sorted by station, column-major, groups continue downwards
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 CivSampleLineGroup slg = FindSampleLineGroup(tr, civ, alName, groupName);
@@ -2044,14 +2051,14 @@ namespace Civil3DFactory
                 tr.Commit();
             }
 
-            // 体积表格（每张挂一张；需先算过材质列表，缺了就跳过，不影响断面图）
+            // Volume tables (one per view; requires a computed material list, skipped if missing without affecting the views)
             int tables = 0;
-            string tableNote = "未要求";
+            string tableNote = "not requested";
             if (wantVolTable)
             {
-                // ⚠ 体积表格必须**一张图一个事务**，且用完释放 VolumeTables 包装对象。
-                // 全部塞进一个事务里能建出来，但会留下没关的写句柄，
-                // 后面 save_dwg 直接报 eWasOpenForWrite（实测：关掉体积表格就能存）。
+                // ! Volume tables must be **one view per transaction**, and the VolumeTables wrapper object must be released after use.
+                // Cramming them all into one transaction works, but leaves unclosed write handles,
+                // and save_dwg then throws eWasOpenForWrite (measured: disabling volume tables makes saving work).
                 Guid mlGuid = Guid.Empty;
                 var svIds = new List<ObjectId>();
                 using (var tr = db.TransactionManager.StartTransaction())
@@ -2066,7 +2073,7 @@ namespace Civil3DFactory
                     tr.Commit();
                 }
 
-                if (mlGuid == Guid.Empty) tableNote = "该组没有材质列表，已跳过（先跑 compute_quantities）";
+                if (mlGuid == Guid.Empty) tableNote = "the group has no material list, skipped (run compute_quantities first)";
                 else
                 {
                     string firstErr = null;
@@ -2077,7 +2084,7 @@ namespace Civil3DFactory
                             try
                             {
                                 var sv = (Autodesk.Civil.DatabaseServices.SectionView)
-                                         tr.GetObject(svId, OpenMode.ForWrite);   // ForRead 会硬崩进程
+                                         tr.GetObject(svId, OpenMode.ForWrite);   // ForRead crashes the process outright
                                 var vt = sv.VolumeTables;
                                 vt.SectionViewAnchorType =
                                     Autodesk.Civil.DatabaseServices.SectionViewVolumeTableAnchorType.TopRight;
@@ -2085,10 +2092,10 @@ namespace Civil3DFactory
                                     Autodesk.Civil.DatabaseServices.SectionViewVolumeTableAnchorType.TopLeft;
                                 vt.OffsetX = 5;
                                 vt.OffsetY = 0;
-                                // CreateVolumeTable 返回新建表格的 ObjectId：它是以**写打开**的状态
-                                // 交回来的，不显式关掉就一直挂着 —— save_dwg 报 eWasOpenForWrite，
-                                // 存出来的 DWG 打开时 ErrorStatus=434（实测）。
-                                // 一图一事务解决不了这个，因为句柄不归本事务管。
+                                // CreateVolumeTable returns the ObjectId of the new table: it comes back **open for write**
+                                // and stays that way unless closed explicitly -- save_dwg throws eWasOpenForWrite,
+                                // and the saved DWG opens with ErrorStatus=434 (measured).
+                                // One view per transaction does not solve this, because the handle is not owned by this transaction.
                                 ObjectId vtId = vt.CreateVolumeTable(
                                     Autodesk.Civil.DatabaseServices.VolumeTableType.TotalVolume, mlGuid);
                                 if (!vtId.IsNull)
@@ -2096,7 +2103,7 @@ namespace Civil3DFactory
                                     try
                                     {
                                         DBObject tbl = vtId.Open(OpenMode.ForWrite);
-                                        tbl.Close();          // 关掉 Civil 交回来的写句柄
+                                        tbl.Close();          // close the write handle Civil handed back
                                     }
                                     catch (System.Exception) { }
                                 }
@@ -2110,12 +2117,12 @@ namespace Civil3DFactory
                             }
                         }
                     }
-                    tableNote = firstErr == null ? "全部成功" : ("首个失败: " + Truncate(firstErr, 80));
+                    tableNote = firstErr == null ? "all succeeded" : ("first failure: " + Truncate(firstErr, 80));
 
-                    // ⚠ 建完体积表格后，把断面图对象的写句柄逐个关掉。
-                    // sv.VolumeTables 这个包装对象会让 SectionView 在事务提交后**仍然处于写打开**，
-                    // 不关的话 save_dwg 抛 eWasOpenForWrite，存出的 DWG 打开时 ErrorStatus=434。
-                    // 只做「一图一事务」堵不住 —— 句柄不归事务管，得用老式 Open/Close 显式收。
+                    // ! After the volume tables are built, close the section views' write handles one by one.
+                    // The sv.VolumeTables wrapper leaves the SectionView **still open for write** after the transaction commits;
+                    // without closing, save_dwg throws eWasOpenForWrite and the saved DWG opens with ErrorStatus=434.
+                    // "One view per transaction" alone does not stop it -- the handle is not owned by the transaction, it must be reclaimed with old-style Open/Close.
                     int reclaimed = 0;
                     foreach (ObjectId svId in svIds)
                     {
@@ -2127,7 +2134,7 @@ namespace Civil3DFactory
                         }
                         catch (System.Exception) { }
                     }
-                    tableNote += "；回收写句柄 " + reclaimed + "/" + svIds.Count;
+                    tableNote += "; reclaimed write handles " + reclaimed + "/" + svIds.Count;
                 }
             }
 
@@ -2135,14 +2142,14 @@ namespace Civil3DFactory
             {
                 ["section_views"] = count,
                 ["old_erased"] = erased,
-                ["grid"] = rows + " 行 × " + cols + " 列/组，列距 " + colSpacing
-                         + " 行距 " + rowSpacing + " 组间距 " + groupSpacing,
+                ["grid"] = rows + " rows x " + cols + " cols/group, col spacing " + colSpacing
+                         + " row spacing " + rowSpacing + " group spacing " + groupSpacing,
                 ["base_point"] = Math.Round(bx, 3) + ", " + Math.Round(by, 3),
-                ["elev_range"] = elevMin < elevMax ? (elevMin + " ~ " + elevMax) : "自动",
-                ["offset_range"] = "左 " + offLeft + " / 右 " + offRight,
+                ["elev_range"] = elevMin < elevMax ? (elevMin + " ~ " + elevMax) : "auto",
+                ["offset_range"] = "L " + offLeft + " / R " + offRight,
                 ["code_set_applied_sections"] = secStyled,
                 ["corridor_body_sections"] = corridorBodySections,
-                ["corridor_geometry_check"] = "按旧操作台基线生成；不以Section包络值判定",
+                ["corridor_geometry_check"] = "generated per old console baseline; not judged by Section envelope values",
                 ["code_set_mapping"] = codeMappingResult,
                 ["corridor_surface_sections"] = corridorSurfaceSections,
                 ["corridor_display_overrides"] = corridorDisplayOverrides,
@@ -2170,22 +2177,22 @@ namespace Civil3DFactory
             return null;
         }
 
-        // ===================== 出图前置：模型空间比例 =====================
-        // Civil 3D 的"模型空间比例"就是注释比例 CANNOSCALE：标签、符号、图框大小全跟它走。
-        // 出图前先定死它（如 1:500），后面图框尺寸和断面图网格间距才有依据。
+        // ===================== Plot prerequisite: model space scale =====================
+        // Civil 3D's "model space scale" is the annotation scale CANNOSCALE: labels, symbols and sheet frame sizes all follow it.
+        // Pin it before plotting (e.g. 1:500); frame sizes and section view grid spacing later depend on it.
 
         static JsonNode SetScale(JsonObject a, Document doc)
         {
-            double drawingUnits = GetDouble(a, "scale", 0);      // 1:500 就传 500
+            double drawingUnits = GetDouble(a, "scale", 0);      // pass 500 for 1:500
             string scaleName = GetString(a, "name", null);
             if (drawingUnits <= 0 && string.IsNullOrEmpty(scaleName))
-                throw new InvalidOperationException("给 scale（1:500 就传 500）或 name（比例名，如 \"1:500\"）。");
+                throw new InvalidOperationException("Give scale (500 for 1:500) or name (scale name, e.g. \"1:500\").");
             if (string.IsNullOrEmpty(scaleName)) scaleName = "1:" + drawingUnits.ToString("0.###");
 
             Database db = doc.Database;
             var ocm = db.ObjectContextManager;
             var coll = ocm.GetContextCollection("ACDB_ANNOTATIONSCALES");
-            if (coll == null) throw new InvalidOperationException("图里没有注释比例集合。");
+            if (coll == null) throw new InvalidOperationException("The drawing has no annotation scale collection.");
 
             var available = new JsonArray();
             foreach (Autodesk.AutoCAD.DatabaseServices.ObjectContext c in coll)
@@ -2196,7 +2203,7 @@ namespace Civil3DFactory
             if (ctx == null)
             {
                 if (drawingUnits <= 0)
-                    throw new InvalidOperationException("图里没有比例 '" + scaleName + "'，要新建请同时给 scale。");
+                    throw new InvalidOperationException("The drawing has no scale '" + scaleName + "'; to create it also give scale.");
                 var sc = new AnnotationScale
                 {
                     Name = scaleName,
@@ -2208,14 +2215,14 @@ namespace Civil3DFactory
                 ctx = coll.GetContext(scaleName) as AnnotationScale;
                 available.Add(scaleName);
             }
-            if (ctx == null) throw new InvalidOperationException("比例 '" + scaleName + "' 建了但取不回来。");
+            if (ctx == null) throw new InvalidOperationException("Scale '" + scaleName + "' was created but cannot be retrieved.");
 
             db.Cannoscale = ctx;
 
-            // Civil 3D 的标注（断面图/纵断面图的标签与带）**不看 CANNOSCALE**，
-            // 它们按「图形设置 → 单位和比例 → 比例」缩放。只设 CANNOSCALE 时字号纹丝不动
-            // ——实测四种设法（不设 / scale:500 / name 半角 / name 全角，含先设再建断面图）
-            // 字号完全一样，只有比例注记会跟着 CANNOSCALE 变。所以两个都得设。
+            // Civil 3D labels (labels and bands of section/profile views) **ignore CANNOSCALE**;
+            // they scale by "Drawing Settings -> Units and Zone -> Scale". Setting only CANNOSCALE leaves text sizes unchanged
+            // -- measured with four variants (unset / scale:500 / name half-width / name full-width, including setting before creating section views):
+            // text sizes identical, only the scale annotation follows CANNOSCALE. So both must be set.
             JsonNode civilBefore = null, civilAfter = null;
             string civilNote = null;
             try
@@ -2223,9 +2230,9 @@ namespace Civil3DFactory
                 CivDoc civ = Civ(db);
                 var uz = civ.Settings.DrawingSettings.UnitZoneSettings;
                 civilBefore = uz.DrawingScale;
-                // 米制图纸：注释比例 1:500 存成「纸 1 : 图 0.5」，Civil 图形比例要的也是 0.5（不是 500）。
-                // 项目A配方卡实测：0.5 → 注记「横向1:500」；设成 500 → 注记「1:500000」且全部标注字号 ×1000
-                //（2026-09-05 工单回归三类图全中招）。缺省按注释比例同款比值，要别的显式传 drawing_scale。
+                // Metric sheets: annotation scale 1:500 is stored as "paper 1 : drawing 0.5", and Civil's drawing scale also wants 0.5 (not 500).
+                // Measured on project A's recipe: 0.5 -> annotation "H 1:500"; 500 -> annotation "1:500000" and every label text x1000
+                // (regression on 2026-09-05 hit all three drawing types). Default to the same ratio as the annotation scale; pass drawing_scale explicitly for anything else.
                 double want = ctx.PaperUnits > 0 ? ctx.DrawingUnits / ctx.PaperUnits : 0;
                 double target = GetDouble(a, "drawing_scale", want);
                 if (target > 0)
@@ -2233,10 +2240,10 @@ namespace Civil3DFactory
                     uz.DrawingScale = target;
                     civilAfter = uz.DrawingScale;
                 }
-                else civilNote = "算不出 Civil 图形比例，显式传 drawing_scale";
+                else civilNote = "cannot derive the Civil drawing scale; pass drawing_scale explicitly";
             }
             catch (System.Exception ex)
-            { civilNote = "Civil 图形比例没设上：" + ex.GetType().Name + ": " + Truncate(ex.Message, 120); }
+            { civilNote = "Civil drawing scale not set: " + ex.GetType().Name + ": " + Truncate(ex.Message, 120); }
 
             return new JsonObject
             {
@@ -2251,32 +2258,32 @@ namespace Civil3DFactory
             };
         }
 
-        // ===================== 出图后置：Civil 对象导出为纯 CAD =====================
-        // Civil 3D 对象（路线/断面图/曲面）在别的机器、别的软件里是 proxy，打印也不稳。
-        // `-EXPORTTOAUTOCAD` 把它们炸成纯 CAD 实体另存新文件（原图不动）。
-        // 注意：带年份的 AECEXPORTTOAUTOCAD20xx 只有完整 GUI 有，acc 里必须用带连字符的这个。
+        // ===================== Plot post-step: export Civil objects to plain CAD =====================
+        // Civil 3D objects (alignments/section views/surfaces) are proxies on other machines and in other software, and plot unreliably.
+        // `-EXPORTTOAUTOCAD` explodes them into plain CAD entities and saves as a new file (the original is untouched).
+        // Note: the year-suffixed AECEXPORTTOAUTOCAD20xx exists only in the full GUI; in acc the hyphenated command must be used.
 
         static JsonNode ExportToAutocad(JsonObject a, Document doc)
         {
             string outPath = GetString(a, "out", null);
             if (string.IsNullOrEmpty(outPath))
-                throw new InvalidOperationException("缺少参数 out（导出的纯 CAD dwg 路径）。");
+                throw new InvalidOperationException("Missing parameter out (path of the exported plain CAD dwg).");
             if (!Path.IsPathRooted(outPath))
-                throw new InvalidOperationException("out 必须是绝对路径：" + outPath);
+                throw new InvalidOperationException("out must be an absolute path: " + outPath);
             if (File.Exists(outPath) && !GetBool(a, "overwrite", false))
-                throw new InvalidOperationException("文件已存在，拒绝覆盖：" + outPath + "（确需覆盖传 overwrite:true）");
+                throw new InvalidOperationException("File already exists, refusing to overwrite: " + outPath + " (pass overwrite:true to overwrite)");
 
             string dir = Path.GetDirectoryName(outPath);
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
-            if (File.Exists(outPath)) File.Delete(outPath);   // 命令自己不覆盖，先清掉
+            if (File.Exists(outPath)) File.Delete(outPath);   // the command does not overwrite by itself, clear first
 
-            string version = GetString(a, "version", "2018");   // 2010 遇到未炸开的 AEC 会转 proxy 并警告
+            string version = GetString(a, "version", "2018");   // 2010 turns unexploded AEC objects into proxies with a warning
             var ed = doc.Editor;
 
-            // 某些 AEC 对象（已确诊：断面 QTO 体积表）会让 -EXPORTTOAUTOCAD 内部
-            // erase failed (eLockViolation) 而整体流产。带表出图的解法：save_dwg 落盘后
-            // （底稿保住活表），在同一会话内把这些类先就地炸成普通图元，再导出。
-            // explode_classes 传 DXF 类名数组（如 AECC_SECTION_VIEW_QUANTITY_TAKEOFF_TABLE）。
+            // Some AEC objects (confirmed: section QTO volume tables) make -EXPORTTOAUTOCAD fail internally with
+            // erase failed (eLockViolation) and abort entirely. For plots with tables: after save_dwg has written the file
+            // (keeping live tables in the base drawing), explode those classes in place into plain entities within the same session, then export.
+            // explode_classes takes an array of DXF class names (e.g. AECC_SECTION_VIEW_QUANTITY_TAKEOFF_TABLE).
             int exploded = 0, explodeFailed = 0;
             var explodeClasses = a["explode_classes"] as JsonArray;
             if (explodeClasses != null && explodeClasses.Count > 0)
@@ -2320,20 +2327,20 @@ namespace Civil3DFactory
                 }
             }
 
-            // 命令行版路径要用正斜杠，反斜杠在命令流里会被当转义。
-            // 提示序列（2026-07-21 实测记录）：
-            //   Export options [Format\Bind\...] <Enter for filename>:   ← 这一步必须给个空回车才进文件名
-            //   Export drawing name <默认>:
-            // 漏掉那个空回车，命令会把路径当成非法选项一直重问 → headless 永久挂住（本次实测踩过）。
+            // The command-line path must use forward slashes; backslashes are treated as escapes in the command stream.
+            // Prompt sequence (recorded 2026-07-21):
+            //   Export options [Format\Bind\...] <Enter for filename>:   <- this step needs an empty Enter to reach the file name
+            //   Export drawing name <default>:
+            // Without that empty Enter the command treats the path as an invalid option and keeps re-prompting -> headless hangs forever (hit in this run).
             string cmdPath = outPath.Replace('\\', '/');
             if (string.Equals(version, "2018", StringComparison.OrdinalIgnoreCase))
-                ed.Command("_-EXPORTTOAUTOCAD", "", cmdPath);          // 默认格式，直接回车进文件名
+                ed.Command("_-EXPORTTOAUTOCAD", "", cmdPath);          // default format, Enter straight to the file name
             else
                 ed.Command("_-EXPORTTOAUTOCAD", "_F", version, "", cmdPath);
 
             if (!File.Exists(outPath))
-                throw new InvalidOperationException("命令跑完但没生成文件：" + outPath +
-                    "（提示序列可能与预期不符，先在 acc 里手动跑一次 -EXPORTTOAUTOCAD 看提示）");
+                throw new InvalidOperationException("The command finished but no file was produced: " + outPath +
+                    " (the prompt sequence may differ from expected; run -EXPORTTOAUTOCAD manually in acc once to see the prompts)");
 
             return new JsonObject
             {
@@ -2346,17 +2353,17 @@ namespace Civil3DFactory
             };
         }
 
-        // 给**既有**断面视图挂材质体积表（不重建视图）。为什么单独成节点：
-        // ① 表在视图创建时挂、之后 arrange 搬动视图，无头下锚定不跟着走，表留在老位置页外；
-        //    正确工序 = 先排版后挂表，本节点就是"后挂表"那一步。
-        // ② create_section_views 是删了重建，会毁掉排版/点标注；本节点只动表。
-        // clear_all=true 时先删模型空间全部断面 QTO 表（链里第一条路线传一次，防旧表残留）。
+        // Attach material volume tables to **existing** section views (without rebuilding the views). Why a separate node:
+        // (1) when tables are attached at view creation and arrange then moves the views, headless anchoring does not follow, and tables stay off-page at the old spot;
+        //    the correct order = arrange first, attach tables after; this node is that "attach after" step.
+        // (2) create_section_views deletes and rebuilds, destroying the layout / point labels; this node touches tables only.
+        // clear_all=true first deletes every section QTO table in model space (pass once on the first alignment of a chain, to avoid stale tables).
         static JsonNode RunNodeAddVolumeTables(JsonObject a, Document doc)
         {
             string alName = Need(a, "alignment");
             string groupName = GetString(a, "group", null);
             bool clearAll = GetBool(a, "clear_all", false);
-            bool create = GetBool(a, "create", true);      // false = 只清场不建表（AEC 表出不了图时的卸载入口）
+            bool create = GetBool(a, "create", true);      // false = clear only, no tables (the unload entry when AEC tables cannot be plotted)
             double offX = GetDouble(a, "offset_x", 5);
             double offY = GetDouble(a, "offset_y", 0);
 
@@ -2392,8 +2399,8 @@ namespace Civil3DFactory
             var svIds = new List<ObjectId>();
             using (var tr = db.TransactionManager.StartTransaction())
             {
-                // 组名口径与 create_section_views 相同：缺省找 <alignment>_SampleLines，
-                // 找不到且路线只有一个组则用它。
+                // Group name convention same as create_section_views: default <alignment>_SampleLines,
+                // and if not found and the alignment has exactly one group, use it.
                 CivSampleLineGroup slg = FindSampleLineGroup(
                     tr, civ, alName, string.IsNullOrEmpty(groupName) ? alName + "_SampleLines" : groupName);
                 if (slg == null && string.IsNullOrEmpty(groupName))
@@ -2408,9 +2415,9 @@ namespace Civil3DFactory
                 }
                 if (slg == null)
                     throw new InvalidOperationException(
-                        "路线 '" + alName + "' 找不到采样线组"
-                        + (string.IsNullOrEmpty(groupName) ? "（默认名 " + alName + "_采样线组）" : "「" + groupName + "」")
-                        + "。");
+                        "Alignment '" + alName + "' has no sample line group"
+                        + (string.IsNullOrEmpty(groupName) ? " (default name " + alName + "_SampleLines)" : " '" + groupName + "'")
+                        + ".");
                 foreach (CivQtoMaterialList ml in slg.MaterialLists) { mlGuid = ml.Guid; break; }
                 foreach (ObjectId slId in slg.GetSampleLineIds())
                 {
@@ -2421,7 +2428,7 @@ namespace Civil3DFactory
             }
             if (mlGuid == Guid.Empty)
                 throw new InvalidOperationException(
-                    "路线 '" + alName + "' 的采样线组没有材质列表，先跑 compute_quantities。");
+                    "The sample line group of alignment '" + alName + "' has no material list; run compute_quantities first.");
             if (!create)
                 return new JsonObject
                 {
@@ -2429,14 +2436,14 @@ namespace Civil3DFactory
                     ["tables_created"] = 0,
                     ["section_views"] = svIds.Count,
                     ["cleared_old_tables"] = cleared,
-                    ["note"] = "只清场（create=false）"
+                    ["note"] = "clear only (create=false)"
                 };
 
             int made = 0;
             string firstErr = null;
             foreach (ObjectId svId in svIds)
             {
-                // ⚠ 一张图一个事务；ForRead 会硬崩进程（沿用 create_section_views 的教训）
+                // ! One view per transaction; ForRead crashes the process outright (lesson from create_section_views)
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     try
@@ -2469,16 +2476,16 @@ namespace Civil3DFactory
                 ["tables_created"] = made,
                 ["section_views"] = svIds.Count,
                 ["cleared_old_tables"] = cleared,
-                ["note"] = firstErr == null ? "全部成功" : ("首个失败: " + Truncate(firstErr, 80))
+                ["note"] = firstErr == null ? "all succeeded" : ("first failure: " + Truncate(firstErr, 80))
             };
         }
 
-        // 自画断面体积表（纯 CAD 线+文字，非 AEC 表）。为什么不用 Civil 的 QTO 表：
-        // AECC 断面 QTO 表让 -EXPORTTOAUTOCAD 内部 erase failed (eLockViolation) 整体流产，
-        // 且 accore 里托管 Explode 返回空集、原生 EXPLODE 拒炸——无头链里根本带不出去。
-        // 厂里拆堤链早有「方量标注画在断面上」的先例（compute_embankment_demolition），本节点同款思路。
-        // 数据源与 export_quantities 相同：材质列表逐桩号增量/累计挖方。
-        // 实体带 XData(C3DF_SVT) 认亲，clear=true 重跑先清旧表，幂等。
+        // Self-drawn section volume tables (plain CAD lines + text, not AEC tables). Why not Civil's QTO tables:
+        // AECC section QTO tables make -EXPORTTOAUTOCAD fail internally with erase failed (eLockViolation) and abort entirely,
+        // and in accore the managed Explode returns an empty set while native EXPLODE refuses -- they simply cannot leave a headless chain.
+        // The dyke demolition chain already labels volumes on sections (compute_embankment_demolition); this node uses the same idea.
+        // Data source same as export_quantities: incremental/cumulative cut per station from the material list.
+        // Entities carry XData (C3DF_SVT) for identification; clear=true removes old tables first on re-run, idempotent.
         const string SvtRegApp = "C3DF_SVT";
 
         static JsonNode RunNodeDrawSectionVolumeTables(JsonObject a, Document doc)
@@ -2486,39 +2493,39 @@ namespace Civil3DFactory
             string alName = Need(a, "alignment");
             string groupName = GetString(a, "group", null);
             double scale = GetDouble(a, "scale", 500);
-            double k = scale / 1000.0;                       // mm → 模型米
+            double k = scale / 1000.0;                       // mm -> model metres
             double textH = GetDouble(a, "text_mm", 2.5) * k;
             double rowH = GetDouble(a, "row_mm", 5.0) * k;
-            double col1 = GetDouble(a, "col1_mm", GetDouble(a, "label_col_mm", 16.0)) * k;   // 项目列
-            double col2 = GetDouble(a, "col2_mm", 30.0) * k;                                  // 断面面积列
-            double col3 = GetDouble(a, "col3_mm", 26.0) * k;                                  // 挖方量列
+            double col1 = GetDouble(a, "col1_mm", GetDouble(a, "label_col_mm", 16.0)) * k;   // item column
+            double col2 = GetDouble(a, "col2_mm", 30.0) * k;                                  // section area column
+            double col3 = GetDouble(a, "col3_mm", 26.0) * k;                                  // cut volume column
             double offX = GetDouble(a, "offset_x_mm", 2.0) * k;
             double offY = GetDouble(a, "offset_y_mm", 0.0) * k;
             bool clear = GetBool(a, "clear", true);
-            string layerName = GetString(a, "layer", "C3DF-体积表");
+            string layerName = GetString(a, "layer", "C3DF-VolumeTable");
             string targetDwg = GetString(a, "target_dwg", null);
             string textStyleName = GetString(a, "text_style", null);
-            string stationPrefix = GetString(a, "station_prefix", "桩号 ");
-            string headArea = GetString(a, "header_area", "断面面积（m²）");
-            string headVol = GetString(a, "header_volume", "挖方量（m³）");
-            string headItem = GetString(a, "header_item", "项目");
-            string rowLabel = GetString(a, "row_label", "挖方");
+            string stationPrefix = GetString(a, "station_prefix", "Sta ");
+            string headArea = GetString(a, "header_area", "Section area (m²)");
+            string headVol = GetString(a, "header_volume", "Cut volume (m³)");
+            string headItem = GetString(a, "header_item", "Item");
+            string rowLabel = GetString(a, "row_label", "Cut");
             int limit = (int)GetDouble(a, "limit", 0);
             bool dryRun = GetBool(a, "dry_run", false);
 
             if (!string.IsNullOrEmpty(targetDwg))
             {
                 if (!Path.IsPathRooted(targetDwg))
-                    throw new InvalidOperationException("target_dwg 必须是绝对路径：" + targetDwg);
+                    throw new InvalidOperationException("target_dwg must be an absolute path: " + targetDwg);
                 if (!File.Exists(targetDwg))
-                    throw new InvalidOperationException("找不到目标图纸：" + targetDwg);
+                    throw new InvalidOperationException("Target drawing not found: " + targetDwg);
             }
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
 
-            // ---------- 阶段 A：在 Civil 图里取数据与位置（只读） ----------
-            // station -> { 挖方断面面积 m², 增量挖方 m³ }
+            // ---------- Phase A: read data and positions from the Civil drawing (read-only) ----------
+            // station -> { cut section area m², incremental cut m³ }
             var dataByStation = new List<KeyValuePair<double, double[]>>();
             var views = new List<KeyValuePair<double, ObjectId>>();
             bool areaFromApi = true;
@@ -2537,12 +2544,12 @@ namespace Civil3DFactory
                     }
                 }
                 if (slg == null)
-                    throw new InvalidOperationException("路线 '" + alName + "' 找不到采样线组。");
+                    throw new InvalidOperationException("Alignment '" + alName + "' has no sample line group.");
                 Guid mlGuid = Guid.Empty;
                 foreach (CivQtoMaterialList ml in slg.MaterialLists) { mlGuid = ml.Guid; break; }
                 if (mlGuid == Guid.Empty)
                     throw new InvalidOperationException(
-                        "路线 '" + alName + "' 的采样线组没有材质列表，先跑 compute_quantities。");
+                        "The sample line group of alignment '" + alName + "' has no material list; run compute_quantities first.");
 
                 var result = slg.GetTotalVolumeResultDataForMaterialList(mlGuid);
                 foreach (CivQtoSectionalResult sec in result.GetResultsAlongSampleLines())
@@ -2562,7 +2569,7 @@ namespace Civil3DFactory
                 tr.Commit();
             }
 
-            // 每张表一行：{ 表左 x, 表顶 y, 桩号, 面积, 体积 }
+            // One row per table: { table left x, table top y, station, area, volume }
             var tables = new List<double[]>();
             int noData = 0;
             using (var tr = db.TransactionManager.StartTransaction())
@@ -2600,7 +2607,7 @@ namespace Civil3DFactory
                 return new JsonObject
                 {
                     ["alignment"] = alName,
-                    ["mode"] = "dry_run（没画任何东西）",
+                    ["mode"] = "dry_run (nothing drawn)",
                     ["section_views"] = views.Count,
                     ["tables_planned"] = tables.Count,
                     ["views_without_data"] = noData,
@@ -2610,7 +2617,7 @@ namespace Civil3DFactory
                     ["first"] = sample
                 };
 
-            // ---------- 阶段 B：落图 ----------
+            // ---------- Phase B: draw ----------
             int made = 0, cleared = 0;
             string writtenTo, note = null;
             if (string.IsNullOrEmpty(targetDwg))
@@ -2618,7 +2625,7 @@ namespace Civil3DFactory
                 made = PaintSvtTables(db, tables, clear, layerName, textStyleName,
                                       textH, rowH, col1, col2, col3,
                                       stationPrefix, headItem, headArea, headVol, rowLabel, out cleared);
-                writtenTo = "(当前图纸内存，落盘走 save_dwg)";
+                writtenTo = "(current drawing in memory; save with save_dwg)";
             }
             else
             {
@@ -2636,13 +2643,13 @@ namespace Civil3DFactory
                     }
                     catch (System.Exception ex)
                     {
-                        // 厂规：目标被占用只许在原文件旁留一个「-被占用待替换」件
+                        // House rule: when the target is locked, only one "-locked-pending-replace" file may be left next to the original
                         string alt = Path.Combine(
                             Path.GetDirectoryName(targetDwg),
-                            Path.GetFileNameWithoutExtension(targetDwg) + "-被占用待替换.dwg");
+                            Path.GetFileNameWithoutExtension(targetDwg) + "-locked-pending-replace.dwg");
                         tdb.SaveAs(alt, DwgVersion.Current);
                         writtenTo = alt;
-                        note = "原图写不进（" + Truncate(ex.Message, 60) + "），成果落在 -被占用待替换 件，关图后自行换位。";
+                        note = "Could not write the original drawing (" + Truncate(ex.Message, 60) + "); result saved to the -locked-pending-replace file, swap it in after closing the drawing.";
                     }
                 }
             }
@@ -2658,18 +2665,18 @@ namespace Civil3DFactory
                 ["layer"] = layerName,
                 ["written_to"] = writtenTo,
                 ["first"] = sample,
-                ["note"] = note ?? "全部成功"
+                ["note"] = note ?? "all succeeded"
             };
         }
 
-        // 把表画进给定 Database 的模型空间（当前图或外部成品图都走这里）。
-        // 表式（项目B初设 1201 定稿）：三行，首行跨列写桩号，二行表头，三行数据。
+        // Draw the tables into model space of the given Database (current drawing or an external finished drawing both go through here).
+        // Table layout (project B preliminary design, sheet 1201 final): three rows, first row spans all columns with the station, second is the header, third the data.
         //   ┌──────────────────────────────┐
-        //   │          桩号 0+000.00        │
+        //   │          Sta 0+000.00        │
         //   ├──────┬────────────┬──────────┤
-        //   │ 项目 │断面面积(m²)│挖方量(m³)│
+        //   │ Item │ Area (m²)  │ Cut (m³) │
         //   ├──────┼────────────┼──────────┤
-        //   │ 挖方 │    9.57    │   0.00   │
+        //   │ Cut  │    9.57    │   0.00   │
         //   └──────┴────────────┴──────────┘
         static int PaintSvtTables(Database tdb, List<double[]> tables, bool clear,
                                   string layerName, string textStyleName,
@@ -2677,8 +2684,8 @@ namespace Civil3DFactory
                                   string stationPrefix, string headItem, string headArea, string headVol,
                                   string rowLabel, out int cleared)
         {
-            // 外部 Database 里建实体，必须把 WorkingDatabase 切过去，
-            // 否则 SetDatabaseDefaults 拿的是当前图的默认值，AppendEntity 抛 eWrongDatabase。
+            // To create entities in an external Database, WorkingDatabase must be switched to it,
+            // otherwise SetDatabaseDefaults takes the current drawing's defaults and AppendEntity throws eWrongDatabase.
             Database prevWorking = HostApplicationServices.WorkingDatabase;
             bool switched = !ReferenceEquals(prevWorking, tdb);
             if (switched) HostApplicationServices.WorkingDatabase = tdb;
@@ -2702,7 +2709,7 @@ namespace Civil3DFactory
         {
             cleared = 0;
 
-            // 图层 + RegApp
+            // Layer + RegApp
             using (var tr = tdb.TransactionManager.StartTransaction())
             {
                 var lt = (LayerTable)tr.GetObject(tdb.LayerTableId, OpenMode.ForRead);
@@ -2736,8 +2743,8 @@ namespace Civil3DFactory
                         try { ent0 = tr.GetObject(id, OpenMode.ForRead) as Entity; }
                         catch { continue; }
                         if (ent0 == null) continue;
-                        // 认亲两条：本层上的（图层是本节点专用）或带 C3DF_SVT XData 的。
-                        // 只认 XData 不够——纯 RegApp 名的空 XData 存盘会被丢，旧表就清不掉了。
+                        // Two identification rules: on this layer (the layer is dedicated to this node) or carrying C3DF_SVT XData.
+                        // XData alone is not enough -- empty XData with only a RegApp name is dropped on save, and old tables could no longer be cleared.
                         bool mine = string.Equals(ent0.Layer, layerName, StringComparison.OrdinalIgnoreCase);
                         if (!mine && ent0.GetXDataForApplication(SvtRegApp) == null) continue;
                         ent0.UpgradeOpen();
@@ -2757,19 +2764,19 @@ namespace Civil3DFactory
                 var lt = (LayerTable)tr.GetObject(tdb.LayerTableId, OpenMode.ForRead);
                 ObjectId layerId = lt[layerName];
 
-                // 文字样式：优先参数指定，其次图里的 -黑体（归化链留下的中文样式），再退当前默认
+                // Text style: the parameter when given (e.g. the -SimHei style left by the font normalisation chain), otherwise the current default
                 ObjectId styleId = ObjectId.Null;
                 var tst = (TextStyleTable)tr.GetObject(tdb.TextStyleTableId, OpenMode.ForRead);
                 if (!string.IsNullOrEmpty(textStyleName))
                 {
                     if (!tst.Has(textStyleName))
-                        throw new InvalidOperationException("图里没有文字样式 '" + textStyleName + "'。");
+                        throw new InvalidOperationException("The drawing has no text style '" + textStyleName + "'.");
                     styleId = tst[textStyleName];
                 }
 
                 var xdata = new ResultBuffer(
                     new TypedValue((int)DxfCode.ExtendedDataRegAppName, SvtRegApp),
-                    new TypedValue((int)DxfCode.ExtendedDataAsciiString, "断面体积表"));
+                    new TypedValue((int)DxfCode.ExtendedDataAsciiString, "SectionVolumeTable"));
 
                 Action<Entity> put = e =>
                 {
@@ -2798,8 +2805,8 @@ namespace Civil3DFactory
                 {
                     double x0 = row[0], yTop = row[1], station = row[2], area = row[3], vol = row[4];
                     double y0 = yTop - h;
-                    double yR1 = yTop - rowH;          // 首行底
-                    double yR2 = yTop - 2 * rowH;      // 表头行底
+                    double yR1 = yTop - rowH;          // bottom of first row
+                    double yR2 = yTop - 2 * rowH;      // bottom of header row
 
                     var pl = new Polyline(4) { Closed = true };
                     pl.AddVertexAt(0, new Point2d(x0, y0), 0, 0, 0);
@@ -2809,7 +2816,7 @@ namespace Civil3DFactory
                     put(pl);
                     put(new Line(new Point3d(x0, yR1, 0), new Point3d(x0 + w, yR1, 0)));
                     put(new Line(new Point3d(x0, yR2, 0), new Point3d(x0 + w, yR2, 0)));
-                    // 竖线只跨下两行，首行是合并单元格
+                    // Vertical lines span only the lower two rows; the first row is a merged cell
                     put(new Line(new Point3d(x0 + col1, y0, 0), new Point3d(x0 + col1, yR1, 0)));
                     put(new Line(new Point3d(x0 + col1 + col2, y0, 0), new Point3d(x0 + col1 + col2, yR1, 0)));
 
@@ -2832,10 +2839,10 @@ namespace Civil3DFactory
             return made;
         }
 
-        // ===================== 出图：按比例批量插图框 =====================
-        // 图框在模型空间里的实际大小 = 纸张尺寸(mm) × 比例分母 ÷ 1000（米）。
-        // A3 横放 420×297，1:500 → 210 m × 148.5 m 一张。所以必须先 set_scale 再插图框。
-        // 幂等：本操作插的图框带 XData 标记，重跑先删上次的，不会越插越多。
+        // ===================== Plot: batch insert sheet frames by scale =====================
+        // Frame size in model space = paper size (mm) x scale denominator / 1000 (metres).
+        // A3 landscape 420x297 at 1:500 -> 210 m x 148.5 m per sheet. So set_scale must run before inserting frames.
+        // Idempotent: frames inserted by this op carry an XData tag; re-running deletes the previous ones instead of piling up.
 
         const string TitleBlockXdataApp = "C3DF_TITLEBLOCK";
 
@@ -2844,7 +2851,7 @@ namespace Civil3DFactory
             string blockName = Need(a, "block");
             string fromDwg = GetString(a, "from_dwg", null);
             int count = (int)GetDouble(a, "count", 1);
-            if (count < 1) throw new InvalidOperationException("count 必须 ≥ 1。");
+            if (count < 1) throw new InvalidOperationException("count must be >= 1.");
             int cols = (int)GetDouble(a, "cols", 1);
             if (cols < 1) cols = 1;
             double x0 = GetDouble(a, "x", 0), y0 = GetDouble(a, "y", 0);
@@ -2852,57 +2859,57 @@ namespace Civil3DFactory
 
             Database db = doc.Database;
 
-            // 比例：默认取图纸当前注释比例（set_scale 设的那个）
+            // Scale: defaults to the drawing's current annotation scale (the one set by set_scale)
             double scale = GetDouble(a, "scale", 0);
-            string scaleFrom = "参数";
+            string scaleFrom = "parameter";
             if (scale <= 0)
             {
                 try
                 {
                     var cs = db.Cannoscale;
-                    if (cs != null && cs.PaperUnits > 0) { scale = cs.DrawingUnits / cs.PaperUnits; scaleFrom = "图纸当前比例 " + cs.Name; }
+                    if (cs != null && cs.PaperUnits > 0) { scale = cs.DrawingUnits / cs.PaperUnits; scaleFrom = "current drawing scale " + cs.Name; }
                 }
                 catch { }
             }
-            if (scale <= 0) throw new InvalidOperationException("取不到比例，先跑 set_scale 或传 scale（1:500 就传 500）。");
+            if (scale <= 0) throw new InvalidOperationException("No scale available; run set_scale first or pass scale (500 for 1:500).");
 
-            // 纸张（mm）：预设 + 自定义
+            // Paper (mm): presets + custom
             double pw = GetDouble(a, "paper_w", 0), ph = GetDouble(a, "paper_h", 0);
             string paper = GetString(a, "paper", "A3");
-            if (pw <= 0 || ph <= 0) PaperSizeMm(paper, out pw, out ph);   // 预设不认识就报错；自定义走 paper_w/paper_h
-            // 块本身若已按 mm 画好，插入比例就是 scale/1000（图纸单位是米）
+            if (pw <= 0 || ph <= 0) PaperSizeMm(paper, out pw, out ph);   // unknown preset throws; custom sizes go through paper_w/paper_h
+            // If the block is drawn in mm, the insertion scale is scale/1000 (drawing units are metres)
             double blockScale = GetDouble(a, "block_scale", scale / 1000.0);
             double frameW = pw * scale / 1000.0;
             double frameH = ph * scale / 1000.0;
             double gapX = GetDouble(a, "gap_x", 0), gapY = GetDouble(a, "gap_y", 0);
 
             var attrs = a["attributes"] as JsonObject;
-            // 属性宽度因子 {标签:因子}：长文字塞窄格的惯用手法，值太长就压扁
+            // Attribute width factors {tag:factor}: the usual trick for squeezing long text into narrow cells; overly long values get compressed
             var widthFactors = a["width_factors"] as JsonObject;
             JsonArray placed = null;
-            // AdjustAlignment 的经典坑：无头会话里 WorkingDatabase 不是本图时，
-            // 非左对齐属性按错误基准摆——图名/图号整体右撇就是它。全程钉住，收尾还原。
+            // Classic AdjustAlignment pitfall: in a headless session, when WorkingDatabase is not this drawing,
+            // non-left-aligned attributes are placed against the wrong base -- the "title/sheet number drifts right" bug. Pin it throughout, restore at the end.
             Database prevWdb = HostApplicationServices.WorkingDatabase;
             HostApplicationServices.WorkingDatabase = db;
             try {
-            // at 模式：给定逐点位置（通常来自 arrange_section_sheets 的 sheets[].origin_x/y），
-            // 忽略 count/cols 网格；插入后把块的外包左下角对齐到给定点（块基点在哪都不怕）。
-            // 每个点可带自己的 attributes，覆盖全局同名项——逐框填图名/页码就靠它。
+            // at mode: explicit per-point positions (usually from arrange_section_sheets sheets[].origin_x/y),
+            // ignoring the count/cols grid; after insertion the block's bounding-box lower-left corner is aligned to the given point (base point location does not matter).
+            // Each point may carry its own attributes, overriding global ones of the same name -- that is how per-frame titles/page numbers are filled.
             var atArr = a["at"] as JsonArray;
             if (atArr != null && atArr.Count == 0)
-                throw new InvalidOperationException("at 给了但是空数组；要走网格模式就别给 at。");
+                throw new InvalidOperationException("at was given but is an empty array; omit at to use grid mode.");
             int erased = 0, inserted = 0, attrsFilled = 0;
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
 
-                // 块定义：图里没有就从块库文件克隆一份过来
+                // Block definition: if missing from the drawing, clone one from the block library file
                 if (!bt.Has(blockName))
                 {
                     if (string.IsNullOrEmpty(fromDwg))
-                        throw new InvalidOperationException("图中没有块 '" + blockName + "'，给 from_dwg 从块库导入（先对块库跑 list_blocks 查名字）。");
-                    if (!File.Exists(fromDwg)) throw new InvalidOperationException("找不到块库文件：" + fromDwg);
+                        throw new InvalidOperationException("Block '" + blockName + "' not in the drawing; give from_dwg to import it from the block library (run list_blocks on the library first to find the name).");
+                    if (!File.Exists(fromDwg)) throw new InvalidOperationException("Block library file not found: " + fromDwg);
                     using (var src = new Database(false, true))
                     {
                         src.ReadDwgFile(fromDwg, FileOpenMode.OpenForReadAndAllShare, true, null);
@@ -2911,7 +2918,7 @@ namespace Civil3DFactory
                         {
                             var sbt = (BlockTable)stx.GetObject(src.BlockTableId, OpenMode.ForRead);
                             if (!sbt.Has(blockName))
-                                throw new InvalidOperationException("块库里没有块 '" + blockName + "'：" + fromDwg);
+                                throw new InvalidOperationException("Block '" + blockName + "' not in the block library: " + fromDwg);
                             var ids = new ObjectIdCollection { sbt[blockName] };
                             var map = new IdMapping();
                             db.WblockCloneObjects(ids, db.BlockTableId, map, DuplicateRecordCloning.Replace, false);
@@ -2920,7 +2927,7 @@ namespace Civil3DFactory
                     }
                     bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
                     if (!bt.Has(blockName))
-                        throw new InvalidOperationException("从块库克隆后仍找不到块 '" + blockName + "'。");
+                        throw new InvalidOperationException("Block '" + blockName + "' still not found after cloning from the block library.");
                 }
                 ObjectId btrId = bt[blockName];
 
@@ -2928,10 +2935,10 @@ namespace Civil3DFactory
 
                 EnsureRegApp(tr, db, TitleBlockXdataApp);
 
-                // 幂等：删掉上次本操作插的图框。
-                // 两条腿：XData 标记 + 同名块兜底（erase_same_block，默认开）。
-                // 光靠 XData 不行——只挂 RegAppName 不带载荷的 XData 存盘再开就没了，
-                // 旧图框找不着、越插越摞（2026-08-16 项目B三轮跑出 174 个图框查实）。
+                // Idempotent: delete the frames inserted by the previous run of this op.
+                // Two legs: XData tag + same-name block fallback (erase_same_block, on by default).
+                // XData alone is not enough -- XData with only a RegAppName and no payload is gone after save and reopen,
+                // old frames cannot be found and pile up (confirmed 2026-08-16: three runs on project B produced 174 frames).
                 bool eraseSameName = GetBool(a, "erase_same_block", true);
                 foreach (ObjectId id in ms)
                 {
@@ -2963,14 +2970,14 @@ namespace Civil3DFactory
                 var btr = (BlockTableRecord)tr.GetObject(btrId, OpenMode.ForRead);
                 int total = atArr != null ? atArr.Count : count;
 
-                // clone_from：整体深克隆成品里的原装块引用（连实例级手调过的属性几何），
-                // 逐点复制后擦掉原型。定义造出来的属性不是原样（2026-08-16 项目B 1301 对照实锤）。
+                // clone_from: deep-clone the original block references from a finished drawing (including instance-level hand-tuned attribute geometry),
+                // copy per point, then erase the prototype. Attributes built from the definition are not identical (confirmed 2026-08-16 by comparing project B sheet 1301).
                 var cloneFrom = a["clone_from"] as JsonObject;
                 if (cloneFrom != null && atArr != null)
                 {
                     string srcPath = cloneFrom["dwg"]?.GetValue<string>();
                     if (string.IsNullOrEmpty(srcPath) || !File.Exists(srcPath))
-                        throw new InvalidOperationException("clone_from.dwg 不存在：" + srcPath);
+                        throw new InvalidOperationException("clone_from.dwg does not exist: " + srcPath);
                     ObjectId protoId;
                     using (var src = new Database(false, true))
                     {
@@ -3004,7 +3011,7 @@ namespace Civil3DFactory
                             stx.Commit();
                         }
                         if (found.IsNull)
-                            throw new InvalidOperationException("clone_from 图里没找到块 '" + blockName + "' 的引用。");
+                            throw new InvalidOperationException("No reference of block '" + blockName + "' found in the clone_from drawing.");
                         var cids = new ObjectIdCollection { found };
                         var cmap = new IdMapping();
                         src.WblockCloneObjects(cids, ms.ObjectId, cmap, DuplicateRecordCloning.Replace, false);
@@ -3041,7 +3048,7 @@ namespace Civil3DFactory
                     {
                         var it = atArr[i] as JsonObject;
                         if (it == null || it["x"] == null || it["y"] == null)
-                            throw new InvalidOperationException("at[" + i + "] 缺 x/y。");
+                            throw new InvalidOperationException("at[" + i + "] is missing x/y.");
                         pos = new Point3d(it["x"].GetValue<double>(), it["y"].GetValue<double>(), 0);
                         itemAttrs = it["attributes"] as JsonObject;
                     }
@@ -3054,14 +3061,14 @@ namespace Civil3DFactory
                     ms.AppendEntity(br);
                     tr.AddNewlyCreatedDBObject(br, true);
                     if (!string.IsNullOrEmpty(layer)) br.Layer = layer;
-                    // 载荷不能省：只有 RegAppName 的 XData 存盘重开后取不回来，幂等删除会失明
+                    // The payload is mandatory: XData with only a RegAppName cannot be read back after save and reopen, and idempotent deletion goes blind
                     br.XData = new ResultBuffer(
                         new TypedValue((int)DxfCode.ExtendedDataRegAppName, TitleBlockXdataApp),
                         new TypedValue((int)DxfCode.ExtendedDataAsciiString, "C3DF"));
 
                     if (atArr != null)
                     {
-                        // 对齐：给定点 = 块外包的左下角（先量几何、再挪，属性还没挂不掺和）
+                        // Alignment: given point = lower-left corner of the block's bounding box (measure geometry first, then move; attributes are not attached yet so do not interfere)
                         try
                         {
                             Extents3d ext = br.GeometricExtents;
@@ -3084,7 +3091,7 @@ namespace Civil3DFactory
                                 : (attrs != null ? attrs[ad.Tag] : null);
                             if (v != null)
                             {
-                                // 值里带 {n} 就替换成图号（从 1 开始）
+                                // {n} in a value is replaced with the sheet number (starting at 1)
                                 ar.TextString = v.ToString().Replace("{n}", (i + 1).ToString());
                                 attrsFilled++;
                             }
@@ -3092,8 +3099,8 @@ namespace Civil3DFactory
                             {
                                 double wf = widthFactors[ad.Tag].GetValue<double>();
                                 if (wf > 0) ar.WidthFactor = wf;
-                                // 只有改过宽度才需要重摆；无头会话里对没动过的居中属性调
-                                // AdjustAlignment 会按错误字宽右移（2026-08-16 项目B「右撇」元凶）
+                                // Re-placement is needed only when the width changed; in a headless session, calling AdjustAlignment
+                                // on an untouched centred attribute shifts it right by the wrong text width (the "right drift" culprit on project B, 2026-08-16)
                                 try { ar.AdjustAlignment(db); } catch { }
                             }
                             br.AttributeCollection.AppendAttribute(ar);
@@ -3106,9 +3113,9 @@ namespace Civil3DFactory
                 tr.Commit();
             }
 
-            // ATTSYNC（API 版）：把每个属性的位置/格式按块定义重置（= 界面上的 ATTSYNC），
-            // 保留已填的值，最后再补 width_factors——同步会把宽度重置回定义值。
-            // 不走 _.ATTSYNC 命令：无头会话里提示序列不稳，实测抛 eInvalidInput。
+            // ATTSYNC (API version): reset each attribute's position/format from the block definition (= ATTSYNC in the UI),
+            // keeping filled values, then re-apply width_factors at the end -- sync resets widths to the definition values.
+            // The _.ATTSYNC command is not used: its prompt sequence is unstable in a headless session, measured throwing eInvalidInput.
             bool wantAttsync = GetBool(a, "attsync", true);
             int widthReapplied = 0, attrsSynced = 0;
             if (wantAttsync && inserted > 0)
@@ -3174,12 +3181,12 @@ namespace Civil3DFactory
                 return new JsonObject
                 {
                     ["block"] = blockName,
-                    ["mode"] = atArr != null ? "at（逐点，对齐外包左下角）" : "grid",
+                    ["mode"] = atArr != null ? "at (per point, aligned to bounding-box lower-left)" : "grid",
                     ["inserted"] = inserted,
                     ["old_erased"] = erased,
-                    ["scale"] = "1:" + scale.ToString("0.###") + "（来源：" + scaleFrom + "）",
-                    ["paper"] = paper + " " + pw + "×" + ph + " mm",
-                    ["frame_size_model"] = Math.Round(frameW, 3) + " × " + Math.Round(frameH, 3) + " m",
+                    ["scale"] = "1:" + scale.ToString("0.###") + " (source: " + scaleFrom + ")",
+                    ["paper"] = paper + " " + pw + "x" + ph + " mm",
+                    ["frame_size_model"] = Math.Round(frameW, 3) + " x " + Math.Round(frameH, 3) + " m",
                     ["block_scale"] = blockScale,
                     ["attributes_filled"] = attrsFilled,
                     ["attsync"] = wantAttsync,
@@ -3191,7 +3198,7 @@ namespace Civil3DFactory
             } finally { HostApplicationServices.WorkingDatabase = prevWdb; }
         }
 
-        // ===================== 诊断：图上都有些什么 =====================
+        // ===================== Diagnostics: what is in the drawing =====================
 
         static JsonNode EntityStats(JsonObject a, Document doc)
         {
@@ -3227,9 +3234,9 @@ namespace Civil3DFactory
             return new JsonObject { ["total_entities"] = total, ["group_by"] = byWhat, ["top"] = arr };
         }
 
-        // ===================== 出图辅助：图层全开 =====================
-        // headless 打印时最常见的"打出来是白纸"：对象在的图层被关/冻结了。
-        // 新建的 Civil 对象按 LayerKey 落到项目自己的图层上，那些图层在原图里可能本来就是关的。
+        // ===================== Plot helper: turn all layers on =====================
+        // The most common "blank sheet" in headless plotting: the objects' layer is off/frozen.
+        // New Civil objects land on the project's own layers by LayerKey, and those layers may have been off in the original drawing.
 
         static JsonNode LayersOff(JsonObject a, Document doc)
         {
@@ -3238,7 +3245,7 @@ namespace Civil3DFactory
             if (arr != null) foreach (JsonNode n in arr) names.Add(n.GetValue<string>());
             string one = GetString(a, "name", null);
             if (!string.IsNullOrEmpty(one)) names.Add(one);
-            if (names.Count == 0) throw new InvalidOperationException("给 name 或 names[]（图层名）。");
+            if (names.Count == 0) throw new InvalidOperationException("Give name or names[] (layer names).");
 
             Database db = doc.Database;
             var done = new JsonArray();
@@ -3250,7 +3257,7 @@ namespace Civil3DFactory
                 {
                     if (!lt.Has(nm)) { missing.Add(nm); continue; }
                     ObjectId id = lt[nm];
-                    if (id == db.Clayer) { missing.Add(nm + "(当前图层，跳过)"); continue; }
+                    if (id == db.Clayer) { missing.Add(nm + "(current layer, skipped)"); continue; }
                     var ltr = (LayerTableRecord)tr.GetObject(id, OpenMode.ForWrite);
                     ltr.IsOff = true;
                     done.Add(nm);
@@ -3273,7 +3280,7 @@ namespace Civil3DFactory
                     var ltr = (LayerTableRecord)tr.GetObject(id, OpenMode.ForRead);
                     bool needOn = ltr.IsOff, needThaw = ltr.IsFrozen;
                     if (!needOn && !needThaw) continue;
-                    // 当前图层不能冻结，跳过以免抛异常
+                    // The current layer cannot be frozen; skip it to avoid an exception
                     if (needThaw && id == db.Clayer) needThaw = false;
                     ltr.UpgradeOpen();
                     if (needOn) { ltr.IsOff = false; turnedOn.Add(ltr.Name); }
@@ -3285,18 +3292,18 @@ namespace Civil3DFactory
             {
                 ["turned_on"] = turnedOn,
                 ["thawed"] = thawed,
-                ["note"] = "只改内存中的图纸；不 save_dwg 就不会落盘"
+                ["note"] = "only the in-memory drawing is changed; nothing is written to disk without save_dwg"
             };
         }
 
-        // ===================== 10. 存盘 =====================
+        // ===================== 10. Save =====================
 
-        // Civil 部分 API（已确诊：SectionViewVolumeTableGroup.CreateVolumeTable）把新对象
-        // 以写打开状态交回且不归调用方事务管，事务提交也关不掉，SaveAs 直接抛
-        // eWasOpenForWrite 且落盘文件是坏的（ErrorStatus=434）。存盘前扫全库，把还挂着
-        // 写打开的对象逐个 DowngradeOpen 收回来，任何节点漏关都在这里兜住。
-        // ⚠ 必须用普通 StartTransaction：OpenCloseTransaction 对已在别处写打开的对象
-        // 直接抛 eWasOpenForWrite（数出来永远是 0）；普通事务能挂上已打开对象。
+        // Some Civil APIs (confirmed: SectionViewVolumeTableGroup.CreateVolumeTable) hand back new objects
+        // open for write and outside the caller's transaction; committing does not close them, SaveAs throws
+        // eWasOpenForWrite and the written file is corrupt (ErrorStatus=434). Before saving, scan the whole database and
+        // DowngradeOpen every object still open for write, so any handle a node forgot to close is caught here.
+        // ! Must use a plain StartTransaction: OpenCloseTransaction throws eWasOpenForWrite outright on objects
+        // already open for write elsewhere (the count is always 0); a plain transaction can attach to already-open objects.
         static int ReclaimWriteOpen(Database db)
         {
             int reclaimed = 0;
@@ -3337,23 +3344,23 @@ namespace Civil3DFactory
             {
                 string dir = Path.GetDirectoryName(host);
                 string stem = Path.GetFileNameWithoutExtension(host);
-                outPath = Path.Combine(dir, stem + "_链路_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".dwg");
+                outPath = Path.Combine(dir, stem + "_out_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".dwg");
             }
             if (!Path.IsPathRooted(outPath))
-                throw new InvalidOperationException("out 必须是绝对路径：" + outPath);
+                throw new InvalidOperationException("out must be an absolute path: " + outPath);
             if (!apply && string.Equals(Path.GetFullPath(outPath), Path.GetFullPath(host),
                                         StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("out 指向了宿主图纸本身；要写回原图请显式传 apply:true。");
+                throw new InvalidOperationException("out points to the host drawing itself; pass apply:true explicitly to write back to the original.");
             if (File.Exists(outPath) && !apply && !GetBool(a, "overwrite", false))
-                throw new InvalidOperationException("文件已存在，拒绝覆盖：" + outPath + "（确需覆盖传 overwrite:true）");
+                throw new InvalidOperationException("File already exists, refusing to overwrite: " + outPath + " (pass overwrite:true to overwrite)");
 
             string backup = null;
             if (apply && GetBool(a, "backup", true) && File.Exists(host))
             {
                 backup = Path.Combine(Path.GetDirectoryName(host),
-                    Path.GetFileNameWithoutExtension(host) + "_备份_" +
+                    Path.GetFileNameWithoutExtension(host) + "_backup_" +
                     DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".dwg");
-                File.Copy(host, backup, false);   // 备份失败就抛，不带伤前进
+                File.Copy(host, backup, false);   // throw if the backup fails; do not proceed wounded
             }
 
             string dir2 = Path.GetDirectoryName(outPath);
@@ -3383,7 +3390,7 @@ namespace Civil3DFactory
                     {
                         string fallback = Path.Combine(
                             dir2,
-                            Path.GetFileNameWithoutExtension(outPath) + "_运行_" +
+                            Path.GetFileNameWithoutExtension(outPath) + "_run_" +
                             DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".dwg");
                         File.Move(actualSavePath, fallback);
                         actualSavePath = fallback;
@@ -3403,20 +3410,20 @@ namespace Civil3DFactory
 
             return new JsonObject
             {
-                ["mode"] = apply ? "已写回宿主图纸" : "另存新文件（宿主图纸磁盘副本未动）",
+                ["mode"] = apply ? "written back to the host drawing" : "saved as a new file (host drawing on disk untouched)",
                 ["output"] = outPath,
                 ["requested_output"] = requestedOutPath,
                 ["replaced_existing"] = replaceExisting,
                 ["fallback_because_target_locked"] = fallbackBecauseLocked,
-                ["backup"] = backup ?? "(无需备份)",
+                ["backup"] = backup ?? "(no backup needed)",
                 ["bytes"] = File.Exists(outPath) ? new FileInfo(outPath).Length : 0,
                 ["write_handles_reclaimed"] = reclaimed
             };
         }
 
-        // ===================== 诊断：曲面/走廊到底有没有几何 =====================
-        // 「算出来是 0」最常见的原因不是算错，而是上游某个面/走廊压根是空的。
-        // 这两个操作把"有没有东西"这件事变成可看的数字。
+        // ===================== Diagnostics: does the surface/corridor actually have geometry =====================
+        // The most common cause of "result is 0" is not a wrong computation but an upstream surface/corridor that is simply empty.
+        // These two ops turn "is there anything there" into visible numbers.
 
         static JsonNode SurfaceStats(JsonObject a, Document doc)
         {
@@ -3431,8 +3438,8 @@ namespace Civil3DFactory
                     if (s == null) continue;
                     if (!string.IsNullOrEmpty(want) && s.Name != want) continue;
 
-                    // ⚠ 不要遍历 Vertices/Triangles：headless 里会**硬崩**进程（AccessViolation，
-                    // .NET 捕不到，表现为结果文件停在 ops:[] 什么都没有）。统计一律走属性接口。
+                    // ! Do not iterate Vertices/Triangles: headless it **crashes** the process (AccessViolation,
+                    // uncatchable in .NET; the result file stops at ops:[] with nothing). Statistics always go through the property interface.
                     var o = new JsonObject { ["name"] = s.Name, ["type"] = s.GetType().Name };
                     o["general"] = InvokeAndDump(s, "GetGeneralProperties");
                     if (s is CivTinSurface) o["tin"] = InvokeAndDump(s, "GetTinProperties");
@@ -3440,7 +3447,7 @@ namespace Civil3DFactory
                 }
                 tr.Commit();
             }
-            if (arr.Count == 0) throw new InvalidOperationException("没有匹配的曲面。");
+            if (arr.Count == 0) throw new InvalidOperationException("No matching surface.");
             return arr;
         }
 
@@ -3484,7 +3491,7 @@ namespace Civil3DFactory
                     catch (System.Exception ex) { o["surface_error"] = ex.GetType().Name + ": " + ex.Message; }
                     o["corridor_surfaces"] = surfs;
 
-                    // 基准线/区域要遍历托管包装对象，headless 下有硬崩风险，默认不碰
+                    // Baselines/regions require iterating managed wrapper objects, which risks a hard crash headless; not touched by default
                     if (GetBool(a, "deep", false))
                     {
                         var bls = new JsonArray();
@@ -3516,13 +3523,13 @@ namespace Civil3DFactory
                 }
                 tr.Commit();
             }
-            if (arr.Count == 0) throw new InvalidOperationException("没有匹配的走廊。");
+            if (arr.Count == 0) throw new InvalidOperationException("No matching corridor.");
             return arr;
         }
 
-        /// <summary>只读盘点走廊目标：走廊→基线→区域→每个目标槽指向的对象。
-        /// 曲线类目标（多段线/要素线等）顺带沿线采样，实测相对基线路线的偏移分布——
-        /// spread 小＝等距偏移段（可换偏移路线），spread 大＝变宽段（该把线升级成路线再当目标）。</summary>
+        /// <summary>Read-only inventory of corridor targets: corridor -> baseline -> region -> the object each target slot points to.
+        /// Curve targets (polylines/feature lines etc.) are also sampled along their length to measure the offset distribution relative to the baseline alignment --
+        /// small spread = constant-offset segment (can be replaced by an offset alignment), large spread = widening segment (promote the line to an alignment before using it as a target).</summary>
         static JsonNode CorridorTargets(JsonObject a, Document doc)
         {
             string want = GetString(a, "name", null);
@@ -3578,7 +3585,7 @@ namespace Civil3DFactory
                     catch (System.Exception ex) { co["baseline_error"] = ex.GetType().Name + ": " + ex.Message; }
                     co["baselines"] = bls;
 
-                    // 走廊级目标（create_corridor 设目标走的就是这一级；区域级读不到的这里兜底）
+                    // Corridor-level targets (create_corridor sets targets at this level; fallback for what the region level cannot read)
                     var cslots = new JsonArray();
                     try
                     {
@@ -3603,16 +3610,16 @@ namespace Civil3DFactory
                 }
                 tr.Commit();
             }
-            if (arr.Count == 0) throw new InvalidOperationException("没有匹配的走廊。");
+            if (arr.Count == 0) throw new InvalidOperationException("No matching corridor.");
             return arr;
         }
 
-        /// <summary>批量改路线名（对象与句柄不动，偏移/走廊等引用全保留）。</summary>
+        /// <summary>Batch rename alignments (objects and handles untouched; offset/corridor references all preserved).</summary>
         static JsonNode RenameAlignments(JsonObject a, Document doc)
         {
             var items = a["items"] as JsonArray;
             if (items == null || items.Count == 0)
-                throw new InvalidOperationException("items 必需：[{from,to}]。");
+                throw new InvalidOperationException("items is required: [{from,to}].");
             Database db = doc.Database;
             CivDoc civ = Civ(db);
             var done = new JsonArray();
@@ -3623,9 +3630,9 @@ namespace Civil3DFactory
                     var o = (JsonObject)n;
                     string from = Need(o, "from"), to = Need(o, "to");
                     var al = FindAlignment(tr, civ, from);
-                    if (al == null) throw new InvalidOperationException("找不到路线 '" + from + "'。");
+                    if (al == null) throw new InvalidOperationException("Alignment '" + from + "' not found.");
                     if (FindAlignment(tr, civ, to) != null)
-                        throw new InvalidOperationException("目标名 '" + to + "' 已存在。");
+                        throw new InvalidOperationException("Target name '" + to + "' already exists.");
                     al.UpgradeOpen();
                     al.Name = to;
                     done.Add(new JsonObject { ["from"] = from, ["to"] = to, ["handle"] = al.Handle.ToString() });
@@ -3635,8 +3642,8 @@ namespace Civil3DFactory
             return new JsonObject { ["renamed"] = done };
         }
 
-        /// <summary>解析一个目标槽：显示名/类型/子装配，逐个目标对象报类名/句柄/图层；
-        /// 目标是路线时报偏移路线信息，是普通曲线时沿线采样实测相对参照路线的偏移分布。</summary>
+        /// <summary>Resolve one target slot: display name/type/subassembly, and for each target object its class name/handle/layer;
+        /// alignment targets report offset alignment info, plain curves are sampled along their length to measure the offset distribution relative to the reference alignment.</summary>
         static JsonObject DumpTargetSlot(Transaction tr, CivTargetInfo t, CivAlignment refAl, double lo, double hi, double step, int maxSamples)
         {
             var so = new JsonObject
@@ -3689,13 +3696,13 @@ namespace Civil3DFactory
             return so;
         }
 
-        /// <summary>沿曲线等距采样，逐点求相对路线的桩号/偏移；只统计落在 [lo,hi] 桩号窗内的样本。</summary>
+        /// <summary>Sample a curve at equal spacing and compute station/offset relative to the alignment per point; only samples inside the [lo,hi] station window are counted.</summary>
         static JsonNode SampleCurveOffsets(Curve cur, CivAlignment al, double lo, double hi, double step, int maxSamples)
         {
             double len;
             try { len = cur.GetDistanceAtParameter(cur.EndParam); }
-            catch (System.Exception ex) { return "(取不到曲线长度: " + ex.GetType().Name + ")"; }
-            if (len <= 0) return "(零长度曲线)";
+            catch (System.Exception ex) { return "(cannot get curve length: " + ex.GetType().Name + ")"; }
+            if (len <= 0) return "(zero-length curve)";
             int n = Math.Min(Math.Max(2, maxSamples), Math.Max(2, (int)Math.Ceiling(len / Math.Max(0.5, step)) + 1));
             double dstep = len / (n - 1);
             var offs = new List<double>();
@@ -3733,16 +3740,16 @@ namespace Civil3DFactory
             return o;
         }
 
-        /// <summary>调对象上一个无参方法，把返回值的可读属性全 dump 成 JSON。
-        /// 统计类接口（GetGeneralProperties / GetTinProperties）返回的结构体成员名不用猜。</summary>
+        /// <summary>Call a parameterless method on an object and dump all readable properties of the return value as JSON.
+        /// No need to guess the struct member names returned by statistics interfaces (GetGeneralProperties / GetTinProperties).</summary>
         static JsonNode InvokeAndDump(object target, string methodName)
         {
             try
             {
                 var m = target.GetType().GetMethod(methodName, Type.EmptyTypes);
-                if (m == null) return "(无 " + methodName + " 方法)";
+                if (m == null) return "(no " + methodName + " method)";
                 object v = m.Invoke(target, null);
-                if (v == null) return "(返回 null)";
+                if (v == null) return "(returned null)";
                 var o = new JsonObject();
                 foreach (var p in v.GetType().GetProperties())
                 {
@@ -3756,15 +3763,15 @@ namespace Civil3DFactory
                         else if (pv is bool) o[p.Name] = (bool)pv;
                         else o[p.Name] = pv.ToString();
                     }
-                    catch (System.Exception ex) { o[p.Name] = "(取值失败: " + ex.GetType().Name + ")"; }
+                    catch (System.Exception ex) { o[p.Name] = "(read failed: " + ex.GetType().Name + ")"; }
                 }
                 return o;
             }
             catch (System.Exception ex) { return "(" + ex.GetType().Name + ": " + Truncate(ex.Message, 100) + ")"; }
         }
 
-        /// <summary>重建走廊（诊断用：GUI 建好的走廊在 headless 重建后还剩什么，
-        /// 就能判断子装配代码在 accoreconsole 里到底跑不跑）。</summary>
+        /// <summary>Rebuild a corridor (diagnostic: what remains of a GUI-built corridor after a headless rebuild
+        /// tells whether the subassembly code actually runs inside accoreconsole).</summary>
         static JsonNode RebuildCorridor(JsonObject a, Document doc)
         {
             string name = Need(a, "name");
@@ -3772,7 +3779,7 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 CivCorridor c = FindCorridor(tr, db, name);
-                if (c == null) throw new InvalidOperationException("找不到走廊 '" + name + "'。");
+                if (c == null) throw new InvalidOperationException("Corridor '" + name + "' not found.");
                 var before = new JsonArray();
                 foreach (string s in c.GetLinkCodes()) before.Add(s);
                 c.Rebuild();
@@ -3794,9 +3801,9 @@ namespace Civil3DFactory
             try { return f() ?? ""; } catch (System.Exception ex) { return "(" + ex.GetType().Name + ")"; }
         }
 
-        // ===================== 查 API 真实签名 =====================
-        // AeccDbMgd 是混合模式程序集，进程外反射不了（MetadataLoadContext 也累），
-        // 但在 acc 进程里它已经加载好了——直接反射最省事。写新操作前用它查签名，别猜。
+        // ===================== Look up real API signatures =====================
+        // AeccDbMgd is a mixed-mode assembly; it cannot be reflected out of process (MetadataLoadContext is tedious too),
+        // but inside the acc process it is already loaded -- reflecting directly is easiest. Use it to check signatures before writing new ops instead of guessing.
 
         static JsonNode ApiSignatures(JsonObject a, Document doc)
         {
@@ -3805,12 +3812,12 @@ namespace Civil3DFactory
             bool staticsOnly = GetBool(a, "statics_only", false);
             int max = (int)GetDouble(a, "max", 120);
 
-            // 先按全名直取（GetType 不会因为程序集里有加载不了的类型而整体失败），
-            // 取不到再退回扫简单名——扫的时候 GetTypes() 可能抛 ReflectionTypeLoadException，
-            // 那时它的 Types 里仍有能用的部分，别整个丢掉。
-            // AutoCAD 把 AeccDbMgd 等加载在自定义 AssemblyLoadContext 里，
-            // AppDomain.CurrentDomain.GetAssemblies() **看不到它们**（第一版就栽在这）。
-            // 所以从本插件已引用的类型反查程序集，作为搜索种子。
+            // Try the full name first (GetType does not fail wholesale because some types in the assembly cannot load),
+            // then fall back to scanning simple names -- GetTypes() may throw ReflectionTypeLoadException while scanning,
+            // and its Types still holds the usable part, do not discard it entirely.
+            // AutoCAD loads AeccDbMgd etc. in a custom AssemblyLoadContext, and
+            // AppDomain.CurrentDomain.GetAssemblies() **cannot see them** (the first version fell into this).
+            // So work back from types this plugin already references to their assemblies, and use those as search seeds.
             var pool = new List<System.Reflection.Assembly>
             {
                 typeof(CivAlignment).Assembly,      // AeccDbMgd
@@ -3847,7 +3854,7 @@ namespace Civil3DFactory
                     if (hits.Count > 12) break;
                 }
             }
-            if (hits.Count == 0) throw new InvalidOperationException("找不到类型 '" + typeName + "'。");
+            if (hits.Count == 0) throw new InvalidOperationException("Type '" + typeName + "' not found.");
 
             var arr = new JsonArray();
             foreach (Type t in hits)
@@ -3862,7 +3869,7 @@ namespace Civil3DFactory
                     if (m.IsSpecialName) continue;
                     if (!string.IsNullOrEmpty(filter) &&
                         m.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0) continue;
-                    if (members.Count >= max) { members.Add("…(还有更多)"); break; }
+                    if (members.Count >= max) { members.Add("...(more)"); break; }
                     var ps = new List<string>();
                     foreach (var p in m.GetParameters()) ps.Add(Short(p.ParameterType) + " " + p.Name);
                     members.Add((m.IsStatic ? "static " : "") + Short(m.ReturnType) + " " +
@@ -3890,10 +3897,10 @@ namespace Civil3DFactory
             return arr;
         }
 
-        /// <summary>把一条线/多段线转成路线。
-        /// 这个版本**没有** CreateFromPolyline（网上抄来的写法在 2025 上编译不过），
-        /// 真名是 Alignment.Create(CivilDocument, PolylineOptions, ...)，
-        /// 多段线本身、是否删源、是否加缓和曲线都塞在 PolylineOptions 里（用 api 操作查出来的）。</summary>
+        /// <summary>Convert a line/polyline into an alignment.
+        /// This version has **no** CreateFromPolyline (the snippet copied from the web does not compile on 2025);
+        /// the real name is Alignment.Create(CivilDocument, PolylineOptions, ...),
+        /// with the polyline, erase-source and add-spirals flags all packed into PolylineOptions (found with the api op).</summary>
         static ObjectId CreateAlignmentFromEntity(Transaction tr, CivDoc civ, string name,
             ObjectId siteId, ObjectId entId, ObjectId layerId, ObjectId styleId, ObjectId labelId,
             bool eraseSource, bool addCurves)
@@ -3922,19 +3929,19 @@ namespace Civil3DFactory
             return n;
         }
 
-        // ===================== 公共辅助 =====================
+        // ===================== Shared helpers =====================
 
         static CivDoc Civ(Database db)
         {
             CivDoc c = CivDoc.GetCivilDocument(db);
-            if (c == null) throw new InvalidOperationException("拿不到 CivilDocument（这张图可能不是 Civil 3D 图纸）。");
+            if (c == null) throw new InvalidOperationException("Cannot get the CivilDocument (this drawing may not be a Civil 3D drawing).");
             return c;
         }
 
         static string Need(JsonObject a, string key)
         {
             string v = GetString(a, key, null);
-            if (string.IsNullOrEmpty(v)) throw new InvalidOperationException("缺少参数 " + key + "。");
+            if (string.IsNullOrEmpty(v)) throw new InvalidOperationException("Missing parameter " + key + ".");
             return v;
         }
 
@@ -3943,17 +3950,17 @@ namespace Civil3DFactory
             long h = Convert.ToInt64(handle.Trim(), 16);
             ObjectId id;
             if (!db.TryGetObjectId(new Handle(h), out id) || id.IsNull)
-                throw new InvalidOperationException("图中没有句柄 " + handle + " 的对象。");
+                throw new InvalidOperationException("No object with handle " + handle + " in the drawing.");
             return id;
         }
 
-        /// <summary>按名找样式；name 为空或找不到时退回集合第一个（集合空则返回 Null）。</summary>
+        /// <summary>Find a style by name; when name is empty or not found, fall back to the first in the collection (Null when the collection is empty).</summary>
         static ObjectId FindStyleId(Transaction tr, object collection, string name)
         {
-            // 匹配顺序：精确 > 忽略大小写 > 唯一前缀 > 唯一包含 > 集合第一个（老兜底）。
-            // 前缀/包含是给「样式名带版本后缀」的库准备的：图里叫 @C3DF-SimpleGrid[Defalt]、
-            // @C3DF-river-dregde[Default-v2.0]，调用方只记得短名。精确匹配不到就直接退回
-            // 第一个的老行为会安静地设错样式，比不设还糟。
+            // Match order: exact > case-insensitive > unique prefix > unique substring > first in collection (old fallback).
+            // Prefix/substring exist for libraries whose "style names carry a version suffix": the drawing has @C3DF-SimpleGrid[Defalt],
+            // @C3DF-river-dregde[Default-v2.0], while the caller only remembers the short name. The old behaviour of falling straight back to
+            // the first entry on an exact miss silently sets the wrong style, worse than none.
             ObjectId first = ObjectId.Null;
             var en = collection as System.Collections.IEnumerable;
             if (en == null) return ObjectId.Null;
@@ -3969,7 +3976,7 @@ namespace Civil3DFactory
                 try { n = TryGetName(tr.GetObject(id, OpenMode.ForRead)); }
                 catch { }
                 if (string.IsNullOrEmpty(n)) continue;
-                if (n == name) return id;                    // 精确命中，到此为止
+                if (n == name) return id;                    // exact hit, done
                 all.Add(new KeyValuePair<ObjectId, string>(id, n));
             }
             if (string.IsNullOrEmpty(name)) return first;
@@ -3992,8 +3999,8 @@ namespace Civil3DFactory
             return first;
         }
 
-        /// <summary>同一短名命中多个样式时取版本最高的那个：样式库习惯把版本写进名字
-        /// （@C3DF-river-dregde[Default] / [Default-v2.0]），取集合第一个等于随机挑一个。</summary>
+        /// <summary>When one short name matches several styles take the highest version: the style library writes versions into names
+        /// (@C3DF-river-dregde[Default] / [Default-v2.0]); taking the first in the collection is a random pick.</summary>
         static ObjectId PickNewestStyle(List<KeyValuePair<ObjectId, string>> cands)
         {
             ObjectId best = cands[0].Key;
@@ -4013,7 +4020,7 @@ namespace Civil3DFactory
             return best;
         }
 
-        /// <summary>从样式名里抠出 vN[.N] 的版本号，没有算 0。</summary>
+        /// <summary>Extract the vN[.N] version number from a style name; 0 when absent.</summary>
         static double StyleVersion(string name)
         {
             if (string.IsNullOrEmpty(name)) return 0;
@@ -4021,7 +4028,7 @@ namespace Civil3DFactory
             for (int i = 0; i < name.Length - 1; i++)
             {
                 if (name[i] != 'v' && name[i] != 'V') continue;
-                if (i > 0 && char.IsLetterOrDigit(name[i - 1])) continue;   // 要 v 前是分隔符
+                if (i > 0 && char.IsLetterOrDigit(name[i - 1])) continue;   // v must be preceded by a separator
                 int j = i + 1;
                 while (j < name.Length && (char.IsDigit(name[j]) || name[j] == '.')) j++;
                 if (j == i + 1) continue;
@@ -4120,7 +4127,7 @@ namespace Civil3DFactory
             return ObjectId.Null;
         }
 
-        // ===================== 导出 DWG 图纸中所有的表格 =====================
+        // ===================== Export all tables in the DWG drawing =====================
 
         public class ExtractedTableData
         {
@@ -4255,7 +4262,7 @@ namespace Civil3DFactory
                 Id = index,
                 Space = spaceName,
                 Type = "AcadTable",
-                Title = "表格_" + index
+                Title = "Table_" + index
             };
 
             int numRows = tbl.Rows.Count;
@@ -4298,9 +4305,9 @@ namespace Civil3DFactory
                     Id = ++index,
                     Space = "Civil3D_QTO",
                     Type = "CivQtoMaterialList_Total",
-                    Title = "材质体积表_" + alignmentName + "_" + ml.Name
+                    Title = "MaterialVolumeTable_" + alignmentName + "_" + ml.Name
                 };
-                dataTotal.Rows.Add(new List<string> { "序号", "桩号", "累计挖方(m³)", "累计填方(m³)", "增量挖方(m³)", "增量填方(m³)" });
+                dataTotal.Rows.Add(new List<string> { "No.", "Station", "Cumulative cut(m³)", "Cumulative fill(m³)", "Incremental cut(m³)", "Incremental fill(m³)" });
 
                 int i = 0;
                 double cut = 0, fill = 0;
@@ -4319,7 +4326,7 @@ namespace Civil3DFactory
                     cut = v.CumulativeCutVolume;
                     fill = v.CumulativeFillVolume;
                 }
-                dataTotal.Rows.Add(new List<string> { "合计", "", Math.Round(cut, 3).ToString(), Math.Round(fill, 3).ToString(), "", "" });
+                dataTotal.Rows.Add(new List<string> { "Total", "", Math.Round(cut, 3).ToString(), Math.Round(fill, 3).ToString(), "", "" });
                 if (dataTotal.Rows.Count > 1) list.Add(dataTotal);
             }
             catch { }

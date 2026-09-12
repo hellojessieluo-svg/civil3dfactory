@@ -11,13 +11,13 @@ namespace Civil3DFactory
 {
     public static partial class Ops
     {
-        /// <summary>从外部 DWG 把指定名称的曲面 WblockClone 进当前图纸；已存在同名曲面则跳过。</summary>
+        /// <summary>WblockClone the named surface from an external DWG into the current drawing; skipped if a surface of that name already exists.</summary>
         static JsonNode RunNodeImportSurface(JsonObject args, Document doc)
         {
             string path = Need(args, "dwg");
             string name = Need(args, "name");
             if (!File.Exists(path))
-                throw new InvalidOperationException("找不到曲面来源图纸: " + path);
+                throw new InvalidOperationException("Surface source drawing not found: " + path);
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
@@ -31,7 +31,7 @@ namespace Civil3DFactory
                     {
                         ["surface"] = name,
                         ["imported"] = false,
-                        ["reason"] = "当前图纸已存在同名曲面，直接使用"
+                        ["reason"] = "a surface of this name already exists in the current drawing; using it"
                     };
                 }
                 tr.Commit();
@@ -56,7 +56,7 @@ namespace Civil3DFactory
                 }
                 if (srcId.IsNull)
                     throw new InvalidOperationException(
-                        "来源图纸里没有名为 '" + name + "' 的 TIN 曲面: " + path);
+                        "The source drawing has no TIN surface named '" + name + "': " + path);
 
                 var ids = new ObjectIdCollection { srcId };
                 var map = new IdMapping();
@@ -74,7 +74,7 @@ namespace Civil3DFactory
             {
                 ObjectId sid = FindSurfaceId(tr, civ, name);
                 if (sid.IsNull)
-                    throw new InvalidOperationException("WblockClone 后仍找不到曲面 '" + name + "'，导入失败。");
+                    throw new InvalidOperationException("Surface '" + name + "' still not found after WblockClone; import failed.");
                 var surf = (CivSurface)tr.GetObject(sid, OpenMode.ForRead);
                 var props = surf.GetGeneralProperties();
                 var res = new JsonObject

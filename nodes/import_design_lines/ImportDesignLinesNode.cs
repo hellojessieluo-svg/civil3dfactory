@@ -11,15 +11,15 @@ using CivilDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// import_design_lines：把设计线 DWG（export_design_lines 的产物，或人手画的）搬进当前图，
-    /// 中心线转成路线，闭合边界留作后续宽度目标的源。这是「多段线是输入参数」这条流水线的 S01。
+    /// import_design_lines: bring a design-line DWG (output of export_design_lines, or hand-drawn) into the current drawing;
+    /// centerlines become alignments, closed boundaries stay as the source for later width targets. This is S01 of the "polylines are the input" pipeline.
     ///
-    /// 身份靠图层名，不靠对象名——多段线没有名字：
-    ///   中心线-{通道}   → 建名为 {通道} 的路线
-    ///   边界-{通道}     → 原样搬进来，落在 boundary_layer 上，供 offsets_from_boundary 用
+    /// Identity comes from the layer name, not the object name -- polylines have no names:
+    ///   CL-{channel}        -> create an alignment named {channel}
+    ///   BOUNDARY-{channel}  -> copied as-is onto boundary_layer, for offsets_from_boundary
     ///
-    /// 装配 / 样式 / QTO 准则 / 原地形曲面这四样造不出来，必须已在当前图（模板）里。
-    /// 本节点只负责把设计意图搬进去，不碰它们。
+    /// Assemblies / styles / QTO criteria / existing-ground surface cannot be created here; they must already be in the current drawing (template).
+    /// This node only brings the design intent in and does not touch them.
     /// </summary>
     public static partial class Ops
     {
@@ -30,7 +30,7 @@ namespace Civil3DFactory
         {
             string from = Need(a, "dwg");
             if (!File.Exists(from))
-                throw new InvalidOperationException("找不到设计线图纸：" + from);
+                throw new InvalidOperationException("Design-line drawing not found: " + from);
 
             string cPrefix = GetString(a, "center_prefix", "CL-");
             string bPrefix = GetString(a, "boundary_prefix", "BOUNDARY-");
@@ -46,9 +46,9 @@ namespace Civil3DFactory
             var boundaries = new JsonArray();
             var notes = new JsonArray();
 
-            // ---- 1 从设计线图里挑出要搬的多段线 ----
+            // ---- 1 Pick the polylines to bring over from the design-line drawing ----
             var srcIds = new ObjectIdCollection();
-            var roleByHandle = new Dictionary<string, string>();   // 源句柄 → "C:通道" / "B:通道"
+            var roleByHandle = new Dictionary<string, string>();   // source handle -> "C:channel" / "B:channel"
             using (var srcDb = new Database(false, true))
             {
                 srcDb.ReadDwgFile(from, FileOpenMode.OpenForReadAndAllShare, true, null);
@@ -76,7 +76,7 @@ namespace Civil3DFactory
                             double area = 0.0;
                             try { area = Math.Abs(pl.Area); } catch (System.Exception) { }
                             if (area < minBoundaryArea)
-                            { notes.Add("丢弃碎片边界 " + layer + "（面积 " + Math.Round(area, 2) + " < " + minBoundaryArea + "）"); continue; }
+                            { notes.Add("Dropped fragment boundary " + layer + " (area " + Math.Round(area, 2) + " < " + minBoundaryArea + ")"); continue; }
                         }
                         srcIds.Add(id);
                         roleByHandle[pl.Handle.ToString()] = role + ":" + channel;
@@ -86,9 +86,9 @@ namespace Civil3DFactory
 
                 if (srcIds.Count == 0)
                     throw new InvalidOperationException(
-                        "设计线图里没有匹配的图层（中心线前缀 \"" + cPrefix + "\"、边界前缀 \"" + bPrefix + "\"）。");
+                        "No matching layers in the design-line drawing (centerline prefix \"" + cPrefix + "\", boundary prefix \"" + bPrefix + "\").");
 
-                // ---- 2 搬进当前图的模型空间 ----
+                // ---- 2 Copy into the current drawing's model space ----
                 using (Transaction tr = db.TransactionManager.StartTransaction())
                 {
                     BlockTable bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
@@ -99,23 +99,23 @@ namespace Civil3DFactory
                 }
             }
 
-            // ---- 3 在当前图里按图层认领，中心线转路线 ----
+            // ---- 3 Claim by layer in the current drawing; convert centerlines to alignments ----
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 CivilDoc civ = Civ(db);
-                // 无条件调用：FindStyleId 在名字为空时回退到该集合第一条。
-                // Alignment.Create 的 labelSetId 不接受 ObjectId.Null（抛
-                // "Value cannot be null. (Parameter 'labelSetId')"），必须给个真样式。
+                // Called unconditionally: FindStyleId falls back to the first entry of the collection when the name is empty.
+                // Alignment.Create's labelSetId does not accept ObjectId.Null (throws
+                // "Value cannot be null. (Parameter 'labelSetId')"), so a real style is required.
                 ObjectId styleId = FindStyleId(tr, civ.Styles.AlignmentStyles, style);
                 ObjectId labelId = FindStyleId(tr,
                     civ.Styles.LabelSetStyles.AlignmentLabelSetStyles, labelSet);
                 if (labelId.IsNull)
-                    throw new InvalidOperationException("当前图里没有任何路线标签集样式，无法建路线。");
+                    throw new InvalidOperationException("The current drawing has no alignment label set style; cannot create alignments.");
                 ObjectId layerId = db.Clayer;
                 if (!string.IsNullOrWhiteSpace(alLayer))
                     layerId = A2PEnsureLayer(tr, db, alLayer, 7, "Continuous", "acadiso.lin");
 
-                // 已有同名路线：按需先删，否则 Create 会因重名失败
+                // Existing alignment with the same name: erase it first if requested, otherwise Create fails on the duplicate name
                 var existing = new Dictionary<string, ObjectId>(StringComparer.OrdinalIgnoreCase);
                 foreach (ObjectId aid in civ.GetAlignmentIds())
                 {
@@ -127,8 +127,8 @@ namespace Civil3DFactory
                 BlockTableRecord ms = (BlockTableRecord)tr.GetObject(
                     bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
 
-                // 只处理刚搬进来的：按图层前缀 + 尚未登记的方式识别
-                var pending = new List<KeyValuePair<ObjectId, string>>();   // 实体 → "C:通道"/"B:通道"
+                // Only handle what was just copied in: identified by layer prefix + not yet registered
+                var pending = new List<KeyValuePair<ObjectId, string>>();   // entity -> "C:channel"/"B:channel"
                 foreach (ObjectId id in ms)
                 {
                     var pl = tr.GetObject(id, OpenMode.ForRead) as Polyline;
@@ -161,21 +161,21 @@ namespace Civil3DFactory
                         continue;
                     }
 
-                    // ⚠ 先改名腾位，建成功才删旧的。
-                    // 曾经写成「先删旧 → 再建新」，建失败时旧路线已经没了 —— 一次失败赔掉原始数据。
+                    // Rename first to free the name; erase the old one only after the new one is created.
+                    // It was once written as "erase old -> create new"; when creation failed the old alignment was already gone -- one failure cost the original data.
                     CivAlign old = null;
                     string parked = null;
                     if (existing.ContainsKey(channel))
                     {
                         if (!replaceExisting)
-                        { notes.Add("路线 " + channel + " 已存在，未替换（replace_existing=false）"); continue; }
+                        { notes.Add("Alignment " + channel + " already exists, not replaced (replace_existing=false)"); continue; }
                         old = tr.GetObject(existing[channel], OpenMode.ForWrite) as CivAlign;
                         if (old != null)
                         {
-                            parked = channel + "_旧_" + Guid.NewGuid().ToString("N").Substring(0, 6);
+                            parked = channel + "_old_" + Guid.NewGuid().ToString("N").Substring(0, 6);
                             try { old.Name = parked; }
                             catch (System.Exception ex)
-                            { notes.Add("路线 " + channel + " 无法改名腾位，跳过：" + ex.Message); continue; }
+                            { notes.Add("Alignment " + channel + " could not be renamed to free the name, skipped: " + ex.Message); continue; }
                         }
                     }
 
@@ -189,18 +189,18 @@ namespace Civil3DFactory
                     {
                         if (old != null)
                         {
-                            try { old.Name = channel; notes.Add("已把旧路线 " + channel + " 改回原名"); }
-                            catch (System.Exception) { notes.Add("⚠ 旧路线改不回原名，现名 " + parked); }
+                            try { old.Name = channel; notes.Add("Old alignment " + channel + " renamed back to its original name"); }
+                            catch (System.Exception) { notes.Add("WARNING: old alignment could not be renamed back, now named " + parked); }
                         }
-                        notes.Add("中心线 " + channel + " 转路线失败：" + ex.Message);
+                        notes.Add("Centerline " + channel + " failed to convert to an alignment: " + ex.Message);
                         continue;
                     }
 
                     if (old != null)
                     {
-                        try { old.Erase(); notes.Add("路线 " + channel + " 已按设计线重建，旧的已删"); }
+                        try { old.Erase(); notes.Add("Alignment " + channel + " rebuilt from the design line, old one erased"); }
                         catch (System.Exception ex)
-                        { notes.Add("⚠ 新路线 " + channel + " 已建，但旧的删不掉（现名 " + parked + "）：" + ex.Message); }
+                        { notes.Add("WARNING: new alignment " + channel + " created, but the old one could not be erased (now named " + parked + "): " + ex.Message); }
                     }
 
                     var al = tr.GetObject(newId, OpenMode.ForRead) as CivAlign;

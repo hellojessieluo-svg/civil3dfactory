@@ -1,14 +1,14 @@
 {
   "node": "create_twotier_bench_corridor",
   "version": 1,
-  "fixture": "tests/dwg/route-to-quantity-base.dwg",
+  "fixture": "examples/channel-demo.dwg",
   "assertions": [
     "data.assembly is not empty",
     "data.corridor is not empty",
     "data.link_codes is not empty",
     "data.target_slots is not empty",
-    "data.h1/m1/bench_width/h2/m2 与入参回显一致"
+    "data.h1/m1/bench_width/h2/m2 echo the input values"
   ],
-  "note": "断言为 AI 依据实现产出键草拟的结构性检查；领域验收（边坡坡率、马道宽度在图上是否正确）待厂长补充可检验条文。",
+  "note": "Assertions are structural checks drafted by the AI from the implementation's output keys; domain acceptance (slope ratios and bench width correct in the drawing) still needs verifiable clauses from the owner.",
   "status": "draft_assertions_pending_owner_review"
 }

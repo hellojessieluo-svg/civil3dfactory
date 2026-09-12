@@ -11,35 +11,35 @@ using CivDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// grid_earthwork_balance：网格土方平衡（体积曲面上撒格 → 格间运输问题 → 调配箭头+运距直方图）。
+    /// grid_earthwork_balance: grid earthwork balance (scatter a grid over the volume surface -> cell-to-cell transportation problem -> haul arrows + haul-distance histogram).
     ///
-    /// 量的真值走 GetBoundedVolumes（TIN），网格积分先对真值做闭合差检查再配平——
-    /// 格距只影响运距分辨率，不影响量。算法核心在同目录 GridBalanceCore.cs（WaterBox C3DF-GridBalance 同源）。
+    /// The volume truth comes from GetBoundedVolumes (TIN); the grid integral is closure-checked against it and then balanced --
+    /// cell size only affects haul-distance resolution, not volumes. Algorithm core is GridBalanceCore.cs in this folder (same source as WaterBox C3DF-GridBalance).
     /// </summary>
     public static partial class Ops
     {
         static JsonNode RunNodeGridEarthworkBalance(JsonObject a, Document doc)
         {
-            // ---- 曲面参数（与 bounded_volumes 同口径）----
+            // ---- Surface parameters (same convention as bounded_volumes) ----
             string volName = GetString(a, "volume_surface", null);
             string baseName = GetString(a, "base_surface", null);
             string compName = GetString(a, "comparison_surface", null);
             if (string.IsNullOrWhiteSpace(volName) &&
                 (string.IsNullOrWhiteSpace(baseName) || string.IsNullOrWhiteSpace(compName)))
                 throw new InvalidOperationException(
-                    "给 volume_surface（已有体积曲面名），或者 base_surface + comparison_surface 两个都给。");
+                    "Give volume_surface (name of an existing volume surface), or both base_surface and comparison_surface.");
 
             string layer = GetString(a, "layer", null);
             var handles = a["handles"] as JsonArray;
             if (string.IsNullOrWhiteSpace(layer) && (handles == null || handles.Count == 0))
-                throw new InvalidOperationException("layer 与 handles 至少给一个来圈定边界。");
+                throw new InvalidOperationException("Give at least one of layer or handles to delimit the boundaries.");
 
             double step = GetDouble(a, "step", 5.0);
             double ringStep = GetDouble(a, "sample_step", 1.0);
             int maxNodes = (int)GetDouble(a, "solver_max_nodes", 900);
             double closureWarn = GetDouble(a, "closure_warn_pct", 2.0);
             double closureFail = GetDouble(a, "closure_fail_pct", 10.0);
-            double factor = GetDouble(a, "volume_factor", 1.0);       // 报表口径系数（如 1.06），几何方另列
+            double factor = GetDouble(a, "volume_factor", 1.0);       // reporting factor (e.g. 1.06); geometric volumes are listed separately
             bool drawCells = GetBool(a, "draw_cells", true);
             bool drawArrows = GetBool(a, "draw_arrows", true);
             int maxArrows = (int)GetDouble(a, "max_arrows", 60);
@@ -64,19 +64,19 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // 体积曲面：有名取名，没有就 base+comp 现建（命名与 bounded_volumes 一致，可复用）
+                // Volume surface: use the named one if given, otherwise build it now from base+comp (named like bounded_volumes, reusable)
                 ObjectId volId;
                 if (!string.IsNullOrWhiteSpace(volName))
                 {
                     volId = FindSurfaceId(tr, civ, volName);
-                    if (volId.IsNull) throw new InvalidOperationException("找不到体积曲面 '" + volName + "'。");
+                    if (volId.IsNull) throw new InvalidOperationException("Volume surface '" + volName + "' not found.");
                 }
                 else
                 {
                     ObjectId bId = FindSurfaceId(tr, civ, baseName);
-                    if (bId.IsNull) throw new InvalidOperationException("找不到基准曲面 '" + baseName + "'。");
+                    if (bId.IsNull) throw new InvalidOperationException("Base surface '" + baseName + "' not found.");
                     ObjectId cId = FindSurfaceId(tr, civ, compName);
-                    if (cId.IsNull) throw new InvalidOperationException("找不到对比曲面 '" + compName + "'。");
+                    if (cId.IsNull) throw new InvalidOperationException("Comparison surface '" + compName + "' not found.");
                     volName = "Vol_" + Sanitize(baseName) + "_" + Sanitize(compName);
                     ObjectId old = FindSurfaceId(tr, civ, volName);
                     volId = old.IsNull
@@ -86,9 +86,9 @@ namespace Civil3DFactory
                 var vol = (CivSurface)tr.GetObject(volId, OpenMode.ForRead);
                 usedVol = vol.Name;
                 if (!(vol is Autodesk.Civil.DatabaseServices.TinVolumeSurface))
-                    warnings.Add((JsonNode)("'" + usedVol + "' 不是体积曲面，dz 不是挖填深。"));
+                    warnings.Add((JsonNode)("'" + usedVol + "' is not a volume surface; dz is not a cut/fill depth."));
 
-                // 图层与清场
+                // Layers and clean-up
                 GridBalanceCore.EnsureLayer(tr, db, GridBalanceCore.LayerCut, 11, 55);
                 GridBalanceCore.EnsureLayer(tr, db, GridBalanceCore.LayerFill, 73, 55);
                 GridBalanceCore.EnsureLayer(tr, db, GridBalanceCore.LayerArrow, 4, 0);
@@ -114,7 +114,7 @@ namespace Civil3DFactory
 
                     DredgeRing ring = DredgeBuildRing(pl, ringStep);
                     if (ring.Count < 3)
-                    { warnings.Add((JsonNode)(label + "（" + handle + "）成不了环，跳过。")); continue; }
+                    { warnings.Add((JsonNode)(label + " (" + handle + ") does not form a ring, skipped.")); continue; }
 
                     var ringPts = new List<Point2d>(ring.Count);
                     var boundedPts = new Point3dCollection();
@@ -125,7 +125,7 @@ namespace Civil3DFactory
                     }
                     if (boundedPts.Count > 0) boundedPts.Add(boundedPts[0]);
 
-                    // TIN 真值
+                    // TIN truth
                     double tinCut, tinFill;
                     try
                     {
@@ -133,9 +133,9 @@ namespace Civil3DFactory
                         tinCut = info.Cut; tinFill = info.Fill;
                     }
                     catch (System.Exception ex)
-                    { warnings.Add((JsonNode)(label + "（" + handle + "）GetBoundedVolumes 失败：" + ex.Message)); continue; }
+                    { warnings.Add((JsonNode)(label + " (" + handle + ") GetBoundedVolumes failed: " + ex.Message)); continue; }
 
-                    // 撒格 + 配平 + 求解
+                    // Scatter grid + balance + solve
                     var res = GridBalanceCore.BuildCells(ringPts, step,
                         (x, y) =>
                         {
@@ -143,23 +143,23 @@ namespace Civil3DFactory
                             catch (System.Exception) { return double.NaN; }
                         });
                     if (res.CutCells.Count + res.FillCells.Count == 0)
-                    { warnings.Add((JsonNode)(label + "：边界内一格有效挖填都没有（曲面外 " + res.CellsOffSurface + " 格）。")); continue; }
+                    { warnings.Add((JsonNode)(label + ": not a single valid cut/fill cell inside the boundary (" + res.CellsOffSurface + " cells off surface).")); continue; }
 
                     GridBalanceCore.Reconcile(res, tinCut, tinFill);
                     if (res.ClosureCutPct > closureFail || res.ClosureFillPct > closureFail)
-                        throw new InvalidOperationException(label + " 闭合差超限：挖 " + res.ClosureCutPct.ToString("0.0")
-                            + "% / 填 " + res.ClosureFillPct.ToString("0.0") + "%（阈值 " + closureFail
-                            + "%）——网格积分对不上 TIN，多半是格距太粗或边界压曲面外沿。");
+                        throw new InvalidOperationException(label + " closure error exceeds limit: cut " + res.ClosureCutPct.ToString("0.0")
+                            + "% / fill " + res.ClosureFillPct.ToString("0.0") + "% (threshold " + closureFail
+                            + "%) -- the grid integral does not match the TIN; most likely the cell size is too coarse or the boundary runs over the surface edge.");
                     if (res.ClosureCutPct > closureWarn || res.ClosureFillPct > closureWarn)
-                        warnings.Add((JsonNode)(label + " 闭合差偏大：挖 " + res.ClosureCutPct.ToString("0.0")
-                            + "% / 填 " + res.ClosureFillPct.ToString("0.0") + "%（已配平到 TIN 真值）。"));
+                        warnings.Add((JsonNode)(label + " closure error is large: cut " + res.ClosureCutPct.ToString("0.0")
+                            + "% / fill " + res.ClosureFillPct.ToString("0.0") + "% (balanced to the TIN truth)."));
 
                     List<GridBalanceCore.Cell> sCut, sFill;
                     res.SolverStep = GridBalanceCore.Coarsen(res, step, maxNodes, out sCut, out sFill);
                     GridBalanceCore.Solve(res, sCut, sFill);
                     GridBalanceCore.Histogram(res, bands);
 
-                    // 画
+                    // Draw
                     int cellsDrawn = 0, arrowsDrawn = 0;
                     if (drawCells)
                     {
@@ -172,18 +172,18 @@ namespace Civil3DFactory
                         double maxV = 0; foreach (var f in arrows) if (f.Vol > maxV) maxV = f.Vol;
                         arrowsDrawn = GridBalanceCore.DrawArrows(tr, space, arrows, maxV,
                             res.SolverStep * 0.25, res.SolverStep * 1.2);
-                        // 前 10 支标方量
+                        // label the first 10 arrows with volumes
                         for (int i = 0; i < arrows.Count && i < 10; i++)
                         {
                             var f = arrows[i];
                             GridBalanceCore.DrawText(tr, space, (f.SX + f.TX) / 2, (f.SY + f.TY) / 2,
-                                (f.Vol >= 10000 ? (f.Vol / 10000).ToString("0.00") + "万" : f.Vol.ToString("0")),
+                                (f.Vol >= 10000 ? (f.Vol / 10000).ToString("0.00") + "e4" : f.Vol.ToString("0")),
                                 res.SolverStep * 0.9);
                         }
                         GridBalanceCore.DrawText(tr, space,
                             (pl.GeometricExtents.MinPoint.X + pl.GeometricExtents.MaxPoint.X) / 2,
                             pl.GeometricExtents.MaxPoint.Y + res.SolverStep * 3,
-                            label + " 内调 " + (res.InternalMoved / 10000).ToString("0.00") + "万m³ 均距 "
+                            label + " internal haul " + (res.InternalMoved / 10000).ToString("0.00") + "e4 m³, mean dist "
                             + res.AvgDist.ToString("0") + "m", res.SolverStep * 1.4);
                     }
                     totalCellsDrawn += cellsDrawn; totalArrowsDrawn += arrowsDrawn;
@@ -244,18 +244,18 @@ namespace Civil3DFactory
             }
 
             if (perBoundary.Count == 0)
-                throw new InvalidOperationException("一条边界都没算成（layer='" + (layer ?? "") + "'，点名 "
-                    + wanted.Count + " 条）。" + (warnings.Count > 0 ? "第一条原因：" + warnings[0] : ""));
+                throw new InvalidOperationException("No boundary was computed (layer='" + (layer ?? "") + "', "
+                    + wanted.Count + " named)." + (warnings.Count > 0 ? " First reason: " + warnings[0] : ""));
 
             var files = new JsonArray();
             string outdir = null;
             if (exportExcel)
             {
                 outdir = ResolveOutDir(a, doc);
-                foreach (string p in Excel.Write(outdir, "网格土方平衡_" + Sanitize(usedVol),
+                foreach (string p in Excel.Write(outdir, "GridBalance_" + Sanitize(usedVol),
                                                  HeadersGridBalance, excelRows, excelFormat))
                     files.Add(p);
-                foreach (string p in Excel.Write(outdir, "运距分档_" + Sanitize(usedVol),
+                foreach (string p in Excel.Write(outdir, "HaulDistance_" + Sanitize(usedVol),
                                                  HeadersGridBalanceHist, histRowsAll, excelFormat))
                     files.Add(p);
             }
@@ -292,11 +292,11 @@ namespace Civil3DFactory
         }
 
         static readonly string[] HeadersGridBalance = {
-            "编号", "句柄", "边界面积m2", "TIN挖方m3", "TIN填方m3",
-            "闭合差挖%", "闭合差填%", "统计格距m", "求解格距m",
-            "内部调配m3", "加权平均运距m", "缺口借方m3", "富余弃方m3", "系数", "调配×系数m3" };
+            "No.", "Handle", "Boundary area m2", "TIN cut m3", "TIN fill m3",
+            "Closure cut %", "Closure fill %", "Stats cell m", "Solver cell m",
+            "Internal haul m3", "Weighted mean haul m", "Deficit borrow m3", "Surplus spoil m3", "Factor", "Haul x factor m3" };
 
         static readonly string[] HeadersGridBalanceHist = {
-            "边界", "运距档m", "方量m3", "方量×系数m3", "占比%" };
+            "Boundary", "Haul band m", "Volume m3", "Volume x factor m3", "Share %" };
     }
 }

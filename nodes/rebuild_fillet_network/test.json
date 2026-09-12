@@ -3,13 +3,13 @@
     {
       "op": "rebuild_fillet_network",
       "corners": [
-        { "corner": "角_03右x04右", "a": "次水道03_右15m_段2", "b": "次水道04_右15m_段1" },
-        { "corner": "口_11末左", "a": "次水道11_左15m_段4", "b": "水道边界02",
+        { "corner": "Corner_03R-x-04R", "a": "SC03_R15m_Seg2", "b": "SC04_R15m_Seg1" },
+        { "corner": "Mouth_11End-L", "a": "SC11_L15m_Seg4", "b": "ChannelBoundary02",
           "pick_a": [507442.176, 4307391.296], "pick_b": [507459.017, 4307370.463] }
       ],
       "radius": 20,
       "leg": 0.1,
-      "erase": ["转角01"]
+      "erase": ["Corner01"]
     }
   ]
 }

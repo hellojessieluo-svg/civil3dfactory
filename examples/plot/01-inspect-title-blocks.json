@@ -1,0 +1,7 @@
+{
+  "_comment": "Read every title block reference (block name containing TITLE) with its attribute values. Read-only. The fill / plot steps use the exe tools, see examples/README.md.",
+  "ops": [
+    { "op": "list_blocks" },
+    { "op": "dump_block_attributes", "name": "TITLE" }
+  ]
+}

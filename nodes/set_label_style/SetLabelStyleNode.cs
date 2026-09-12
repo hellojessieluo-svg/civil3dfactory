@@ -16,24 +16,24 @@ namespace Civil3DFactory
     public static partial class Ops
     {
         /// <summary>
-        /// 改标签样式组件：可见性 / 文本偏移 / 线角度长度。
+        /// Edit label style components: visibility / text offset / line angle and length.
         ///
-        /// 为什么有这个零件（2026-08-26 项目B初设横断面）：断面中心线 origin 点同时被
-        /// code set 分支（@C3DF-centerline）和 marker 分支（CL_Elev_WL_Label_1-400）各画一遍，
-        /// 655 个标签完全重合成「字体重叠」；且「疏浚控制线」离常水位标注只有 0.42m 必然挤。
-        /// GUI 里改样式无头链带不动，所以做成 op。
+        /// Why this part exists (2026-08-26, project B preliminary design sections): the section centerline origin point is drawn twice, by
+        /// the code set branch (@C3DF-centerline) and the marker branch (CL_Elev_WL_Label_1-400),
+        /// so 655 labels overlap exactly as "doubled text"; and the "dredge control line" sits only 0.42m from the normal water level label, guaranteed to collide.
+        /// The headless chain cannot drive GUI style edits, hence this op.
         ///
-        /// ⚠ 只走强类型/名单化属性访问，禁止反射深爬（会原生崩 accoreconsole，08-26 三连崩）。
+        /// WARNING: only strongly-typed / whitelisted property access; no deep reflection crawl (native crash of accoreconsole, three in a row on 08-26).
         /// </summary>
         static JsonNode RunNodeSetLabelStyle(JsonObject a, Document doc)
         {
             string styleName = GetString(a, "style", null);
             if (string.IsNullOrEmpty(styleName))
-                throw new InvalidOperationException("style（标签样式名）必填。");
+                throw new InvalidOperationException("style (label style name) is required.");
             // components: [{name, visible?, x_offset?, y_offset?, angle_deg?, length?, contents?}]
             var compEdits = a["components"] as JsonArray;
             if (compEdits == null || compEdits.Count == 0)
-                throw new InvalidOperationException("components 数组必填（每项至少给 name + 一个改动）。");
+                throw new InvalidOperationException("components array is required (each item needs name + at least one change).");
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
@@ -42,7 +42,7 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // 找样式：LabelStyles 根 + CodeSetStyles 支，与 dump_label_styles 同源
+                // Find the style: LabelStyles root + CodeSetStyles branch, same as dump_label_styles
                 var ids = new List<ObjectId>();
                 var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
                 object root = null;
@@ -79,7 +79,7 @@ namespace Civil3DFactory
                     {
                         var e = en as JsonObject;
                         if (e == null) continue;
-                        string compName = GetString(e, "name", null);   // null/"*" = 全部组件
+                        string compName = GetString(e, "name", null);   // null/"*" = all components
                         foreach (CivLabelStyleComponentType ct in new CivLabelStyleComponentType[]
                         {
                             CivLabelStyleComponentType.Text,
@@ -109,7 +109,7 @@ namespace Civil3DFactory
                                 if (e["visible"] != null)
                                 {
                                     bool vis = e["visible"].GetValue<bool>();
-                                    // 可见性在 General.Visible（PropertyBoolean）。名单化访问，不深爬。
+                                    // Visibility is General.Visible (PropertyBoolean). Whitelisted access, no deep crawl.
                                     if (SetGroupProp(c, "General", "Visible", vis)) { log["visible"] = vis; touched = true; }
                                 }
                                 var txt = c as CivLabelStyleTextComponent;
@@ -125,13 +125,13 @@ namespace Civil3DFactory
                                     { txt.Text.Angle.Value = e["angle_deg"].GetValue<double>() * Math.PI / 180.0; log["angle_deg"] = e["angle_deg"].GetValue<double>(); touched = true; }
                                     if (e["height"] != null)
                                     { txt.Text.Height.Value = e["height"].GetValue<double>(); log["height"] = txt.Text.Height.Value; touched = true; }
-                                    // 附着点（Attachment）：文字自身哪个点贴到锚点上，枚举名如 TopCenter / MiddleCenter / BottomCenter
+                                    // Attachment: which point of the text sits on the anchor; enum names like TopCenter / MiddleCenter / BottomCenter
                                     if (e["attachment"] != null &&
                                         SetGroupProp(txt, "Text", "Attachment", e["attachment"].GetValue<string>()))
                                     { log["attachment"] = e["attachment"].GetValue<string>(); touched = true; }
                                 }
-                                // 锚点两项对文本/直线/块通用：anchor_component=组件名（<Feature> 表示挂要素本体），
-                                // anchor_location=锚点位置枚举名（TopCenter/BottomCenter/…）。上下两行的间距就靠这两项＋附着点定。
+                                // The two anchor items apply to text/line/block alike: anchor_component=component name (<Feature> means the feature itself),
+                                // anchor_location=anchor position enum name (TopCenter/BottomCenter/...). The spacing between two stacked lines is set by these two plus the attachment.
                                 if (e["anchor_component"] != null &&
                                     SetGroupProp(c, "General", "AnchorComponent", e["anchor_component"].GetValue<string>()))
                                 { log["anchor_component"] = e["anchor_component"].GetValue<string>(); touched = true; }
@@ -153,21 +153,21 @@ namespace Civil3DFactory
                         }
                     }
 
-                    // 拖曳状态（Dragged State 页）：dragged_state 是 {属性名: 值} 字典，属性名照 dump_label_styles
-                    // 报出来的 dragged_state 键（如 DisplayType / TextHeight / LeaderType / LeaderAttachment），
-                    // 枚举给名字串。只设 Property* 包装器的 Value，不深爬。
+                    // Dragged state (Dragged State page): dragged_state is a {property name: value} dictionary; property names follow the dragged_state keys
+                    // reported by dump_label_styles (e.g. DisplayType / TextHeight / LeaderType / LeaderAttachment),
+                    // enums given as name strings. Only sets Value on Property* wrappers, no deep crawl.
                     var dsEdits = a["dragged_state"] as JsonObject;
                     if (dsEdits != null && dsEdits.Count > 0)
                     {
                         object ds = GetGroupProp(st, "Properties", "DraggedStateComponents", false);
-                        if (ds == null) throw new InvalidOperationException("这个样式读不到 Properties.DraggedStateComponents。");
+                        if (ds == null) throw new InvalidOperationException("Properties.DraggedStateComponents is not readable on this style.");
                         var log = new JsonObject { ["style"] = styleName, ["component"] = "(dragged_state)" };
                         bool touched = false;
                         foreach (var kv in dsEdits)
                         {
                             object v = JsonScalar(kv.Value);
                             if (!SetPropValue(ds, kv.Key, v))
-                                throw new InvalidOperationException("dragged_state." + kv.Key + " 设不进去（属性名或值类型不对，先用 dump_label_styles 看键名）。");
+                                throw new InvalidOperationException("dragged_state." + kv.Key + " could not be set (wrong property name or value type; check key names with dump_label_styles).");
                             log[kv.Key] = kv.Value?.ToString();
                             touched = true;
                         }
@@ -178,7 +178,7 @@ namespace Civil3DFactory
             }
 
             if (stylesFound == 0)
-                throw new InvalidOperationException("找不到标签样式 '" + styleName + "'。");
+                throw new InvalidOperationException("Label style '" + styleName + "' not found.");
             return new JsonObject
             {
                 ["style"] = styleName,
@@ -188,7 +188,7 @@ namespace Civil3DFactory
             };
         }
 
-        /// <summary>名单化访问 obj.<group>.<prop>.Value = v。只碰指定两级，不深爬。</summary>
+        /// <summary>Whitelisted access obj.<group>.<prop>.Value = v. Touches only the two named levels, no deep crawl.</summary>
         static bool SetGroupProp(object obj, string group, string prop, object v)
         {
             try
@@ -202,7 +202,7 @@ namespace Civil3DFactory
             catch { return false; }
         }
 
-        /// <summary>holder.<prop>.Value = v（一层）。枚举收名字串，数值走 ChangeType。</summary>
+        /// <summary>holder.<prop>.Value = v (one level). Enums accept name strings, numbers go through ChangeType.</summary>
         static bool SetPropValue(object holder, string prop, object v)
         {
             try
@@ -230,7 +230,7 @@ namespace Civil3DFactory
             catch { return false; }
         }
 
-        /// <summary>读 obj.<group>.<prop>：unwrap=true 时取包装器的 Value，否则返回属性对象本身。名单化两级，不深爬。</summary>
+        /// <summary>Read obj.<group>.<prop>: with unwrap=true returns the wrapper's Value, otherwise the property object itself. Two whitelisted levels, no deep crawl.</summary>
         static object GetGroupProp(object obj, string group, string prop, bool unwrap = true)
         {
             try
@@ -249,8 +249,8 @@ namespace Civil3DFactory
             catch { return null; }
         }
 
-        /// <summary>把一个设置持有者（如 DraggedStateComponents）的 Property* 包装器们摊成 {名: Value}。
-        /// 只碰类型名以 Property 开头的属性，别的（可能摸到 Database）一律不读。</summary>
+        /// <summary>Flatten the Property* wrappers of a settings holder (e.g. DraggedStateComponents) into {name: Value}.
+        /// Only touches properties whose type name starts with Property; anything else (might reach the Database) is never read.</summary>
         static JsonObject ShallowPropertyValues(object holder)
         {
             if (holder == null) return null;
@@ -259,7 +259,7 @@ namespace Civil3DFactory
             {
                 if (p.GetIndexParameters().Length != 0) continue;
                 string tn = p.PropertyType.Name;
-                // 只碰 Civil 的 Property* 包装器（含 PropertyEnum`1 之类泛型）；Database/Document/ObjectId 类一律不读
+                // Only Civil's Property* wrappers (including generics like PropertyEnum`1); never read Database/Document/ObjectId types
                 if (tn.IndexOf("Property", StringComparison.Ordinal) < 0)
                 { o["?" + p.Name] = tn; continue; }
                 try

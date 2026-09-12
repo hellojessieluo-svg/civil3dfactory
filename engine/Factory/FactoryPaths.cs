@@ -7,17 +7,17 @@ using System.Text.Json.Nodes;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// 工厂根目录解析。
-    /// civil3dfactory.ps1 跑 accoreconsole 时会设置 C3DF_ROOT；但用户在 Civil 3D 里点功能区时
-    /// 没有这个环境变量，所以还要能从 bundle 的 current-version.json（deploy.ps1 写入
-    /// source_path）或 DLL 所在位置往上回推。
+    /// Factory root directory resolution.
+    /// civil3dfactory.ps1 sets C3DF_ROOT when it runs accoreconsole; but when the user clicks the ribbon inside Civil 3D
+    /// that variable is absent, so we must also derive it from the bundle's current-version.json (deploy.ps1 writes
+    /// source_path) or by walking up from the DLL location.
     /// </summary>
     public static class FactoryPaths
     {
         static string _root;
         static bool _resolved;
 
-        /// <summary>解析不到时返回 null，调用方自己决定是报错还是降级。</summary>
+        /// <summary>Returns null when it cannot be resolved; the caller decides whether to fail or degrade.</summary>
         public static string Root
         {
             get
@@ -42,7 +42,7 @@ namespace Civil3DFactory
             string root = Root;
             if (string.IsNullOrEmpty(root))
                 throw new InvalidOperationException(
-                    "定位不到工厂根目录：请设置环境变量 C3DF_ROOT，或用 deploy.ps1 重新部署插件。");
+                    "Cannot locate the factory root: set the C3DF_ROOT environment variable or redeploy the plugin with deploy.ps1.");
             return root;
         }
 
@@ -51,7 +51,7 @@ namespace Civil3DFactory
             return Path.Combine(RequireRoot(), "nodes", "node.json");
         }
 
-        /// <summary>交互式运行的用户级数据目录（上次参数、结果 JSON）。</summary>
+        /// <summary>Per-user data directory for interactive runs (last parameters, result JSON).</summary>
         public static string UserDir()
         {
             string dir = Path.Combine(
@@ -82,7 +82,7 @@ namespace Civil3DFactory
             catch { return false; }
         }
 
-        /// <summary>deploy.ps1 把源码目录写进 bundle 的 current-version.json。</summary>
+        /// <summary>deploy.ps1 writes the source directory into the bundle's current-version.json.</summary>
         static string FromBundleManifest()
         {
             try
@@ -99,7 +99,7 @@ namespace Civil3DFactory
             catch { return null; }
         }
 
-        /// <summary>直接从 bin 目录 netload 调试时，沿 DLL 位置往上找 nodes\node.json。</summary>
+        /// <summary>When debugging via netload straight from the bin directory, walk up from the DLL location to find nodes\node.json.</summary>
         static string FromAssemblyLocation()
         {
             try

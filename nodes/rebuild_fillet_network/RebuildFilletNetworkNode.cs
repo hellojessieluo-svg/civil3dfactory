@@ -14,15 +14,15 @@ namespace Civil3DFactory
         static JsonNode RunNodeRebuildFilletNetwork(JsonObject args, Document doc)
             => RebuildFilletNetwork(args, doc);
 
-        // 转角网络重铸（点对点契约）：按配对表逐角解析重解（FilletSolveCore 唯一真源），
-        // 原位重建实体（角缺了就新建）、写 C3DF_FILLET XData 认亲（父线句柄+锚桩号+半径，
-        // 装了 WaterBox 的机器上拖父线自动联动）、两侧父段区间端精确收到腿外端。
-        // 报账带每个连接点的实测缝宽——这是"段尾点==角首点"的对账单。
+        // Rebuild the fillet network (point-to-point contract): re-solve each corner from the pairing table (FilletSolveCore is the single source of truth),
+        // rebuild entities in place (create the corner if missing), write C3DF_FILLET XData for lineage (parent handles + anchor stations + radius,
+        // so dragging a parent on a machine with WaterBox updates it automatically), and snap the region ends of both parent segments exactly to the outer leg ends.
+        // The report carries the measured gap at every joint -- the reconciliation sheet for "segment end == corner start".
         static JsonNode RebuildFilletNetwork(JsonObject a, Document doc)
         {
             var arr = a["corners"] as JsonArray;
             if (arr == null || arr.Count == 0)
-                throw new InvalidOperationException("需要 corners:[{corner,a,b},...]");
+                throw new InvalidOperationException("Requires corners:[{corner,a,b},...]");
             double radius = GetDouble(a, "radius", 20);
             double leg = GetDouble(a, "leg", 0.1);
 
@@ -33,22 +33,22 @@ namespace Civil3DFactory
             double worstGap = 0;
             string worstAt = "";
 
-            // 先清点名的废件（用户测试遗留等）
+            // First erase the named leftovers (user test residue etc.)
             if (a["erase"] is JsonArray er)
                 using (Transaction tr = db.TransactionManager.StartTransaction())
                 {
                     foreach (JsonNode n in er)
                     {
                         string nm = n.GetValue<string>();
-                        try { EraseAlignments(tr, civ, nm); report.Add("清除 " + nm); }
-                        catch (System.Exception ex) { report.Add("清除 " + nm + " 失败：" + ex.Message); }
+                        try { EraseAlignments(tr, civ, nm); report.Add("Erased " + nm); }
+                        catch (System.Exception ex) { report.Add("Erase " + nm + " failed: " + ex.Message); }
                     }
                     tr.Commit();
                 }
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // C3DF_FILLET 注册应用（XData 前置条件）
+                // Register the C3DF_FILLET application (XData prerequisite)
                 var rat = (RegAppTable)tr.GetObject(db.RegAppTableId, OpenMode.ForRead);
                 if (!rat.Has("C3DF_FILLET"))
                 {
@@ -69,7 +69,7 @@ namespace Civil3DFactory
                     try { return (al.GetClosestPointTo(p, false) - p).Length; }
                     catch { return double.MaxValue; }
                 }
-                // 角缺失时的兜底拾取：A 上离 B 最近的点（口部/交叉口天然是最近逼近点）
+                // Fallback pick when the corner is missing: the point on A closest to B (mouths/intersections are naturally the closest approach)
                 Point3d NearestOn(CivAlignment src, CivAlignment other)
                 {
                     double len = src.EndingStation - src.StartingStation;
@@ -92,7 +92,7 @@ namespace Civil3DFactory
                     var A = FindAlignment(tr, civ, Need(o, "a"));
                     var B = FindAlignment(tr, civ, Need(o, "b"));
                     if (A == null || B == null)
-                    { report.Add(cname + "：父线缺失，跳过"); failed++; continue; }
+                    { report.Add(cname + ": parent alignment missing, skipped"); failed++; continue; }
                     double r0 = GetDouble(o, "radius", radius);
 
                     var corner = FindAlignment(tr, civ, cname);
@@ -108,7 +108,7 @@ namespace Civil3DFactory
                     { pickA = expA.Value; pickB = expB.Value; }
                     else if (corner != null)
                     {
-                        // 现有角的首末端点就是最好的拾取提示；按谁离哪条父线近来分配
+                        // The existing corner's start/end points are the best pick hints; assign by which parent each is closer to
                         var ps = PtAt(corner, corner.StartingStation);
                         var pe = PtAt(corner, corner.EndingStation);
                         if (DistTo(A, ps) + DistTo(B, pe) <= DistTo(B, ps) + DistTo(A, pe))
@@ -120,11 +120,11 @@ namespace Civil3DFactory
                     {
                         pickA = NearestOn(A, B);
                         try { pickB = B.GetClosestPointTo(pickA, false); }
-                        catch { report.Add(cname + "：兜底拾取失败，跳过"); failed++; continue; }
+                        catch { report.Add(cname + ": fallback pick failed, skipped"); failed++; continue; }
                     }
 
-                    // 解算＋定点迭代：Solve 视拾取点附近为直线；父线（尤其边界圈）在切点跨度内
-                    // 拐弯时首解的切点会悬空——把拾取点收敛到当前切点邻域重解，直到切点贴线。
+                    // Solve + fixed-point iteration: Solve treats the neighbourhood of the pick as straight; when a parent (especially a boundary loop)
+                    // bends within the tangent span, the first solution's tangent points float off -- move the picks to the current tangent points and re-solve until they sit on the line.
                     var sv = FilletSolveCore.Solve(A, pickA, B, pickB, r0, leg);
                     for (int it = 0; it < 5 && sv.Error == null; it++)
                     {
@@ -136,11 +136,11 @@ namespace Civil3DFactory
                         if ((nA - pickA).Length < 0.001 && (nB - pickB).Length < 0.001) break;
                         pickA = nA; pickB = nB;
                         var sv2 = FilletSolveCore.Solve(A, pickA, B, pickB, r0, leg);
-                        if (sv2.Error != null) break;   // 迭代走坏就用上一解
+                        if (sv2.Error != null) break;   // if the iteration goes bad keep the previous solution
                         sv = sv2;
                     }
                     if (sv.Error != null)
-                    { report.Add(cname + "：" + sv.Error); failed++; continue; }
+                    { report.Add(cname + ": " + sv.Error); failed++; continue; }
 
                     CivAlignment fw;
                     if (corner == null)
@@ -161,7 +161,7 @@ namespace Civil3DFactory
                     var arc = ents.AddFreeCurve(l1.EntityId, l2.EntityId, r0,
                         CurveParamType.Radius, false, CurveType.Compound);
                     if (fw.Length <= 0 || Math.Abs(arc.Radius - r0) > 0.01)
-                    { report.Add(cname + $"：自由弧解算异常 len={fw.Length:0.00} R={arc.Radius:0.###}"); failed++; continue; }
+                    { report.Add(cname + $": free-curve solve abnormal len={fw.Length:0.00} R={arc.Radius:0.###}"); failed++; continue; }
 
                     fw.XData = new ResultBuffer(
                         new TypedValue((int)DxfCode.ExtendedDataRegAppName, "C3DF_FILLET"),
@@ -176,8 +176,8 @@ namespace Civil3DFactory
                     string snapA = FilletSolveCore.SnapOffsetEnd(tr, Aw, sv.Line1Start, sv.Corner);
                     string snapB = FilletSolveCore.SnapOffsetEnd(tr, Bw, sv.Line2End, sv.Corner);
 
-                    // 对账：偏移段量"段端点到腿外端"的点距（缝和搭接都现形）；
-                    // 非偏移父线（边界圈，T 形接触不剪）量腿外端到线的垂距。
+                    // Reconciliation: for offset segments measure the point distance "segment end to outer leg end" (gaps and overlaps both show);
+                    // for non-offset parents (boundary loops, T-contact, not trimmed) measure the perpendicular distance from the outer leg end to the line.
                     double EndGap(CivAlignment seg, Point3d legOuter)
                     {
                         bool isOffset;
@@ -191,8 +191,8 @@ namespace Civil3DFactory
                     double g = Math.Max(gapA, gapB);
                     if (g > worstGap) { worstGap = g; worstAt = cname; }
                     done++;
-                    report.Add($"{cname}{(corner == null ? "(新建)" : "")} R{r0:0.#} 角{sv.CornerAngleDeg:0.0}° "
-                        + $"缝A={gapA * 1000:0.0}mm 缝B={gapB * 1000:0.0}mm ｜ {snapA} ｜ {snapB}");
+                    report.Add($"{cname}{(corner == null ? "(new)" : "")} R{r0:0.#} angle{sv.CornerAngleDeg:0.0}deg "
+                        + $"gapA={gapA * 1000:0.0}mm gapB={gapB * 1000:0.0}mm | {snapA} | {snapB}");
                 }
                 tr.Commit();
             }
