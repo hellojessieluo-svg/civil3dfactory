@@ -25,3 +25,4 @@ scripts/blacklist.local.txt
 
 # accoreconsole drops these into the working directory
 *.log
+*.err

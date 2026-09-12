@@ -1,0 +1,20 @@
+{
+  "node": "create_assembly",
+  "version": 1,
+  "fixture": "examples/channel-demo.dwg (any Civil 3D drawing works; the PKT pair comes from examples/pkt or tools/pkt-forge)",
+  "task": {
+    "op": "create_assembly",
+    "name": "C3DF-Channel",
+    "left_pkt": "<repo>/examples/pkt/ChannelSlope_LEFT.pkt",
+    "right_pkt": "<repo>/examples/pkt/ChannelSlope_RIGHT.pkt",
+    "params": { "SearchOffset": 10, "SlopeH": 3 }
+  },
+  "assertions": [
+    "data.subassemblies has 2 entries, sides Left and Right",
+    "data.subassemblies[*].status == UpToDate",
+    "data.subassemblies[*].embedded == true (Civil 3D 2023+; the PKT files can be deleted afterwards and the assembly still builds)",
+    "data.subassemblies[*].params_applied == number of keys given in params",
+    "a corridor built from the assembly reports link codes Top, Datum and point codes Daylight (corridor_stats)"
+  ],
+  "status": "verified_2026-09-12_civil3d_2025"
+}

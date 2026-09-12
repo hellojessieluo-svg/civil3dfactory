@@ -1,0 +1,19 @@
+{
+  "node": "create_block_definition",
+  "version": 1,
+  "fixture": "examples/title-block-demo.dwg is built with it (see examples/build-title-block-demo.json)",
+  "task": {
+    "op": "create_block_definition",
+    "name": "C3DF-TITLEBLOCK-A3",
+    "entities": { "polylines": [ { "points": [[0, 0], [420, 0], [420, 297], [0, 297]], "closed": true } ] },
+    "attributes": [ { "tag": "SHEET_TITLE", "x": 230, "y": 30, "height": 5 } ],
+    "inserts": [ { "x": 0, "y": 0, "attributes": { "SHEET_TITLE": "Plan" } } ]
+  },
+  "assertions": [
+    "data.attribute_definitions == number of attributes given",
+    "data.inserted == number of inserts given; list_blocks shows the block with has_attributes = true",
+    "dump_block_attributes returns the inserted values per reference handle",
+    "replace:true redefines the block in place; references keep their handles"
+  ],
+  "status": "verified_2026-09-12_civil3d_2025"
+}

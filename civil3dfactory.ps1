@@ -188,6 +188,19 @@ if (-not $Task) {
 }
 if (-not (Test-Path -LiteralPath $Task)) { Fail "Task file not found: $Task" "FileNotFoundException" }
 $Task = (Resolve-Path -LiteralPath $Task).Path
+# Placeholders let the shipped examples run from any clone location:
+#   {{C3DF_ROOT}} = this repository, {{DWG_DIR}} = the drawing's folder (forward slashes, no trailing slash)
+$taskText = Get-Content -LiteralPath $Task -Raw -Encoding UTF8
+if ($taskText -match '\{\{(C3DF_ROOT|DWG_DIR)\}\}') {
+  $rootFs = $PSScriptRoot -replace '\', '/'
+  $dwgDirFs = (Split-Path -Parent $Dwg) -replace '\', '/'
+  $taskText = $taskText -replace '\{\{C3DF_ROOT\}\}', $rootFs -replace '\{\{DWG_DIR\}\}', $dwgDirFs
+  $expanded = Join-Path $env:TEMP ("c3df_task_{0}.json" -f ([guid]::NewGuid().ToString("N")))
+  Set-Content -Path $expanded -Encoding utf8 -Value $taskText -NoNewline
+  if ($tempTask) { Remove-Item $Task -ErrorAction SilentlyContinue }
+  $Task = $expanded
+  $tempTask = $true
+}
 if (-not $Result) { $Result = Join-Path (Split-Path -Parent $Dwg) "civil3dfactory.result.json" }
 $resultDir = Split-Path -Parent ([System.IO.Path]::GetFullPath($Result))
 if ($resultDir) { [System.IO.Directory]::CreateDirectory($resultDir) | Out-Null }

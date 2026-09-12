@@ -1,0 +1,64 @@
+{
+  "_comment": "How examples/title-block-demo.dwg was built. Base: a copy of AutoCAD's acadiso.dwt (plain AutoCAD, millimetres, no Civil objects). Run: civil3dfactory.ps1 -Dwg <copy of acadiso.dwt as .dwg> -Task examples/build-title-block-demo.json  ({{C3DF_ROOT}} expands to the repository folder)",
+  "ops": [
+    {
+      "op": "create_block_definition",
+      "name": "C3DF-TITLEBLOCK-A3",
+      "layers": [ { "name": "C3DF-FRAME", "color": 7 }, { "name": "C3DF-TEXT", "color": 7 } ],
+      "layer": "C3DF-FRAME",
+      "entities": {
+        "polylines": [
+          { "points": [[0, 0], [420, 0], [420, 297], [0, 297]], "closed": true, "layer": "C3DF-FRAME" },
+          { "points": [[25, 10], [410, 10], [410, 287], [25, 287]], "closed": true, "layer": "C3DF-FRAME", "width": 0.7 },
+          { "points": [[230, 10], [410, 10], [410, 50], [230, 50]], "closed": true, "layer": "C3DF-FRAME", "width": 0.5 }
+        ],
+        "lines": [
+          { "x1": 230, "y1": 40, "x2": 410, "y2": 40, "layer": "C3DF-FRAME" },
+          { "x1": 230, "y1": 30, "x2": 410, "y2": 30, "layer": "C3DF-FRAME" },
+          { "x1": 230, "y1": 20, "x2": 380, "y2": 20, "layer": "C3DF-FRAME" },
+          { "x1": 320, "y1": 10, "x2": 320, "y2": 30, "layer": "C3DF-FRAME" },
+          { "x1": 380, "y1": 10, "x2": 380, "y2": 30, "layer": "C3DF-FRAME" }
+        ],
+        "texts": [
+          { "x": 233, "y": 43.5, "text": "PROJECT", "height": 2.5, "layer": "C3DF-TEXT" },
+          { "x": 233, "y": 33.5, "text": "SHEET TITLE", "height": 2.5, "layer": "C3DF-TEXT" },
+          { "x": 233, "y": 23.5, "text": "DESIGNED", "height": 2.5, "layer": "C3DF-TEXT" },
+          { "x": 323, "y": 23.5, "text": "CHECKED", "height": 2.5, "layer": "C3DF-TEXT" },
+          { "x": 233, "y": 13.5, "text": "SCALE", "height": 2.5, "layer": "C3DF-TEXT" },
+          { "x": 323, "y": 13.5, "text": "DATE", "height": 2.5, "layer": "C3DF-TEXT" },
+          { "x": 383, "y": 24, "text": "SHEET", "height": 2.5, "layer": "C3DF-TEXT" },
+          { "x": 28, "y": 281, "text": "NOTES", "height": 2.5, "layer": "C3DF-TEXT" }
+        ]
+      },
+      "attributes": [
+        { "tag": "PROJECT",     "prompt": "Project name",  "default": "PROJECT NAME",  "x": 258, "y": 45, "height": 3.5, "justify": "middle-left", "layer": "C3DF-TEXT" },
+        { "tag": "SHEET_TITLE", "prompt": "Sheet title",   "default": "SHEET TITLE",   "x": 258, "y": 35, "height": 3.5, "justify": "middle-left", "layer": "C3DF-TEXT" },
+        { "tag": "DESIGNED",    "prompt": "Designed by",   "default": "-",             "x": 258, "y": 25, "height": 3,   "justify": "middle-left", "layer": "C3DF-TEXT" },
+        { "tag": "CHECKED",     "prompt": "Checked by",    "default": "-",             "x": 348, "y": 25, "height": 3,   "justify": "middle-left", "layer": "C3DF-TEXT" },
+        { "tag": "SCALE",       "prompt": "Scale",         "default": "1:500",         "x": 258, "y": 15, "height": 3,   "justify": "middle-left", "layer": "C3DF-TEXT" },
+        { "tag": "DATE",        "prompt": "Date",          "default": "2026-01-01",    "x": 348, "y": 15, "height": 3,   "justify": "middle-left", "layer": "C3DF-TEXT" },
+        { "tag": "SHEET_NO",    "prompt": "Sheet number",  "default": "01",            "x": 395, "y": 15, "height": 6,   "justify": "center",      "layer": "C3DF-TEXT" },
+        { "tag": "NOTES",       "prompt": "Notes",         "default": "1. Demo sheet.", "x": 28, "y": 278, "height": 2.5, "mtext": true, "width": 170, "layer": "C3DF-TEXT" }
+      ],
+      "inserts": [
+        { "x": 0,   "y": 0, "attributes": { "PROJECT": "Channel demo", "SHEET_TITLE": "Plan",     "SHEET_NO": "01", "SCALE": "1:500", "DATE": "2026-09-12", "DESIGNED": "civil3dfactory", "CHECKED": "-", "NOTES": "1. Demo sheet built by create_block_definition.\\P2. Edit these values with DWGAttributeEditor.exe --headless-export / --headless-update." } },
+        { "x": 450, "y": 0, "attributes": { "PROJECT": "Channel demo", "SHEET_TITLE": "Profile",  "SHEET_NO": "02", "SCALE": "1:2000", "DATE": "2026-09-12", "DESIGNED": "civil3dfactory", "CHECKED": "-", "NOTES": "1. Demo sheet 2." } },
+        { "x": 900, "y": 0, "attributes": { "PROJECT": "Channel demo", "SHEET_TITLE": "Sections", "SHEET_NO": "03", "SCALE": "1:500", "DATE": "2026-09-12", "DESIGNED": "civil3dfactory", "CHECKED": "-", "NOTES": "1. Demo sheet 3." } }
+      ]
+    },
+    {
+      "op": "create_block_definition",
+      "name": "C3DF-DEMO-CONTENT",
+      "layers": [ { "name": "C3DF-CONTENT", "color": 5 } ],
+      "layer": "C3DF-CONTENT",
+      "entities": {
+        "polylines": [ { "points": [[40, 80], [120, 110], [220, 100], [330, 140], [390, 130]], "closed": false, "width": 0.5 } ],
+        "circles": [ { "x": 200, "y": 180, "r": 40 } ],
+        "lines": [ { "x1": 60, "y1": 200, "x2": 380, "y2": 200 }, { "x1": 60, "y1": 220, "x2": 380, "y2": 220 } ],
+        "texts": [ { "x": 60, "y": 240, "text": "SAMPLE CONTENT - REPLACE WITH YOUR DRAWING", "height": 5 } ]
+      },
+      "inserts": [ { "x": 0, "y": 0 }, { "x": 450, "y": 0 }, { "x": 900, "y": 0 } ]
+    },
+    { "op": "save_dwg", "out": "{{C3DF_ROOT}}/examples/title-block-demo.dwg", "overwrite": true }
+  ]
+}

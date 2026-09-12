@@ -311,9 +311,9 @@ namespace Civil3DFactory
 
             // 1. alignments and profiles
             var profiles = Part("list_profiles", null, doc) as JsonObject;
-            if (profiles != null && profiles["alignments"] is JsonArray)
+            if (profiles != null && profiles["data"] is JsonArray)
             {
-                foreach (JsonNode n in (JsonArray)profiles["alignments"])
+                foreach (JsonNode n in (JsonArray)profiles["data"])
                 {
                     var al = n as JsonObject; if (al == null) continue;
                     string name = al["alignment"] != null ? al["alignment"].ToString() : "?";

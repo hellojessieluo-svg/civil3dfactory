@@ -57,6 +57,9 @@ namespace Civil3DFactory
             double elev = GetDouble(a, "elev", 0);
             double slopeX = GetDouble(a, "slope_x", 0);   // 每米高差
             double slopeY = GetDouble(a, "slope_y", 0);
+            double undAmp = GetDouble(a, "undulation_amp", 0);
+            double undLen = GetDouble(a, "undulation_len", 200);
+            if (undLen <= 0) undLen = 200;
             string style = GetString(a, "style", null);
 
             Database db = doc.Database;
@@ -90,7 +93,10 @@ namespace Civil3DFactory
                     for (double y = miny; y <= maxy + 1e-9; y += step)
                     {
                         ny++;
-                        pts.Add(new Point3d(x, y, elev + slopeX * (x - minx) + slopeY * (y - miny)));
+                        double z = elev + slopeX * (x - minx) + slopeY * (y - miny);
+                        if (undAmp != 0)
+                            z += undAmp * Math.Sin(2 * Math.PI * (x - minx) / undLen) * Math.Cos(2 * Math.PI * (y - miny) / undLen);
+                        pts.Add(new Point3d(x, y, z));
                     }
                 }
                 ts.AddVertices(pts);
@@ -160,7 +166,11 @@ namespace Civil3DFactory
                     }
                     ms.AppendEntity(pl);
                     tr.AddNewlyCreatedDBObject(pl, true);
-                    if (!string.IsNullOrEmpty(layer) && layer != "0") pl.Layer = layer;   // 入库后才能设图层
+                    if (!string.IsNullOrEmpty(layer) && layer != "0")
+                    {
+                        EnsureLayers(db, tr, new JsonArray { new JsonObject { ["name"] = layer } });   // a missing layer is created, not eKeyNotFound
+                        pl.Layer = layer;   // layer can only be set after the entity is in the database
+                    }
                     plId = pl.ObjectId;
                     drawnFrom = "现画多段线 " + i + " 点，长 " + Math.Round(pl.Length, 3) + " m";
                 }
@@ -176,8 +186,15 @@ namespace Civil3DFactory
                 ObjectId styleId = FindStyleId(tr, civ.Styles.AlignmentStyles, style);
                 ObjectId labelId = FindStyleId(tr, civ.Styles.LabelSetStyles.AlignmentLabelSetStyles, labelSet);
 
+                ObjectId layerId = db.Clayer;
+                if (!string.IsNullOrEmpty(layer) && layer != "0")
+                {
+                    EnsureLayers(db, tr, new JsonArray { new JsonObject { ["name"] = layer } });
+                    var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+                    if (lt.Has(layer)) layerId = lt[layer];
+                }
                 ObjectId alId = CreateAlignmentFromEntity(
-                    tr, civ, name, siteId, plId, db.Clayer, styleId, labelId, eraseSource, addCurves);
+                    tr, civ, name, siteId, plId, layerId, styleId, labelId, eraseSource, addCurves);
 
                 var al = (CivAlignment)tr.GetObject(alId, OpenMode.ForRead);
                 var res = new JsonObject
@@ -540,7 +557,7 @@ namespace Civil3DFactory
             string sfName = Need(a, "surface");
             string baseline = GetString(a, "baseline", "基准线");
             string region = GetString(a, "region", "区域1");
-            string corridorName = GetString(a, "name", alName + "_走廊");
+            string corridorName = GetString(a, "name", alName + "_Corridor");
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
@@ -632,8 +649,8 @@ namespace Civil3DFactory
         static JsonNode CreateCorridorSurface(JsonObject a, Document doc)
         {
             string alName = Need(a, "alignment");
-            string corridorName = GetString(a, "corridor", alName + "_走廊");
-            string surfName = GetString(a, "name", alName + "_道路曲面");
+            string corridorName = GetString(a, "corridor", alName + "_Corridor");
+            string surfName = GetString(a, "name", alName + "_Design");
             bool boundary = GetBool(a, "boundary", true);
 
             var wanted = new List<string>();
@@ -723,13 +740,13 @@ namespace Civil3DFactory
             double interval = GetDouble(a, "interval", 50);
             double swath = GetDouble(a, "swath", 50);
             string style = GetString(a, "style", null);
-            string corridorName = GetString(a, "corridor", alName + "_走廊");
-            string roadSurf = GetString(a, "road_surface", alName + "_道路曲面");
+            string corridorName = GetString(a, "corridor", alName + "_Corridor");
+            string roadSurf = GetString(a, "road_surface", alName + "_Design");
             bool clearExisting = GetBool(a, "clear_existing", true);
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
-            string groupName = alName + "_采样线组";
+            string groupName = alName + "_SampleLines";
             JsonObject res;
 
             // 建组前清空本路线**所有**旧采样线组：残组会让算材质取错组，
@@ -867,12 +884,13 @@ namespace Civil3DFactory
             string alName = Need(a, "alignment");
             string sfName = Need(a, "surface");
             string critName = Need(a, "criteria");
-            string roadSlot = GetString(a, "road_surface_slot", "道路曲面");
-            bool autoSurfaceMapping =
-                string.Equals(GetString(a, "surface_mapping", null), "auto",
-                    StringComparison.OrdinalIgnoreCase);
-            string roadSurf = GetString(a, "road_surface", alName + "_道路曲面");
-            string corridorName = GetString(a, "corridor", alName + "_走廊");
+            string roadSlot = GetString(a, "road_surface_slot", null);
+            // Without an explicit slot name the criteria's surface slots are classified by name
+            // (EG/existing/ground -> terrain, Datum/FG/design/proposed/road/top -> corridor surface).
+            bool autoSurfaceMapping = string.IsNullOrEmpty(roadSlot)
+                || string.Equals(GetString(a, "surface_mapping", null), "auto", StringComparison.OrdinalIgnoreCase);
+            string roadSurf = GetString(a, "road_surface", alName + "_Design");
+            string corridorName = GetString(a, "corridor", alName + "_Corridor");
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
@@ -950,10 +968,10 @@ namespace Civil3DFactory
                         foreach (string slot in surfaceSlots)
                         {
                             string lower = slot.ToLowerInvariant();
-                            bool ground = slot.Contains("原地形") || slot.Contains("现状")
-                                || lower.Contains("ground") || lower.Contains("existing");
-                            bool road = slot.Contains("道路") || slot.Contains("设计")
-                                || lower.Contains("road") || lower.Contains("proposed");
+                            bool ground = lower == "eg" || lower.StartsWith("eg ") || lower.Contains("ground") || lower.Contains("existing")
+                                || lower.Contains("terrain") || lower.Contains("natural");
+                            bool road = lower == "fg" || lower.Contains("datum") || lower.Contains("design") || lower.Contains("proposed")
+                                || lower.Contains("road") || lower.Contains("finish") || lower == "top" || lower.Contains("corridor");
                             if (ground == road) slotKinds[slot] = "unknown";
                             else slotKinds[slot] = road ? "road" : "ground";
                         }
@@ -1603,12 +1621,12 @@ namespace Civil3DFactory
             // （ForRead 打开断面图去建表则直接硬崩进程）。要表格就把 save_dwg 换成别的落盘方式，
             // 或者在 GUI 里补。详见 2026-07-26 任务的 踩坑.md 第 8 条。
             bool wantVolTable = GetBool(a, "volume_table", false);
-            string corridorName = GetString(a, "corridor", alName + "_走廊");
+            string corridorName = GetString(a, "corridor", alName + "_Corridor");
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
 
-            // 组名解析：给了 group 用 group；没给先找老约定 <路线>_采样线组，
+            // 组名解析：给了 group 用 group；没给先找老约定 <alignment>_SampleLines，
             // 找不到且路线只有一个组就用它（GUI 手建的组名字五花八门），多个组必须点名。
             string groupName = GetString(a, "group", null);
             using (Transaction trg = db.TransactionManager.StartTransaction())
@@ -1621,7 +1639,7 @@ namespace Civil3DFactory
                     names.Add(((CivSampleLineGroup)trg.GetObject(gid, OpenMode.ForRead)).Name);
                 if (groupName == null)
                 {
-                    string conv = alName + "_采样线组";
+                    string conv = alName + "_SampleLines";
                     if (names.Contains(conv)) groupName = conv;
                     else if (names.Count == 1) groupName = names[0];
                     else if (names.Count == 0)
@@ -1639,12 +1657,12 @@ namespace Civil3DFactory
                 }
 
                 // 走廊名解析（与组名同一个病同一个方子）：给了 corridor 用 corridor；
-                // 老约定 <路线>_走廊 存在就用它；否则基线挂在本路线上的走廊恰好一个就用它
+                // 老约定 <alignment>_Corridor 存在就用它；否则基线挂在本路线上的走廊恰好一个就用它
                 // （GUI 建的走廊名如「道路[Z1](2)」），多个必须点名，一个没有直接报错——
                 // 不然断面建完守卫才发现走廊本体断面为零，白建一堆还把排版拦死。
                 if (a["corridor"] == null)
                 {
-                    string convCorr = alName + "_走廊";
+                    string convCorr = alName + "_Corridor";
                     bool convExists = false;
                     var mine = new List<string>();
                     foreach (ObjectId id in ModelSpace(db, trg))
@@ -2374,10 +2392,10 @@ namespace Civil3DFactory
             var svIds = new List<ObjectId>();
             using (var tr = db.TransactionManager.StartTransaction())
             {
-                // 组名口径与 create_section_views 相同：缺省找 <路线>_采样线组，
+                // 组名口径与 create_section_views 相同：缺省找 <alignment>_SampleLines，
                 // 找不到且路线只有一个组则用它。
                 CivSampleLineGroup slg = FindSampleLineGroup(
-                    tr, civ, alName, string.IsNullOrEmpty(groupName) ? alName + "_采样线组" : groupName);
+                    tr, civ, alName, string.IsNullOrEmpty(groupName) ? alName + "_SampleLines" : groupName);
                 if (slg == null && string.IsNullOrEmpty(groupName))
                 {
                     CivAlignment al0 = FindAlignment(tr, civ, alName);
@@ -2507,7 +2525,7 @@ namespace Civil3DFactory
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 CivSampleLineGroup slg = FindSampleLineGroup(
-                    tr, civ, alName, string.IsNullOrEmpty(groupName) ? alName + "_采样线组" : groupName);
+                    tr, civ, alName, string.IsNullOrEmpty(groupName) ? alName + "_SampleLines" : groupName);
                 if (slg == null && string.IsNullOrEmpty(groupName))
                 {
                     CivAlignment al0 = FindAlignment(tr, civ, alName);

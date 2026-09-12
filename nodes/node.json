@@ -397,7 +397,7 @@
     "inputs": {
       "alignment": "civil.alignment",
       "sample_line_group": "flow:civil.sample_line_group",
-      "corridor": "list:civil.corridor?=<路线名>_走廊"
+      "corridor": "list:civil.corridor?=<路线名>_Corridor"
     },
     "parameters": {
       "group": "string?",
@@ -1654,7 +1654,7 @@
       "alignment": "string",
       "surface": "string",
       "regions": "object[]",
-      "name": "string?={路线}_走廊",
+      "name": "string?={路线}_Corridor",
       "baseline": "string?={路线}_基线",
       "allow_no_surface_targets": "boolean?=false"
     },
@@ -1743,5 +1743,51 @@
       "items": "object[]"
     },
     "effect": "read"
+  },
+  {
+    "id": "create_assembly",
+    "name": "Assembly from PKT pair",
+    "version": "1.0",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "left_pkt": "path",
+      "right_pkt": "path"
+    },
+    "parameters": {
+      "name": "string",
+      "params": "object?",
+      "embed": "boolean?=true",
+      "replace": "boolean?=true",
+      "x": "number?",
+      "y": "number?"
+    },
+    "outputs": {
+      "assembly": "civil.assembly"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_block_definition",
+    "name": "Block definition with attributes",
+    "version": "1.0",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {},
+    "parameters": {
+      "name": "string",
+      "entities": "object?",
+      "attributes": "object[]?",
+      "inserts": "object[]?",
+      "layers": "object[]?",
+      "layer": "string?",
+      "base_x": "number?",
+      "base_y": "number?",
+      "replace": "boolean?=true"
+    },
+    "outputs": {
+      "block": "dwg.blockname"
+    },
+    "effect": "modify"
   }
 ]

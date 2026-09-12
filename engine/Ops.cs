@@ -186,6 +186,24 @@ namespace Civil3DFactory
             },
             // ── 从一条直线到工程量的整条链（实现见 Ops.Chain.cs）────────────────
             // 全部只改内存中的图纸，最后必须显式 save_dwg 才落盘。
+            ["create_assembly"] = new OpDef
+            {
+                Description = "Import a LEFT/RIGHT pair of Subassembly Composer .pkt files as a new assembly and embed the PKT projects in the drawing (the assembly then survives the files moving). Existing assembly of the same name is replaced",
+                Parameters = "name(required) left_pkt right_pkt(required, absolute .pkt paths) params?{ParamName:value}(applied to both subassemblies, e.g. SearchOffset/SlopeH) "
+                           + "embed?(default true) replace?(default true) x? y?(assembly origin, default 0,0)",
+                WritesDrawing = true,
+                Run = RunNodeCreateAssembly
+            },
+            ["create_block_definition"] = new OpDef
+            {
+                Description = "Define or redefine a block from JSON geometry plus attribute definitions, and insert references with attribute values (build a title block without opening the UI)",
+                Parameters = "name(required) entities?{lines,polylines,circles,arcs,texts}(same shapes as create_dwg) "
+                           + "attributes?[{tag,prompt?,default?,x,y,height?(2.5),rotation?,width_factor?,justify?(left|center|right|middle-left),style?,mtext?(false),width?(mtext width),layer?}] "
+                           + "inserts?[{x,y,scale?,rotation?,space?(Model or a layout name),layer?,attributes?{TAG:value}}] "
+                           + "layers?[{name,color}] layer?(default 0) base_x? base_y? replace?(default true)",
+                WritesDrawing = true,
+                Run = RunNodeCreateBlockDefinition
+            },
             ["check_sac_paths"] = new OpDef
             {
                 Description = "流水线前置节点：检查两个固定 PKT；失联时自动原位替换 SAC 子装配并复检",
@@ -196,7 +214,7 @@ namespace Civil3DFactory
             ["create_surface_grid"] = new OpDef
             {
                 Description = "造一块网格原地形曲面（做链路自测用；真实项目用已有地形曲面即可）",
-                Parameters = "name(必需) minx miny maxx maxy(必需) step?(默认20) elev?(默认0) slope_x? slope_y?(每米高差) style?",
+                Parameters = "name(required) minx miny maxx maxy(required) step?(20) elev?(0) slope_x? slope_y?(rise per metre) undulation_amp?(0, metres) undulation_len?(200, metres; adds amp*sin(2*pi*x/len)*cos(2*pi*y/len)) style?",
                 WritesDrawing = true,
                 Run = CreateSurfaceGrid
             },
@@ -526,7 +544,7 @@ namespace Civil3DFactory
             ["create_section_views"] = new OpDef
             {
                 Description = "在模型空间出横断面图：按采样线逐张出图 + 网格摆放 + 体积表格",
-                Parameters = "alignment(必需) group?(采样线组名,缺省找<路线>_采样线组,找不到且只有一个组则用它) "
+                Parameters = "alignment(必需) group?(采样线组名,缺省找<alignment>_SampleLines,找不到且只有一个组则用它) "
                            + "style? code_set? section_style?(地面线断面样式,如 @C3DF-GroundLine) elev_min? elev_max?(min>=max则自动) "
                            + "offset_left?(50) offset_right?(50) x? y? rows?(2) cols?(2) col_spacing?(130) row_spacing?(45) group_spacing?(0) "
                            + "volume_table?(默认true) corridor?",
@@ -1012,7 +1030,7 @@ namespace Civil3DFactory
                 Description = "给既有断面视图挂 Civil QTO 体积表（不重建视图）。⚠ AEC 表在 accore 里导不出纯CAD"
                             + "（-EXPORTTOAUTOCAD eLockViolation 流产），出图链改用 draw_section_volume_tables 自画表；"
                             + "本节点留作界面出图/清场用",
-                Parameters = "alignment(必需) group?(缺省<路线>_采样线组) clear_all?(默认false,先删模型空间全部断面QTO表,链里第一条路线传一次) "
+                Parameters = "alignment(必需) group?(缺省<alignment>_SampleLines) clear_all?(默认false,先删模型空间全部断面QTO表,链里第一条路线传一次) "
                            + "create?(默认true;false=只清场不建表) offset_x?(默认5) offset_y?(默认0)",
                 WritesDrawing = true,
                 Run = RunNodeAddVolumeTables
@@ -1023,7 +1041,7 @@ namespace Civil3DFactory
                             + "面积取 QTOSectionalResult.AreaResult.CutArea（逐断面精确），体积取增量挖方，均为原始值不乘系数。"
                             + "target_dwg 可把表直接画进已导出的纯CAD成品图（当前 Civil 图只出数据与坐标，不改）；"
                             + "实体带 XData(C3DF_SVT) 认亲，重跑先清旧表。AEC QTO 表无头导不出纯CAD，出图链一律用本节点",
-                Parameters = "alignment(必需) group?(缺省<路线>_采样线组) scale?(默认500,出图比例,mm尺寸×scale/1000=模型米) "
+                Parameters = "alignment(必需) group?(缺省<alignment>_SampleLines) scale?(默认500,出图比例,mm尺寸×scale/1000=模型米) "
                            + "text_mm?(2.5) row_mm?(5) col1_mm?(项目列16) col2_mm?(面积列30) col3_mm?(挖方列26) "
                            + "offset_x_mm?(2) offset_y_mm?(0) clear?(默认true) layer?(默认C3DF-体积表) "
                            + "target_dwg?(绝对路径,表画进这张成品图并存盘;被占用则落 -被占用待替换 件) "
