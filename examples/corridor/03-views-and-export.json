@@ -4,18 +4,19 @@
     {
       "op": "create_section_views",
       "alignment": "C1",
-      "style": "@C3DF-Section",
-      "code_set": "@C3DF-CodeSet",
+      "style": "@C3DF-SimpleGrid",
+      "code_set": "@C3DF-Dredge",
       "section_style": "@C3DF-GroundLine",
+      "material_style": "@C3DF-CutFill",
+      "placement": "production",
+      "template": "{{C3DF_ROOT}}/examples/sheet-A3.dwt",
+      "layout": "A3",
+      "group_plot_style": "@C3DF-PrintStyle-A3",
       "x": 0,
       "y": -1500,
-      "rows": 4,
-      "cols": 6,
-      "col_spacing": 130,
-      "row_spacing": 60,
       "offset_left": 40,
       "offset_right": 40,
-      "material_style": "@C3DF-Cut"
+      "_comment": "placement:production = the native Create Multiple Section Views sheet path: the template layout + group plot style decide how many views fit one sheet; placement:draft (default) lays them out in a rows x cols grid instead"
     },
     {
       "op": "create_profile_view",

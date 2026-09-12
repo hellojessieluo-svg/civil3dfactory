@@ -1,0 +1,41 @@
+{
+  "_comment": "Run on examples/title-block-demo.dwg. Builds examples/sheet-A3.dwt: one layout 'A3' with the demo title block in paper space and a viewport covering the drawing area. create_section_views placement:production uses it to lay section views out sheet by sheet (the native 'Create Multiple Section Views' path).",
+  "ops": [
+    {
+      "op": "create_layout_sheet",
+      "layout": "A3",
+      "block": "C3DF-TITLEBLOCK-A3",
+      "paper": "A3",
+      "model_window": {
+        "minx": 0,
+        "miny": 0,
+        "maxx": 380,
+        "maxy": 210
+      },
+      "viewport": {
+        "x": 220,
+        "y": 170,
+        "width": 380,
+        "height": 210,
+        "scale": 1,
+        "locked": false
+      },
+      "attributes": {
+        "PROJECT": "Channel demo",
+        "SHEET_TITLE": "Sections",
+        "SHEET_NO": "",
+        "SCALE": "1:200",
+        "DATE": "",
+        "DESIGNED": "civil3dfactory",
+        "CHECKED": "-",
+        "NOTES": ""
+      },
+      "_viewport_note": "x,y = viewport centre on the paper (mm)"
+    },
+    {
+      "op": "save_dwg",
+      "out": "{{C3DF_ROOT}}/examples/sheet-A3.dwt",
+      "overwrite": true
+    }
+  ]
+}

@@ -104,7 +104,7 @@ Load exactly one per task after this file; it carries the node sequence, paramet
 | Skill | When to use |
 |---|---|
 | `civil3dfactory-pkt` | a cross-section must become a subassembly / assembly: bottom width, side slopes, bench, lining; PKT repair |
-| `civil3dfactory-styles` | how section / profile views, labels, material hatching look: build or change styles and apply them |
+| `civil3dfactory-styles` | how section / profile views, labels, material hatching look: edit the drawing's own styles (or build new ones) and apply them |
 | `civil3dfactory-corridor` | the linear model: profiles, corridor, corridor surface, sample lines, quantities, section and profile views, xlsx |
 | `civil3dfactory-plot` | plain-CAD sheets with title blocks: rewrite attributes, plot every sheet to PDF, merge |
 
@@ -112,7 +112,7 @@ Capabilities outside these four (area grading, islands, parcels, repairs, plan s
 
 ## Examples
 
-`examples\README.md` lists the two demo drawings (`channel-demo.dwg`: terrain EG, centerlines C1 / C2, assembly C3DF-Channel; `title-block-demo.dwg`: three A3 sheets)
+`examples\README.md` lists the two demo drawings (`channel-demo.dwg`: terrain EG, centerlines C1 / C2, assembly C3DF-Channel, a full set of `@C3DF-*` house styles; `title-block-demo.dwg`: three A3 sheets) and the sheet template `sheet-A3.dwt`
 and one task file per skill. Every task runs as is: `civil3dfactory.ps1 -Dwg examples\channel-demo.dwg -Task examples\corridor\02-build.json`.
 Lookup order for any job: examples -> skills -> `-Help <op>` -> tools. Only when none of them covers it, propose a new op.
 

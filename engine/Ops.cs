@@ -547,7 +547,9 @@ namespace Civil3DFactory
                 Parameters = "alignment(required) group?(sample line group name, default <alignment>_SampleLines; if not found and there is exactly one group, that one is used) "
                            + "style? code_set? section_style?(ground-line section style, e.g. @C3DF-GroundLine) elev_min? elev_max?(automatic if min>=max) "
                            + "offset_left?(50) offset_right?(50) x? y? rows?(2) cols?(2) col_spacing?(130) row_spacing?(45) group_spacing?(0) "
-                           + "volume_table?(default true) corridor?",
+                           + "placement?(draft|production, default draft) template?(production: .dwt/.dwg whose layout holds the sheet viewport) "
+                           + "layout?(production: layout name in the template, default the first) group_plot_style?(GroupPlotStyles name, production) "
+                           + "material_style?(shape or section style for cut/fill sections) volume_table?(default false) corridor?",
                 WritesDrawing = true,
                 Run = RunNodeCreateSectionViews
             },
@@ -1249,7 +1251,7 @@ namespace Civil3DFactory
             ["code_set_edit"] = new OpDef
             {
                 Description = "Add/modify code set mappings: which style and label style a code gets. Use it to wire up links on sections that have no style or label",
-                Parameters = "name(required, code set name) items(required, [{code,style?,label_style?}]) dry_run?(default true)",
+                Parameters = "name(required, code set name) items(required, [{code,style?,label_style?,style_type?(link|marker|shape),remove?(true drops the code)}]) dry_run?(default true)",
                 WritesDrawing = false,
                 Run = CodeSetEdit
             },
@@ -2729,6 +2731,32 @@ namespace Civil3DFactory
                     string labelName = o["label_style"] == null ? null : o["label_style"].ToString();
                     string styleType = o["style_type"] == null ? null : o["style_type"].ToString().ToLowerInvariant();
                     if (code == null) continue;
+
+                    // {code, remove:true, style_type?} drops the mapping (CodeSetStyle.Remove); the group is chosen by style_type like Add.
+                    if (GetBool(o, "remove", false))
+                    {
+                        if (dry) { done.Add(code + " -> removed (dry run)"); continue; }
+                        try
+                        {
+                            if (styleType != null)
+                            {
+                                var pSub = csObj.GetType().GetProperty("SubentityStyleType");
+                                if (pSub != null && pSub.CanWrite && pSub.PropertyType.IsEnum)
+                                    pSub.SetValue(csObj, Enum.Parse(pSub.PropertyType,
+                                        styleType == "link" ? "LinkType" : styleType == "shape" ? "ShapeType" : "MarkerType"), null);
+                            }
+                            var mRemove = csObj.GetType().GetMethod("Remove", new Type[] { typeof(string) });
+                            if (mRemove == null) throw new InvalidOperationException("CodeSetStyle.Remove(string) not available");
+                            mRemove.Invoke(csObj, new object[] { code });
+                            done.Add(code + " -> removed");
+                        }
+                        catch (System.Exception ex)
+                        {
+                            var inner = ex.InnerException ?? ex;
+                            failed.Add(new JsonObject { ["code"] = code, ["why"] = "remove failed: " + inner.GetType().Name + ": " + Truncate(inner.Message, 120) });
+                        }
+                        continue;
+                    }
 
                     ObjectId styleId = ObjectId.Null, labelId = ObjectId.Null;
                     if (styleName != null)

@@ -12,21 +12,23 @@ civil3dfactory.ps1 -Dwg examples\channel-demo.dwg -Task examples\corridor\01-rec
 
 ### channel-demo.dwg (linear work: pkt / styles / corridor)
 
-Built from Civil 3D's stock metric NCS template by `build-channel-demo.json`. Metres, DWG 2018.
+Built by `build-channel-demo.json` from a metric drawing seeded with the styles below (a real house style set, renamed `@C3DF-*`; the seeding task lives outside git). Metres, annotation scale 1:200, DWG 2018.
 
 | Object | Name | Notes |
 |---|---|---|
-| Terrain surface | `EG` | 1200 x 800 m grid, elevations 3.8 - 6.1 m, style `@C3DF-Terrain` |
+| Terrain surface | `EG` | 1200 x 800 m grid, elevations 3.8 - 6.1 m, stock contour style |
 | Centerlines | `C1` (1067 m, 3 PIs with curves), `C2` (643 m) | layer `C3DF-CL`, style `@C3DF-Centerline`, station labels |
-| Assembly | `C3DF-Channel` | subassemblies `C3DF-Channel_LEFT/RIGHT` from `pkt/ChannelSlope_*.pkt`, PKT embedded; params `SearchOffset` 10 (bottom half-width), `SlopeH` 3 |
-| QTO criteria | `@C3DF-CutFill` | two materials: cut = EG above Datum, fill = Datum above EG; surface slots `EG` / `Datum` |
-| Section view style | `@C3DF-Section` | stock "Road Section" renamed |
-| Section styles | `@C3DF-GroundLine`, `@C3DF-DesignLine` | ground / design section lines |
-| Shape styles | `@C3DF-Cut`, `@C3DF-Fill` | material hatch styles used by the criteria |
-| Code set style | `@C3DF-CodeSet` | link / point code display with hatching |
-| Profile view style / band set | `@C3DF-ProfileView`, `@C3DF-ProfileBands` | |
+| Assembly | `C3DF-Channel` | subassemblies `C3DF-Channel_LEFT/RIGHT` from `pkt/ChannelSlope_*.pkt` (pkt-forge `channel`, no bench), PKT embedded; params `BottomHalfWidth` 10, `Slope1H` 3 |
+| QTO criteria | `@C3DF-CutFill` | stock Earthworks criteria renamed: cut = EG above Datum, fill = Datum above EG; surface slots `EG` / `Datum` |
+| Section view styles | `@C3DF-SimpleGrid`, `@C3DF-NoGrid` | 10 m / 1 m grid, station + scale title below, `Elevation (m)` / `Offset (m)` axis captions |
+| Section style | `@C3DF-GroundLine` | ground section line |
+| Shape style | `@C3DF-CutFill` | material section hatch |
+| Code set style | `@C3DF-Dredge` | dredging codes: points `origin`, `toe-left/right`, `daylight-left/right`, `controlpoint-left/right`, `mp-left/right`, `WT`; marker styles `@C3DF-ControlPoint-Left/Right`, `@C3DF-NoDisplay`; link labels `@C3DF-Slope`, `@C3DF-Length-*` |
+| Profile view style / band set | `@C3DF-ProfileView`, `@C3DF-ProfileBands` | bands `C3DF-Station`, `C3DF-GroundElevation`, `C3DF-DesignElevation`, `C3DF-CutFillHeight` |
 | Profile styles | `@C3DF-GroundProfile`, `@C3DF-DesignProfile` | |
-| Sample line style | `@C3DF-SampleLine` | |
+| Alignment / sample line styles | `@C3DF-Centerline`, `@C3DF-TopLine`, `@C3DF-SampleLine` | |
+| Group plot style | `@C3DF-PrintStyle-A3` | used by `create_section_views` `placement: production` with `sheet-A3.dwt` |
+| Sheet template | `sheet-A3.dwt` | layout `A3`: title block `C3DF-TITLEBLOCK-A3` + 380 x 210 mm viewport; built by `build-sheet-template.json` from title-block-demo.dwg |
 
 No profiles, corridors, sample lines or views exist in the demo: the examples build them.
 
@@ -49,10 +51,10 @@ Conventions the tools rely on: a title block is a block whose name contains `TIT
 |---|---|---|
 | `corridor/01-recon.json` | channel-demo | `view outline` + `view issues`; 1 surface, 2 alignments, 1 assembly (status UpToDate, embedded), warnings only about missing profiles |
 | `corridor/02-build.json` | channel-demo | profiles `C1_EG` / `C1_FG`, corridor `C1_Corridor`, corridor surface `C1_Design`, group `C1_SampleLines` (23 lines), material list from `@C3DF-CutFill`: total cut about 54,800 m3, fill 0; writes `tmp/corridor.dwg` |
-| `corridor/03-views-and-export.json` | tmp/corridor.dwg | 23 section views, profile view `C1_ProfileView`, `tmp/C1-quantities.xlsx` (per station cumulative / incremental cut and fill), `tmp/corridor-views.png`, writes `tmp/corridor-views.dwg` |
-| `pkt/01-bench-assembly.json` | channel-demo | assembly `C3DF-Bench` from `pkt/ChannelBench_*.pkt`, corridor `C1_Bench`; `corridor_stats` lists link codes Top/Datum/Bottom/Slope/Bench/Daylight/Lining and point codes Origin/Bottom/Toe/Hinge/BenchIn/BenchOut/Daylight; writes `tmp/bench.dwg` |
-| `styles/01-section-view-style.json` | channel-demo (or any derived drawing) | new style `@C3DF-Section-5m` (5 m grid, title on top), red cut / blue fill hatch, thin ground line; writes `tmp/styles.dwg` |
-| `styles/02-apply-to-views.json` | tmp/corridor-views.dwg (after 01) | every C1 section view switched to the new style; `tmp/sections-before.png` and `tmp/sections-after.png` |
+| `corridor/03-views-and-export.json` | tmp/corridor.dwg | 23 section views laid out sheet by sheet (`placement: production`, `sheet-A3.dwt`, `@C3DF-PrintStyle-A3`), profile view `C1_ProfileView`, `tmp/C1-quantities.xlsx` (per station cumulative / incremental cut and fill), `tmp/corridor-views.png`, writes `tmp/corridor-views.dwg` |
+| `pkt/01-bench-assembly.json` | channel-demo | assembly `C3DF-Bench` from `pkt/ChannelBench_*.pkt`, corridor `C1_Bench`; `corridor_stats` lists link codes Top/Datum/Bottom/Slope/Bench/Daylight plus `bottom`, `slope-left/right`, `flat-left/right` and point codes Origin/Bottom/Toe/Hinge/BenchIn/BenchOut/Daylight plus `origin`, `toe-*`, `controlpoint-*`, `mp-*`, `daylight-*` (the codes `@C3DF-Dredge` styles); writes `tmp/bench.dwg` |
+| `styles/01-section-view-style.json` | tmp/corridor-views.dwg | edits the drawing's own styles: `@C3DF-SimpleGrid` to a 5 m grid with the station title on top, `@C3DF-CutFill` to red ANSI31, thin grey ground line; writes `tmp/styles.dwg` |
+| `styles/02-apply-to-views.json` | tmp/styles.dwg (after 01) | every C1 section view re-pointed at those styles; `tmp/sections-before.png` and `tmp/sections-after.png` |
 | `plot/01-inspect-title-blocks.json` | title-block-demo | 3 references with their 8 attributes each |
 | `plot/02-fill-and-plot-engine.json` | title-block-demo | attributes rewritten, `tmp/title-block-filled.dwg`, three A3 PDFs `tmp/sheet-0N.pdf` |
 

@@ -6,30 +6,32 @@
       "mode": "screenshot",
       "out": "{{C3DF_ROOT}}/tmp/sections-before.png",
       "window": {
-        "minx": -50,
-        "miny": -1510,
-        "maxx": 50,
-        "maxy": -1440
-      }
+        "minx": -45,
+        "miny": -1550,
+        "maxx": 175,
+        "maxy": -1475
+      },
+      "width": 1600
     },
     {
       "op": "restyle_section_views",
       "alignment": "C1",
-      "style": "@C3DF-Section-5m",
+      "style": "@C3DF-SimpleGrid",
       "section_style": "@C3DF-GroundLine",
-      "material_style": "@C3DF-Cut",
-      "material_shape_style": "@C3DF-Cut"
+      "material_style": "@C3DF-CutFill",
+      "material_shape_style": "@C3DF-CutFill"
     },
     {
       "op": "view",
       "mode": "screenshot",
       "out": "{{C3DF_ROOT}}/tmp/sections-after.png",
       "window": {
-        "minx": -50,
-        "miny": -1510,
-        "maxx": 50,
-        "maxy": -1440
-      }
+        "minx": -45,
+        "miny": -1550,
+        "maxx": 175,
+        "maxy": -1475
+      },
+      "width": 1600
     },
     {
       "op": "save_dwg",

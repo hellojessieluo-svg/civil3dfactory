@@ -61,12 +61,16 @@ Minimal task (bottom elevation 3.0, everything else default):
   { "op": "create_corridor_surface", "alignment": "C1" },
   { "op": "create_sample_lines", "alignment": "C1", "surface": "EG", "interval": 50, "swath": 40 },
   { "op": "compute_quantities", "alignment": "C1", "surface": "EG", "criteria": "@C3DF-CutFill" },
-  { "op": "create_section_views", "alignment": "C1", "x": 0, "y": -1500, "rows": 4, "cols": 6, "row_spacing": 60 },
-  { "op": "create_profile_view", "alignment": "C1", "x": 0, "y": -600 },
+  { "op": "create_section_views", "alignment": "C1", "style": "@C3DF-SimpleGrid", "code_set": "@C3DF-Dredge",
+    "section_style": "@C3DF-GroundLine", "material_style": "@C3DF-CutFill", "x": 0, "y": -1500,
+    "placement": "production", "template": "{{C3DF_ROOT}}/examples/sheet-A3.dwt", "layout": "A3", "group_plot_style": "@C3DF-PrintStyle-A3" },
+  { "op": "create_profile_view", "alignment": "C1", "x": 0, "y": -600, "style": "@C3DF-ProfileView", "band_set": "@C3DF-ProfileBands" },
   { "op": "export_material_volumes", "out": "{{C3DF_ROOT}}/tmp/C1-quantities.xlsx" },
   { "op": "save_dwg", "out": "{{C3DF_ROOT}}/tmp/corridor.dwg", "overwrite": true }
 ] }
 ```
+
+Section view placement: `placement: "production"` is Civil 3D's native *Create Multiple Section Views* sheet path - the layout in `template` (a .dwt/.dwg with a viewport, `examples/sheet-A3.dwt` is built by `examples/build-sheet-template.json`) sizes the page and the `group_plot_style` arranges the views page by page in model space. `placement: "draft"` (default) uses `rows` / `cols` / spacing instead. Elevation range stays automatic per view; `elev_min` / `elev_max` pin it afterwards.
 
 ## Acceptance
 

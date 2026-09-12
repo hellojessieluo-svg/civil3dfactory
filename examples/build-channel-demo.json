@@ -1,37 +1,93 @@
 {
-  "_comment": "How examples/channel-demo.dwg was built. Base: a copy of Civil 3D's stock '_Autodesk Civil 3D (Metric) NCS.dwt' saved as .dwg. Run: civil3dfactory.ps1 -Dwg <that copy> -Task examples/build-channel-demo.json ({{C3DF_ROOT}} expands to the repository folder). Result: terrain EG, centerlines C1 and C2, assembly C3DF-Channel (PKT embedded), @C3DF-* styles.",
+  "_comment": "Rebuilds examples/channel-demo.dwg. Input: a metric drawing that already carries the @C3DF-* styles the examples use (section view @C3DF-SimpleGrid / @C3DF-NoGrid, section @C3DF-GroundLine, shape @C3DF-CutFill, code set @C3DF-Dredge, profile view @C3DF-ProfileView + @C3DF-ProfileBands, profiles @C3DF-GroundProfile / @C3DF-DesignProfile, alignment @C3DF-Centerline, sample line @C3DF-SampleLine, group plot @C3DF-PrintStyle-A3, QTO criteria @C3DF-CutFill). The shipped demo was seeded from the maintainer's own style library (examples/private, not in git); channel-demo.dwg itself is the public copy of those styles.",
   "ops": [
-    { "op": "create_surface_grid", "name": "EG", "minx": 0, "miny": 0, "maxx": 1200, "maxy": 800, "step": 10,
-      "elev": 5.0, "slope_x": -0.0005, "slope_y": 0.0008, "undulation_amp": 0.6, "undulation_len": 300,
-      "style": "Contours 1m and 5m (Background)" },
-
-    { "op": "create_alignment", "name": "C1", "points": [[100, 300], [500, 340], [900, 330], [1150, 420]],
-      "layer": "C3DF-CL", "style": "Proposed", "label_set": "Major Minor and Geometry Points", "add_curves": true },
-    { "op": "create_alignment", "name": "C2", "points": [[400, 80], [420, 400], [380, 720]],
-      "layer": "C3DF-CL", "style": "Proposed", "label_set": "Major Minor and Geometry Points", "add_curves": true },
-
-    { "op": "create_assembly", "name": "C3DF-Channel",
+    {
+      "op": "create_surface_grid",
+      "name": "EG",
+      "minx": 0,
+      "miny": 0,
+      "maxx": 1200,
+      "maxy": 800,
+      "step": 10,
+      "elev": 5.0,
+      "slope_x": -0.0005,
+      "slope_y": 0.0008,
+      "undulation_amp": 0.6,
+      "undulation_len": 300,
+      "style": "Contours 1m and 5m (Background)"
+    },
+    {
+      "op": "create_alignment",
+      "name": "C1",
+      "points": [
+        [
+          100,
+          300
+        ],
+        [
+          500,
+          340
+        ],
+        [
+          900,
+          330
+        ],
+        [
+          1150,
+          420
+        ]
+      ],
+      "layer": "C3DF-CL",
+      "style": "@C3DF-Centerline",
+      "label_set": "Major Minor and Geometry Points",
+      "add_curves": true
+    },
+    {
+      "op": "create_alignment",
+      "name": "C2",
+      "points": [
+        [
+          400,
+          80
+        ],
+        [
+          420,
+          400
+        ],
+        [
+          380,
+          720
+        ]
+      ],
+      "layer": "C3DF-CL",
+      "style": "@C3DF-Centerline",
+      "label_set": "Major Minor and Geometry Points",
+      "add_curves": true
+    },
+    {
+      "op": "create_assembly",
+      "name": "C3DF-Channel",
       "left_pkt": "{{C3DF_ROOT}}/examples/pkt/ChannelSlope_LEFT.pkt",
       "right_pkt": "{{C3DF_ROOT}}/examples/pkt/ChannelSlope_RIGHT.pkt",
-      "params": { "SearchOffset": 10, "SlopeH": 3 }, "x": 0, "y": -150 },
-
-    { "op": "rename_styles", "dry_run": false, "items": [
-      { "cat": "QuantityTakeoffCriterias",   "from": "Earthworks",                        "to": "@C3DF-CutFill" },
-      { "cat": "SectionViewStyles",          "from": "Road Section",                      "to": "@C3DF-Section" },
-      { "cat": "SectionStyles",              "from": "Existing Ground",                   "to": "@C3DF-GroundLine" },
-      { "cat": "SectionStyles",              "from": "Finished Ground",                   "to": "@C3DF-DesignLine" },
-      { "cat": "ShapeStyles",                "from": "Cut Material",                      "to": "@C3DF-Cut" },
-      { "cat": "ShapeStyles",                "from": "Fill Material",                     "to": "@C3DF-Fill" },
-      { "cat": "CodeSetStyles",              "from": "All Codes with Hatching",           "to": "@C3DF-CodeSet" },
-      { "cat": "ProfileViewStyles",          "from": "Full Grid",                         "to": "@C3DF-ProfileView" },
-      { "cat": "ProfileViewBandSetStyles",   "from": "EG-FG Elevations and Stations",     "to": "@C3DF-ProfileBands" },
-      { "cat": "SampleLineStyles",           "from": "Road Sample Line",                  "to": "@C3DF-SampleLine" },
-      { "cat": "AlignmentStyles",            "from": "Proposed",                          "to": "@C3DF-Centerline" },
-      { "cat": "SurfaceStyles",              "from": "Contours 1m and 5m (Background)",   "to": "@C3DF-Terrain" },
-      { "cat": "ProfileStyles",              "from": "Existing Ground Profile",           "to": "@C3DF-GroundProfile" },
-      { "cat": "ProfileStyles",              "from": "Design Profile",                    "to": "@C3DF-DesignProfile" }
-    ] },
-
-    { "op": "save_dwg", "out": "{{C3DF_ROOT}}/examples/channel-demo.dwg", "overwrite": true }
+      "params": {
+        "BottomHalfWidth": 10,
+        "Slope1H": 3
+      },
+      "x": 0,
+      "y": -150
+    },
+    {
+      "op": "set_scale",
+      "scale": 200
+    },
+    {
+      "op": "list_styles",
+      "_comment": "leftover check: every style the examples use must be present under its @C3DF-* name"
+    },
+    {
+      "op": "save_dwg",
+      "out": "{{C3DF_ROOT}}/examples/channel-demo.dwg",
+      "overwrite": true
+    }
   ]
 }

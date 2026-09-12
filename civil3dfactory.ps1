@@ -190,10 +190,17 @@ if (-not (Test-Path -LiteralPath $Task)) { Fail "Task file not found: $Task" "Fi
 $Task = (Resolve-Path -LiteralPath $Task).Path
 # Placeholders let the shipped examples run from any clone location:
 #   {{C3DF_ROOT}} = this repository, {{DWG_DIR}} = the drawing's folder (forward slashes, no trailing slash)
+#   {{STYLE_LIBRARY}} = $env:C3DF_STYLE_LIBRARY, a style-library drawing kept outside the repository (maintainers rebuilding the demo drawings)
 $taskText = Get-Content -LiteralPath $Task -Raw -Encoding UTF8
-if ($taskText -match '\{\{(C3DF_ROOT|DWG_DIR)\}\}') {
+if ($taskText -match '\{\{(C3DF_ROOT|DWG_DIR|STYLE_LIBRARY)\}\}') {
   $rootFs = $PSScriptRoot.Replace('\', '/')
   $dwgDirFs = (Split-Path -Parent $Dwg).Replace('\', '/')
+  if ($taskText -match '\{\{STYLE_LIBRARY\}\}') {
+    if (-not $env:C3DF_STYLE_LIBRARY -or -not (Test-Path -LiteralPath $env:C3DF_STYLE_LIBRARY)) {
+      Fail "The task uses {{STYLE_LIBRARY}}: set C3DF_STYLE_LIBRARY to a style-library drawing (this placeholder is for rebuilding the shipped demo drawings)." "FileNotFoundException"
+    }
+    $taskText = $taskText -replace '\{\{STYLE_LIBRARY\}\}', ((Resolve-Path -LiteralPath $env:C3DF_STYLE_LIBRARY).Path.Replace('\', '/'))
+  }
   $taskText = $taskText -replace '\{\{C3DF_ROOT\}\}', $rootFs -replace '\{\{DWG_DIR\}\}', $dwgDirFs
   $expanded = Join-Path $env:TEMP ("c3df_task_{0}.json" -f ([guid]::NewGuid().ToString("N")))
   Set-Content -Path $expanded -Encoding utf8 -Value $taskText -NoNewline

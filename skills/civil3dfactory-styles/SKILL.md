@@ -43,20 +43,22 @@ axis titles use `AxisTitleLocationType` names (`TopCenter` etc.), matched loosel
 
 ## Example task
 
-`examples/styles/01-section-view-style.json` builds `@C3DF-Section-5m` from scratch and recolours `@C3DF-Cut` / `@C3DF-Fill`;
-`examples/styles/02-apply-to-views.json` switches existing section views to it and takes before / after PNGs.
+Start from the styles the drawing already has (`list_styles`): a drawing that comes from a project template carries its owner's house styles, and editing those in place keeps every view consistent. Create a new style (`create: true`) only when nothing suitable exists.
+
+`examples/styles/01-section-view-style.json` edits the demo's own `@C3DF-SimpleGrid` (5 m grid, station title on top) and `@C3DF-CutFill` (red ANSI31 hatch);
+`examples/styles/02-apply-to-views.json` re-applies them to the existing section views and takes before / after PNGs.
 
 Core of it:
 
 ```json
-{ "op": "section_view_style", "name": "@C3DF-Section-5m", "create": true,
+{ "op": "section_view_style", "name": "@C3DF-SimpleGrid",
   "grid": { "major_h": 5, "minor_h": 1, "major_v": 5, "minor_v": 1 },
-  "title": { "text": "<[Section View Station]>", "location": "Top", "text_height": 4 } }
-{ "op": "shape_style", "name": "@C3DF-Cut", "hatch": { "type": "Pattern", "pattern": "ANSI31", "angle": 45 },
+  "title": { "location": "Top", "text_height": 4 } }
+{ "op": "shape_style", "name": "@C3DF-CutFill", "hatch": { "type": "Pattern", "pattern": "ANSI31", "angle": 45, "scale": 0.5 },
   "display": [ { "component": "AreaFill", "view": "Section", "set": { "color": 1, "visible": true } } ] }
 { "op": "style_display", "cat": "SectionStyles", "name": "@C3DF-GroundLine", "view": "Section", "component": "Segments",
   "set": { "linetype": "Continuous", "lineweight": 18 }, "dry_run": false }
-{ "op": "restyle_section_views", "alignment": "C1", "style": "@C3DF-Section-5m", "material_style": "@C3DF-Cut" }
+{ "op": "restyle_section_views", "alignment": "C1", "style": "@C3DF-SimpleGrid", "section_style": "@C3DF-GroundLine", "material_style": "@C3DF-CutFill" }
 ```
 
 Component names are matched loosely (case and spaces ignored); run `style_display` without `component` to list the exact ones for a style type.
@@ -70,7 +72,7 @@ Component names are matched loosely (case and spaces ignored); run `style_displa
 ## Known pitfalls
 
 - `style_display` defaults to `dry_run: true` - pass `dry_run: false` to apply.
-- Material hatching renders through each material section's own style slot: pass `material_style: "<shape style>"` (e.g. `@C3DF-Cut`) to `restyle_section_views` or `create_section_views`; editing the shape style alone changes nothing until the sections point at it (`dump_material_styles` shows what they use).
+- Material hatching renders through each material section's own style slot: pass `material_style: "<shape style>"` (e.g. `@C3DF-CutFill`) to `restyle_section_views` or `create_section_views`; editing the shape style alone changes nothing until the sections point at it (`dump_material_styles` shows what they use).
 - A code set decides which link / point codes get a style at all (`code_set_dump`); links with no mapping draw nothing.
 - Label text height and offsets are in plot units (mm) scaled by the drawing's annotation scale (`set_scale`).
 - Styles are stored in the drawing: a new style exists only in the `save_dwg` copy.

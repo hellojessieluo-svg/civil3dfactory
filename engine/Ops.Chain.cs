@@ -1590,13 +1590,19 @@ namespace Civil3DFactory
             foreach (Autodesk.Civil.DatabaseServices.Styles.ProfileLabelSetItem item in set)
             {
                 string kind = item.LabelStyleType.ToString();
-                if (!kind.Equals("ProfileMajorStation", StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException(
-                        "create_profile_view does not yet support label set item type '" + kind + "'.");
                 double increment = 50;
                 try { if (item.Increment > 0) increment = item.Increment; } catch { }
-                Autodesk.Civil.DatabaseServices.ProfileStationLabelGroup.CreateMajor(
-                    profileViewId, profileId, item.LabelStyleId, increment);
+                // Label set item types map onto their label group classes; kinds without a managed Create (grade breaks, curves, minor stations)
+                // are skipped rather than failing the whole profile view.
+                if (kind.Equals("ProfileMajorStation", StringComparison.OrdinalIgnoreCase))
+                    Autodesk.Civil.DatabaseServices.ProfileStationLabelGroup.CreateMajor(profileViewId, profileId, item.LabelStyleId, increment);
+                else if (kind.Equals("ProfileLine", StringComparison.OrdinalIgnoreCase))
+                    Autodesk.Civil.DatabaseServices.ProfileLineLabelGroup.Create(profileViewId, profileId, item.LabelStyleId);
+                else if (kind.Equals("ProfilePVI", StringComparison.OrdinalIgnoreCase))
+                    Autodesk.Civil.DatabaseServices.ProfilePVILabelGroup.Create(profileViewId, profileId, item.LabelStyleId);
+                else if (kind.Equals("ProfileHorizontalGeometryPoint", StringComparison.OrdinalIgnoreCase))
+                    Autodesk.Civil.DatabaseServices.ProfileHorizontalGeometryPointLabelGroup.Create(profileViewId, profileId, item.LabelStyleId);
+                else continue;
                 created++;
             }
             return created;
@@ -1622,6 +1628,10 @@ namespace Civil3DFactory
             // or add them in the GUI. See item 8 of the pitfalls notes from the 2026-07-26 task.
             bool wantVolTable = GetBool(a, "volume_table", false);
             string corridorName = GetString(a, "corridor", alName + "_Corridor");
+            string placement = (GetString(a, "placement", "draft") ?? "draft").Trim().ToLowerInvariant();
+            string templateFile = GetString(a, "template", null);
+            string layoutName = GetString(a, "layout", null);
+            string groupPlotStyle = GetString(a, "group_plot_style", null);
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
@@ -1866,8 +1876,32 @@ namespace Civil3DFactory
                 rangeOpts.SetOffsetRange(-offLeft, offRight);
                 rangeOpts.UseUserSpecifiedOffset = true;
 
+                // Placement: "draft" = grid in model space (default); "production" = the native "Create Multiple Section Views"
+                // sheet path: a drawing template with a layout + viewport decides how many views fit one sheet, and the group plot
+                // style (GroupPlotStyles) decides how they are arranged. Elevation range stays automatic per view (the wizard only
+                // offers height + anchor, absolute min/max are applied per view afterwards, same as the draft path).
                 var placeOpts = new Autodesk.Civil.DatabaseServices.SectionViewGroupCreationPlacementOptions();
-                placeOpts.UseDraftPlacement();
+                if (placement == "production")
+                {
+                    if (string.IsNullOrEmpty(templateFile) || !File.Exists(templateFile))
+                        throw new InvalidOperationException("placement:production needs template (an existing .dwt/.dwg with a layout that holds a viewport); got '" + templateFile + "'.");
+                    if (string.IsNullOrEmpty(layoutName))
+                    {
+                        var available = new List<string>();
+                        try { foreach (var n in placeOpts.GetAvailableLayoutNames(templateFile)) available.Add(n); } catch { }
+                        if (available.Count == 0) throw new InvalidOperationException("No layouts found in template '" + templateFile + "'.");
+                        layoutName = available[0];
+                    }
+                    placeOpts.UseProductionPlacement(templateFile, layoutName);
+                }
+                else if (placement == "draft") placeOpts.UseDraftPlacement();
+                else throw new InvalidOperationException("placement must be draft or production; got '" + placement + "'.");
+                ObjectId plotStyleId = ObjectId.Null;
+                if (!string.IsNullOrEmpty(groupPlotStyle))
+                {
+                    plotStyleId = FindStyleIdStrict(tr, civ.Styles.GroupPlotStyles, groupPlotStyle);
+                    if (plotStyleId.IsNull) throw new InvalidOperationException("group_plot_style '" + groupPlotStyle + "' not found in GroupPlotStyles.");
+                }
 
                 CivAlignment al = FindAlignment(tr, civ, alName);
                 ObjectId svStyleId = FindStyleId(tr, civ.Styles.SectionViewStyles, style);
@@ -1888,7 +1922,19 @@ namespace Civil3DFactory
                 // Follow the path verified on the old console: five-argument draft creation.
                 slg.SectionViewGroups.Add(basePoint, al.StartingStation, al.EndingStation,
                                           rangeOpts, placeOpts);
-                creationMode = "5 args (old console baseline)";
+                creationMode = placement == "production"
+                    ? "production placement (template " + Path.GetFileName(templateFile) + ", layout " + layoutName + ")"
+                    : "draft placement (5 args)";
+                if (!plotStyleId.IsNull)
+                {
+                    Autodesk.Civil.DatabaseServices.SectionViewGroup newest = null;
+                    foreach (Autodesk.Civil.DatabaseServices.SectionViewGroup g in slg.SectionViewGroups) newest = g;
+                    if (newest != null)
+                    {
+                        try { newest.PlotStyleId = plotStyleId; creationNote += " group plot style " + groupPlotStyle + ";"; }
+                        catch (System.Exception ex) { creationNote += " group plot style not set: " + ex.GetType().Name + ": " + Truncate(ex.Message, 80) + ";"; }
+                    }
+                }
 
                 bool manualElev = elevMin < elevMax;
                 foreach (ObjectId slId in slg.GetSampleLineIds())
@@ -2155,6 +2201,11 @@ namespace Civil3DFactory
                 ["corridor_display_overrides"] = corridorDisplayOverrides,
                 ["surface_sections_styled"] = surfStyled,
                 ["creation_mode"] = creationMode,
+                ["placement"] = placement,
+                ["template"] = templateFile,
+                ["layout"] = layoutName,
+                ["group_plot_style"] = groupPlotStyle,
+                ["layouts_in_drawing"] = CountLayouts(db),
                 ["creation_note"] = creationNote,
                 ["layout_updated_groups"] = layoutUpdated,
                 ["corridor_code_set_before"] = corridorCodeSetBefore,
@@ -2163,6 +2214,18 @@ namespace Civil3DFactory
                 ["volume_tables"] = tables,
                 ["volume_table_note"] = tableNote
             };
+        }
+
+        static int CountLayouts(Database db)
+        {
+            int n = 0;
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var dict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry e in dict) if (e.Key != "Model") n++;
+                tr.Commit();
+            }
+            return n;
         }
 
         static CivSampleLineGroup FindSampleLineGroup(Transaction tr, CivDoc civ, string alName, string groupName)

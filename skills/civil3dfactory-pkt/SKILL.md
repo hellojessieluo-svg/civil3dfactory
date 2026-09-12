@@ -37,7 +37,7 @@ view screenshot                                                picture of the se
 Templates: `channel` (bottom + slope + optional bench + optional lining shape), `daylight` (flat search to ground then slope),
 `flatdig` (flat bottom only). `PktForge.exe` with no arguments prints every option.
 
-Codes written by `channel`: points `Origin, Bottom, Toe, Hinge, BenchIn, BenchOut, Daylight, Daylight_Cut` (+ `LiningBottom`);
+Codes written by `channel`: points `Origin, Bottom, Toe, Hinge, BenchIn, BenchOut, Daylight, Daylight_Cut` (+ `LiningBottom`) plus the dredging convention the demo code set `@C3DF-Dredge` styles: `origin`, `toe-left/right`, `controlpoint-left/right`, `mp-left/right`, `daylight-left/right`, links `bottom`, `slope-left/right`, `flat-left/right`;
 links `Top, Datum, Bottom, Flat, Slope, Bench, Daylight, Cut` (+ `Lining, Subbase`); shape `Lining`. `Top` / `Datum` are what
 `create_corridor_surface` and the quantity criteria look for.
 
