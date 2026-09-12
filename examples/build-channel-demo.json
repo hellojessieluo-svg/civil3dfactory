@@ -84,6 +84,20 @@
       "y": -150
     },
     {
+      "op": "code_set_edit",
+      "name": "@C3DF-Dredge",
+      "dry_run": false,
+      "items": [
+        {
+          "code": "bottom",
+          "style_type": "link",
+          "style": "@C3DF-DredgeLine",
+          "label_style": "@C3DF-Length-Bottom"
+        }
+      ],
+      "_comment": "the bottom link (channel template, or the LinkToMarkedPoint closing link) gets its length labelled like the slopes"
+    },
+    {
       "op": "set_scale",
       "scale": 500,
       "_comment": "1:500 - the usual sheet scale for channel sections (text 2.5 mm = 1.25 m)"
