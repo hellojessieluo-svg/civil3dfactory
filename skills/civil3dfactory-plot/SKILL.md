@@ -28,9 +28,9 @@ drawing plots as an empty page without an error. Turning a Civil model into pure
 
 ```
 dump_block_attributes name:TITLE                              (engine op) see references, handles and current values
-DWGAttributeEditor.exe --headless-export <folder> <out.json>  export every title block's attributes to JSON
+DWGAttributeEditor.exe --headless-export <folder|dwg> <out.json>  export every title block's attributes to JSON
   edit "value" fields in the JSON (keep handles and original_value)
-DWGAttributeEditor.exe --headless-update <folder> <in.json>   write back (originals backed up under .dwg-attribute-backups)
+DWGAttributeEditor.exe --headless-update <folder|dwg> <in.json>   write back (originals backed up under .dwg-attribute-backups)
 DWGTitleblockPlotter.exe <folder-or-dwg> <outdir> [--block X] [--color]   one A3 PDF per title block, named <sheet no>-<title>
 merge: pypdf or any PDF tool                                   optional
 ```

@@ -106,7 +106,12 @@ def iter_com(collection: Any) -> Iterable[Any]:
         yield collection.Item(index)
 
 
+ONLY_DWG: Path | None = None  # set by the headless entry point when a single .dwg is given instead of a folder
+
+
 def discover_dwgs(folder: Path, recursive: bool) -> list[Path]:
+    if ONLY_DWG is not None:
+        return [ONLY_DWG] if ONLY_DWG.is_file() else []
     pattern = "**/*.dwg" if recursive else "*.dwg"
     files = []
     for path in folder.glob(pattern):
@@ -2105,8 +2110,8 @@ SCOPE_SELECTION = "Selected cells"
 
 USAGE = """Usage:
   DWGAttributeEditor.exe                                             GUI
-  DWGAttributeEditor.exe --headless-export <folder> <out.json> [--block <substring>]
-  DWGAttributeEditor.exe --headless-update <folder> <in.json>  [--block <substring>]
+  DWGAttributeEditor.exe --headless-export <folder|file.dwg> <out.json> [--block <substring>]
+  DWGAttributeEditor.exe --headless-update <folder|file.dwg> <in.json>  [--block <substring>]
 
   --block <substring>   block name filter (case-insensitive substring, default "TITLE")
 """
@@ -2141,6 +2146,10 @@ def main() -> None:
         if len(positional) < 2:
             raise SystemExit(USAGE)
         folder = Path(positional[0]).resolve()
+        if folder.is_file() and folder.suffix.lower() == ".dwg":
+            global ONLY_DWG
+            ONLY_DWG = folder
+            folder = folder.parent
         json_file = Path(positional[1]).resolve()
         block_filter = (block if block is not None else TITLE_BLOCK_FILTER).strip()
         if mode == "--headless-export":
