@@ -10,7 +10,7 @@ civil3dfactory.ps1 -Dwg examples\channel-demo.dwg -Task examples\corridor\02-bui
 
 ## See it run
 
-Three real Claude Code sessions, one instruction each, on the demo drawing: the agent reads the skill, writes the task JSON, runs the engine and reports.
+Four real Claude Code sessions, one instruction each, on the demo drawings: the agent reads the skill, writes the task JSON, runs the engine and reports.
 
 **"Build a dredging subassembly: 20 m bottom, 1:3 side slopes, 2 m berm. Put it in the demo assembly."**
 
@@ -29,6 +29,12 @@ Three real Claude Code sessions, one instruction each, on the demo drawing: the 
 ![profiles, corridor, sample lines, cut and fill per station to xlsx, section views on A3 pages, profile view](docs/media/03-corridor.gif)
 
 [full video](docs/media/03-corridor.mp4) - skill `civil3dfactory-corridor`
+
+**"On every sheet, change note 2 to 'Dredging section, demo'. Plot all sheets to PDF."**
+
+![DWGAttributeEditor rewrites the title block notes headlessly, DWGTitleblockPlotter plots every sheet to its own PDF](docs/media/04-plot.gif)
+
+[full video](docs/media/04-plot.mp4) - skill `civil3dfactory-plot`
 
 ## What it does
 
