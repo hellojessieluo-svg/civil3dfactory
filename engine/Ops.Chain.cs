@@ -621,7 +621,11 @@ namespace Civil3DFactory
                     string tt = t.TargetType.ToString();
                     slots.Add(t.DisplayName + " [" + tt + "]");
                     if (tt == "Surface") { t.TargetIds = sfIds; sCount++; }
-                    else if (tt == "Offset" && offIds.Count > 0) { t.TargetIds = offIds; oCount++; }
+                    else if (tt == "Offset" && offIds.Count > 0) {
+                        t.TargetIds = offIds; oCount++;
+                        // same-side pick (left piece -> left line): property exists from 2025.x on, set by reflection so 2022-2024 still compile
+                        try { var pSame = t.GetType().GetProperty("UseSameSideTarget"); if (pSame != null && pSame.CanWrite) pSame.SetValue(t, true, null); } catch { }
+                    }
                 }
                 corridor.SetTargets(targets);
                 corridor.Rebuild();

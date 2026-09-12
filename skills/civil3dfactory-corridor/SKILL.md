@@ -70,6 +70,10 @@ Minimal task (bottom elevation 3.0, everything else default):
 ] }
 ```
 
+Targets: every surface slot of the assembly is mapped to `surface`; offset slots (e.g. `TopLine` of the `slopetop` subassembly) are mapped to
+the alignments named `<alignment>_L*` and `<alignment>_R*` when they exist (same-side pick), so name the two design lines that way or create them with
+`offset_alignment` (`alignment`, `distance`, `style?`: writes `<alignment>_L` and `<alignment>_R`).
+
 Section view placement: `placement: "production"` is Civil 3D's native *Create Multiple Section Views* sheet path - the layout in `template` (a .dwt/.dwg with a viewport, `examples/sheet-A3.dwt` is built by `examples/build-sheet-template.json`) sizes the page and the `group_plot_style` arranges the views page by page in model space. `placement: "draft"` (default) uses `rows` / `cols` / spacing instead. Elevation range stays automatic per view; `elev_min` / `elev_max` pin it afterwards.
 
 ## Acceptance

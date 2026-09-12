@@ -34,12 +34,31 @@ corridor_stats                                                 point codes, link
 view screenshot                                                picture of the section views if you built them
 ```
 
-Templates: `channel` (bottom + slope + optional bench + optional lining shape), `daylight` (flat search to ground then slope),
-`flatdig` (flat bottom only). `PktForge.exe` with no arguments prints every option.
+Templates: `channel` (bottom + slope + optional bench + optional lining shape), `slopetop` (slope from a top-line target down to the
+design bottom, bottom left open - see the second pattern below), `daylight` (flat search to ground then slope), `flatdig` (flat bottom only).
+`PktForge.exe` with no arguments prints every option.
 
 Codes written by `channel`: points `Origin, Bottom, Toe, Hinge, BenchIn, BenchOut, Daylight, Daylight_Cut` (+ `LiningBottom`) plus the dredging convention the demo code set `@C3DF-Dredge` styles: `origin`, `toe-left/right`, `controlpoint-left/right`, `mp-left/right`, `daylight-left/right`, links `bottom`, `slope-left/right`, `flat-left/right`;
 links `Top, Datum, Bottom, Flat, Slope, Bench, Daylight, Cut` (+ `Lining, Subbase`); shape `Lining`. `Top` / `Datum` are what
 `create_corridor_surface` and the quantity criteria look for.
+
+## Second pattern: channel between two design lines (LinkToMarkedPoint)
+
+When the top edges are drawn (two design lines, e.g. offset alignments `C1_L` / `C1_R` in the demo) the bottom width is not a
+parameter: each side slopes from its own line down to the design bottom and the bottom is closed between the two toes.
+
+```
+PktForge.exe slopetop --name SlopeTop --slope1-h 3 --out <folder>        LEFT/RIGHT pair: TopLine offset target + EG_Surface, toe coded toe-left / toe-right
+create_assembly  name, items:[                                            in this order:
+   {pkt: SlopeTop_LEFT.pkt},  {pkt: SlopeTop_RIGHT.pkt},                    the two slopes on the baseline
+   {stock: "Subassembly.MarkPoint",         params:{PointName:"TOE_L"},                 attach:{to:<left>,  point_code:"toe-left"}},
+   {stock: "Subassembly.LinkToMarkedPoint", params:{MarkedPointName:"TOE_L", SurfaceCodes:"Top,Datum,Bottom,bottom"}, attach:{to:<right>, point_code:"toe-right"}} ]
+create_corridor                                                           offset alignments named <alignment>_L* / _R* are assigned to the TopLine slots automatically (same-side)
+```
+
+`examples/pkt/02-two-design-lines.json` runs the whole chain on the demo (assembly `C3DF-TwoLines`, corridor `C1_TwoLines`, 23 sections,
+cut about 54,500 m3). Order matters: the MarkPoint must come before the LinkToMarkedPoint that names it. Stock parameters are set by
+their catalog names (`PointName`, `MarkedPointName`, `SurfaceCodes`); the result echoes them under their resource ids.
 
 ## Example task
 

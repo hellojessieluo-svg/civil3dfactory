@@ -18,6 +18,7 @@ Built by `build-channel-demo.json` from a metric drawing seeded with the styles 
 |---|---|---|
 | Terrain surface | `EG` | 1200 x 800 m grid, elevations 3.8 - 6.1 m, stock contour style |
 | Centerlines | `C1` (1067 m, 3 PIs with curves), `C2` (643 m) | layer `C3DF-CL`, style `@C3DF-Centerline`, station labels |
+| Design lines | `C1_L`, `C1_R` | offset alignments 16 m left / right of C1 (`offset_alignment`, style `@C3DF-TopLine`): the top edges for the two-design-lines pattern |
 | Assembly | `C3DF-Channel` | subassemblies `C3DF-Channel_LEFT/RIGHT` from `pkt/ChannelSlope_*.pkt` (pkt-forge `channel`, no bench), PKT embedded; params `BottomHalfWidth` 10, `Slope1H` 3 |
 | QTO criteria | `@C3DF-CutFill` | stock Earthworks criteria renamed: cut = EG above Datum, fill = Datum above EG; surface slots `EG` / `Datum` |
 | Section view styles | `@C3DF-SimpleGrid`, `@C3DF-NoGrid` | 10 m / 1 m grid, station + scale title below, `Elevation (m)` / `Offset (m)` axis captions |
@@ -52,6 +53,7 @@ Conventions the tools rely on: a title block is a block whose name contains `TIT
 | `corridor/01-recon.json` | channel-demo | `view outline` + `view issues`; 1 surface, 2 alignments, 1 assembly (status UpToDate, embedded), warnings only about missing profiles |
 | `corridor/02-build.json` | channel-demo | profiles `C1_EG` / `C1_FG`, corridor `C1_Corridor`, corridor surface `C1_Design`, group `C1_SampleLines` (23 lines), material list from `@C3DF-CutFill`: total cut about 54,800 m3, fill 0; writes `tmp/corridor.dwg` |
 | `corridor/03-views-and-export.json` | tmp/corridor.dwg | 23 section views laid out sheet by sheet (`placement: production`, `sheet-A3.dwt`, `@C3DF-PrintStyle-A3`), profile view `C1_ProfileView`, `tmp/C1-quantities.xlsx` (per station cumulative / incremental cut and fill), `tmp/corridor-views.png`, writes `tmp/corridor-views.dwg` |
+| `pkt/02-two-design-lines.json` | channel-demo | assembly `C3DF-TwoLines` from `pkt/SlopeTop_*.pkt` + stock MarkPoint / LinkToMarkedPoint hooked to the toes, corridor `C1_TwoLines` targeting `C1_L` / `C1_R`, corridor surface, 23 sample lines, quantities, 23 section views (bottom width follows the lines); writes `tmp/two-lines.dwg`, `tmp/two-lines-section.png` |
 | `pkt/01-bench-assembly.json` | channel-demo | assembly `C3DF-Bench` from `pkt/ChannelBench_*.pkt`, corridor `C1_Bench`; `corridor_stats` lists link codes Top/Datum/Bottom/Slope/Bench/Daylight plus `bottom`, `slope-left/right`, `flat-left/right` and point codes Origin/Bottom/Toe/Hinge/BenchIn/BenchOut/Daylight plus `origin`, `toe-*`, `controlpoint-*`, `mp-*`, `daylight-*` (the codes `@C3DF-Dredge` styles); writes `tmp/bench.dwg` |
 | `styles/01-section-view-style.json` | tmp/corridor-views.dwg | edits the drawing's own styles: `@C3DF-SimpleGrid` to a 5 m grid with the station title on top, `@C3DF-CutFill` to red ANSI31, thin grey ground line; writes `tmp/styles.dwg` |
 | `styles/02-apply-to-views.json` | tmp/styles.dwg (after 01) | every C1 section view re-pointed at those styles; `tmp/sections-before.png` and `tmp/sections-after.png` |

@@ -189,7 +189,7 @@ namespace Civil3DFactory
             ["create_assembly"] = new OpDef
             {
                 Description = "Import a LEFT/RIGHT pair of Subassembly Composer .pkt files as a new assembly and embed the PKT projects in the drawing (the assembly then survives the files moving). Existing assembly of the same name is replaced",
-                Parameters = "name(required) left_pkt right_pkt(required, absolute .pkt paths) params?{ParamName:value}(applied to both subassemblies, e.g. SearchOffset/SlopeH) "
+                Parameters = "name(required) left_pkt right_pkt(absolute .pkt paths; the LEFT/RIGHT pair form) items?[{name?,pkt|stock,params?,attach?{to,point_code|point_index}}](ordered pieces: a .pkt or a stock class such as Subassembly.MarkPoint / Subassembly.LinkToMarkedPoint, hooked to the baseline or to a point of an earlier piece) params?{ParamName:value}(applied to every piece, e.g. Slope1H) "
                            + "embed?(default true) replace?(default true) x? y?(assembly origin, default 0,0)",
                 WritesDrawing = true,
                 Run = RunNodeCreateAssembly

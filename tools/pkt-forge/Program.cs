@@ -20,6 +20,7 @@ internal static class Program
                 Console.WriteLine("PktForge - writes Civil 3D subassembly packages (.pkt) without the Subassembly Composer UI.");
                 Console.WriteLine();
                 Console.WriteLine(ChannelSpec.Usage);
+                Console.WriteLine(SlopeTopSpec.Usage);
                 Console.WriteLine(DaylightSpec.Usage);
                 Console.WriteLine(FlatDigSpec.Usage);
                 return args.Length == 0 ? 2 : 0;
@@ -34,6 +35,13 @@ internal static class Program
                 Directory.CreateDirectory(spec.OutDir);
                 left = ChannelWriter.Write(spec, isLeft: true);
                 right = ChannelWriter.Write(spec, isLeft: false);
+            }
+            else if (cmd == "slopetop")
+            {
+                var spec = SlopeTopSpec.Parse(args);
+                Directory.CreateDirectory(spec.OutDir);
+                left = SlopeTopWriter.Write(spec, isLeft: true);
+                right = SlopeTopWriter.Write(spec, isLeft: false);
             }
             else if (cmd == "flatdig")
             {
@@ -61,6 +69,7 @@ internal static class Program
             Console.Error.WriteLine(DaylightSpec.Usage);
             Console.Error.WriteLine(FlatDigSpec.Usage);
             Console.Error.WriteLine(ChannelSpec.Usage);
+            Console.Error.WriteLine(SlopeTopSpec.Usage);
             return 2;
         }
     }

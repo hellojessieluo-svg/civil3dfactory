@@ -1,0 +1,131 @@
+{
+  "_comment": "Channel between two design lines (the LinkToMarkedPoint way): the demo's offset alignments C1_L / C1_R are the top edges; each slope-from-top subassembly targets its own line, runs down 1:3 to the design bottom and stops at the toe; a stock MarkPoint names the left toe and a stock LinkToMarkedPoint hooked to the right toe closes the bottom. The bottom width follows the lines, not a parameter. Run on channel-demo.dwg.",
+  "ops": [
+    {
+      "op": "create_assembly",
+      "name": "C3DF-TwoLines",
+      "x": 0,
+      "y": -350,
+      "items": [
+        {
+          "name": "C3DF-TwoLines_LEFT",
+          "pkt": "{{C3DF_ROOT}}/examples/pkt/SlopeTop_LEFT.pkt",
+          "params": {
+            "Slope1H": 3
+          }
+        },
+        {
+          "name": "C3DF-TwoLines_RIGHT",
+          "pkt": "{{C3DF_ROOT}}/examples/pkt/SlopeTop_RIGHT.pkt",
+          "params": {
+            "Slope1H": 3
+          }
+        },
+        {
+          "name": "C3DF-TwoLines_MP",
+          "stock": "Subassembly.MarkPoint",
+          "params": {
+            "PointName": "TOE_L",
+            "PointCodes": "MarkedPoint"
+          },
+          "attach": {
+            "to": "C3DF-TwoLines_LEFT",
+            "point_code": "toe-left"
+          }
+        },
+        {
+          "name": "C3DF-TwoLines_LINK",
+          "stock": "Subassembly.LinkToMarkedPoint",
+          "params": {
+            "MarkedPointName": "TOE_L",
+            "SurfaceCodes": "Top,Datum,Bottom,bottom"
+          },
+          "attach": {
+            "to": "C3DF-TwoLines_RIGHT",
+            "point_code": "toe-right"
+          }
+        }
+      ]
+    },
+    {
+      "op": "create_profiles",
+      "alignment": "C1",
+      "surface": "EG",
+      "design_elev": 3.0,
+      "ground_style": "@C3DF-GroundProfile",
+      "design_style": "@C3DF-DesignProfile"
+    },
+    {
+      "op": "create_corridor",
+      "alignment": "C1",
+      "assembly": "C3DF-TwoLines",
+      "surface": "EG",
+      "name": "C1_TwoLines"
+    },
+    {
+      "op": "create_corridor_surface",
+      "alignment": "C1",
+      "corridor": "C1_TwoLines"
+    },
+    {
+      "op": "corridor_stats",
+      "name": "C1_TwoLines"
+    },
+    {
+      "op": "create_sample_lines",
+      "alignment": "C1",
+      "surface": "EG",
+      "interval": 50,
+      "swath": 40,
+      "corridor": "C1_TwoLines",
+      "style": "@C3DF-SampleLine"
+    },
+    {
+      "op": "compute_quantities",
+      "alignment": "C1",
+      "surface": "EG",
+      "criteria": "@C3DF-CutFill",
+      "corridor": "C1_TwoLines"
+    },
+    {
+      "op": "create_section_views",
+      "alignment": "C1",
+      "corridor": "C1_TwoLines",
+      "style": "@C3DF-SimpleGrid",
+      "code_set": "@C3DF-Dredge",
+      "section_style": "@C3DF-GroundLine",
+      "material_style": "@C3DF-CutFill",
+      "elev_min": 0,
+      "elev_max": 10,
+      "placement": "production",
+      "template": "{{C3DF_ROOT}}/examples/sheet-A3.dwt",
+      "layout": "A3",
+      "group_plot_style": "@C3DF-PrintStyle-A3",
+      "x": 0,
+      "y": -1500,
+      "offset_left": 40,
+      "offset_right": 40
+    },
+    {
+      "op": "view",
+      "mode": "issues"
+    },
+    {
+      "op": "view",
+      "mode": "screenshot",
+      "out": "{{C3DF_ROOT}}/tmp/two-lines-section.png",
+      "width": 1600,
+      "window": {
+        "minx": -46,
+        "miny": -1552,
+        "maxx": 46,
+        "maxy": -1510
+      }
+    },
+    {
+      "op": "save_dwg",
+      "out": "{{C3DF_ROOT}}/tmp/two-lines.dwg",
+      "overwrite": true
+    }
+  ]
+}

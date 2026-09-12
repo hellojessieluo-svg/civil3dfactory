@@ -21,6 +21,12 @@ namespace Civil3DFactory
         static JsonNode RunNodeListProfiles(JsonObject a, Document doc)
             => ListProfiles(a, doc);
 
+        /// <summary>Offset alignments (offset_alignment / the Civil 3D offset alignment command) never carry profiles of their own.</summary>
+        static bool IsOffsetAlignment(Autodesk.Civil.DatabaseServices.Alignment al)
+        {
+            try { return al.AlignmentType == Autodesk.Civil.DatabaseServices.AlignmentType.Offset; } catch { return false; }
+        }
+
         public static JsonNode ListProfiles(JsonObject a, Document doc)
         {
             string only = GetString(a, "alignment", null);
@@ -41,7 +47,7 @@ namespace Civil3DFactory
                         !string.Equals(al.Name, only, StringComparison.OrdinalIgnoreCase)) continue;
                     // Offset alignments (like Alignment - (n)-Left-25.000) are hidden by default; too noisy
                     if (skipOffsets && string.IsNullOrWhiteSpace(only) &&
-                        al.Name.StartsWith("Alignment -", StringComparison.OrdinalIgnoreCase)) continue;
+                        (al.Name.StartsWith("Alignment -", StringComparison.OrdinalIgnoreCase) || IsOffsetAlignment(al))) continue;
 
                     var ps = new JsonArray();
                     bool hasGround = false, hasDesign = false;

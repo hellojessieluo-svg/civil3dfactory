@@ -65,6 +65,13 @@
       "add_curves": true
     },
     {
+      "op": "offset_alignment",
+      "alignment": "C1",
+      "distance": 16,
+      "style": "@C3DF-TopLine",
+      "_comment": "C1_L / C1_R: the top edges for the two-design-lines pattern; create_corridor assigns them to offset target slots by name"
+    },
+    {
       "op": "create_assembly",
       "name": "C3DF-Channel",
       "left_pkt": "{{C3DF_ROOT}}/examples/pkt/ChannelSlope_LEFT.pkt",

@@ -1746,13 +1746,14 @@
   },
   {
     "id": "create_assembly",
-    "name": "Assembly from PKT pair",
-    "version": "1.0",
+    "name": "Assembly from PKT files and stock subassemblies",
+    "version": "1.1",
     "kind": "production",
     "executor": "engine",
     "inputs": {
-      "left_pkt": "path",
-      "right_pkt": "path"
+      "left_pkt": "path?",
+      "right_pkt": "path?",
+      "items": "array?[{name?,pkt|stock,params?,attach?{to,point_code|point_index}}]"
     },
     "parameters": {
       "name": "string",
@@ -1765,7 +1766,8 @@
     "outputs": {
       "assembly": "civil.assembly"
     },
-    "effect": "modify"
+    "effect": "modify",
+    "notes": "Either the LEFT/RIGHT pkt pair or an ordered items list. A stock item (Subassembly.MarkPoint, Subassembly.LinkToMarkedPoint ...) is imported from the Civil 3D catalog; attach hooks a piece to a point of an earlier piece, found by point code."
   },
   {
     "id": "create_block_definition",
