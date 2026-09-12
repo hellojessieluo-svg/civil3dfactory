@@ -78,7 +78,8 @@
     },
     {
       "op": "set_scale",
-      "scale": 200
+      "scale": 500,
+      "_comment": "1:500 - the usual sheet scale for channel sections (text 2.5 mm = 1.25 m)"
     },
     {
       "op": "list_styles",

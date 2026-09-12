@@ -6,10 +6,10 @@
       "mode": "screenshot",
       "out": "{{C3DF_ROOT}}/tmp/sections-before.png",
       "window": {
-        "minx": -45,
-        "miny": -1550,
-        "maxx": 175,
-        "maxy": -1475
+        "minx": -46,
+        "miny": -1548,
+        "maxx": 46,
+        "maxy": -1518
       },
       "width": 1600
     },
@@ -19,17 +19,19 @@
       "style": "@C3DF-SimpleGrid",
       "section_style": "@C3DF-GroundLine",
       "material_style": "@C3DF-CutFill",
-      "material_shape_style": "@C3DF-CutFill"
+      "material_shape_style": "@C3DF-CutFill",
+      "elev_min": 0,
+      "elev_max": 10
     },
     {
       "op": "view",
       "mode": "screenshot",
       "out": "{{C3DF_ROOT}}/tmp/sections-after.png",
       "window": {
-        "minx": -45,
-        "miny": -1550,
-        "maxx": 175,
-        "maxy": -1475
+        "minx": -46,
+        "miny": -1548,
+        "maxx": 46,
+        "maxy": -1518
       },
       "width": 1600
     },

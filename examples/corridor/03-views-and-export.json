@@ -16,7 +16,9 @@
       "y": -1500,
       "offset_left": 40,
       "offset_right": 40,
-      "_comment": "placement:production = the native Create Multiple Section Views sheet path: the template layout + group plot style decide how many views fit one sheet; placement:draft (default) lays them out in a rows x cols grid instead"
+      "_comment": "placement:production = the native Create Multiple Section Views sheet path: the template layout + group plot style decide how many views fit one sheet; placement:draft (default) lays them out in a rows x cols grid instead",
+      "elev_min": 0,
+      "elev_max": 10
     },
     {
       "op": "create_profile_view",

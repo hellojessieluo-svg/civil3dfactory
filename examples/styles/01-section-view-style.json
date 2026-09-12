@@ -12,7 +12,8 @@
       },
       "title": {
         "location": "Top",
-        "text_height": 4
+        "text_height": 3.5,
+        "offset_y": 8
       }
     },
     {
@@ -22,7 +23,7 @@
         "type": "Pattern",
         "pattern": "ANSI31",
         "angle": 45,
-        "scale": 0.5
+        "scale": 0.25
       },
       "display": [
         {

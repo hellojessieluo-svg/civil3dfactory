@@ -12,7 +12,7 @@ civil3dfactory.ps1 -Dwg examples\channel-demo.dwg -Task examples\corridor\01-rec
 
 ### channel-demo.dwg (linear work: pkt / styles / corridor)
 
-Built by `build-channel-demo.json` from a metric drawing seeded with the styles below (a real house style set, renamed `@C3DF-*`; the seeding task lives outside git). Metres, annotation scale 1:200, DWG 2018.
+Built by `build-channel-demo.json` from a metric drawing seeded with the styles below (a real house style set, renamed `@C3DF-*`; the seeding task lives outside git). Metres, annotation scale 1:500 (the usual sheet scale for channel sections), DWG 2018.
 
 | Object | Name | Notes |
 |---|---|---|

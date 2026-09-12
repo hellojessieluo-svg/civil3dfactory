@@ -33,7 +33,7 @@ namespace Civil3DFactory
                 Parameters = "name(required) cat?(default SectionViewStyles) create?(default false; create when missing) "
                            + "grid?{major_h,minor_h(offset direction: bottom+top axis intervals),major_v,minor_v(elevation direction: left+right axis intervals)} "
                            + "axes?{bottom|top|left|right:{show?,major_interval?,minor_interval?,major_label?,minor_label?,text_height?(plotted mm),title?{text,location?,text_height?(mm)}}} "
-                           + "title?{text?,location?(Top|Bottom|Left|Right),text_height?(plotted mm),justification?,border?,offset_x?,offset_y?} "
+                           + "title?{text?,location?(Top|Bottom|Left|Right),text_height?(plotted mm),justification?,border?,offset_x?,offset_y?(plotted mm)} "
                            + "graph?{vertical_exaggeration?,direction?(LeftToRight|RightToLeft)} padding?{above,below,left,right} "
                            + "display?[{component,set:{color,layer,linetype,lineweight,visible},view?}](forwarded to style_display, applied immediately)",
                 WritesDrawing = true,
@@ -185,8 +185,8 @@ namespace Civil3DFactory
                 if (title["text"] != null) { ax.TitleStyle.Text = title["text"].ToString(); changed.Add("title.text"); }
                 if (title["location"] != null) { ax.TitleStyle.Location = (AxisTitleLocationType)ParseEnumLoose(typeof(AxisTitleLocationType), title["location"].ToString()); changed.Add("title.location"); }
                 if (title["text_height"] != null) { ax.TitleStyle.TextHeight = Mm(GetDouble(title, "text_height", 3)); changed.Add("title.text_height"); }
-                if (title["offset_x"] != null) { ax.TitleStyle.OffsetX = GetDouble(title, "offset_x", 0); changed.Add("title.offset_x"); }
-                if (title["offset_y"] != null) { ax.TitleStyle.OffsetY = GetDouble(title, "offset_y", 0); changed.Add("title.offset_y"); }
+                if (title["offset_x"] != null) { ax.TitleStyle.OffsetX = Mm(GetDouble(title, "offset_x", 0)); changed.Add("title.offset_x"); }
+                if (title["offset_y"] != null) { ax.TitleStyle.OffsetY = Mm(GetDouble(title, "offset_y", 0)); changed.Add("title.offset_y"); }
                 if (title["rotation"] != null) { ax.TitleStyle.Rotation = GetDouble(title, "rotation", 0) * Math.PI / 180.0; changed.Add("title.rotation"); }
             }
             if (changed.Count > 0) log[key] = changed;
@@ -261,8 +261,8 @@ namespace Civil3DFactory
                     if (title["text_height"] != null) { ts.TextHeight = Mm(GetDouble(title, "text_height", 4)); c.Add("text_height"); }
                     if (title["justification"] != null) { ts.Justification = (GraphTitleJustificationType)ParseEnumLoose(typeof(GraphTitleJustificationType), title["justification"].ToString()); c.Add("justification"); }
                     if (title["border"] != null) { ts.Border = title["border"].GetValue<bool>(); c.Add("border"); }
-                    if (title["offset_x"] != null) { ts.OffsetX = GetDouble(title, "offset_x", 0); c.Add("offset_x"); }
-                    if (title["offset_y"] != null) { ts.OffsetY = GetDouble(title, "offset_y", 0); c.Add("offset_y"); }
+                    if (title["offset_x"] != null) { ts.OffsetX = Mm(GetDouble(title, "offset_x", 0)); c.Add("offset_x"); }
+                    if (title["offset_y"] != null) { ts.OffsetY = Mm(GetDouble(title, "offset_y", 0)); c.Add("offset_y"); }
                     if (title["text_style"] != null) { ts.TextStyle = title["text_style"].ToString(); c.Add("text_style"); }
                     changed["title"] = c;
                 }

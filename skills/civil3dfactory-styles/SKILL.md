@@ -53,7 +53,7 @@ Core of it:
 ```json
 { "op": "section_view_style", "name": "@C3DF-SimpleGrid",
   "grid": { "major_h": 5, "minor_h": 1, "major_v": 5, "minor_v": 1 },
-  "title": { "location": "Top", "text_height": 4 } }
+  "title": { "location": "Top", "text_height": 3.5, "offset_y": 8 } }
 { "op": "shape_style", "name": "@C3DF-CutFill", "hatch": { "type": "Pattern", "pattern": "ANSI31", "angle": 45, "scale": 0.5 },
   "display": [ { "component": "AreaFill", "view": "Section", "set": { "color": 1, "visible": true } } ] }
 { "op": "style_display", "cat": "SectionStyles", "name": "@C3DF-GroundLine", "view": "Section", "component": "Segments",
@@ -75,4 +75,5 @@ Component names are matched loosely (case and spaces ignored); run `style_displa
 - Material hatching renders through each material section's own style slot: pass `material_style: "<shape style>"` (e.g. `@C3DF-CutFill`) to `restyle_section_views` or `create_section_views`; editing the shape style alone changes nothing until the sections point at it (`dump_material_styles` shows what they use).
 - A code set decides which link / point codes get a style at all (`code_set_dump`); links with no mapping draw nothing.
 - Label text height and offsets are in plot units (mm) scaled by the drawing's annotation scale (`set_scale`).
+- Section views: lock the elevation range (`elev_min` / `elev_max` on `restyle_section_views` / `create_section_views`) instead of the automatic range, otherwise a 2 m deep channel sits in a 20 m tall grid; a title moved to `Top` needs `title.offset_y` (about 8 mm) or it overlaps the top grid line (`padding` only adds grid rows).
 - Styles are stored in the drawing: a new style exists only in the `save_dwg` copy.
