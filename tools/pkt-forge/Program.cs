@@ -15,6 +15,15 @@ internal static class Program
     {
         try
         {
+            if (args.Length == 0 || args[0] == "-h" || args[0] == "--help")
+            {
+                Console.WriteLine("PktForge - writes Civil 3D subassembly packages (.pkt) without the Subassembly Composer UI.");
+                Console.WriteLine();
+                Console.WriteLine(ChannelSpec.Usage);
+                Console.WriteLine(DaylightSpec.Usage);
+                Console.WriteLine(FlatDigSpec.Usage);
+                return args.Length == 0 ? 2 : 0;
+            }
             string cmd = args.Length > 0 && !args[0].StartsWith('-')
                 ? args[0].ToLowerInvariant() : "daylight";
 
