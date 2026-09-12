@@ -1585,8 +1585,8 @@ namespace Civil3DFactory
                                     subs.Add(new JsonObject
                                     {
                                         ["name"] = sa.Name,
-                                        ["status"] = sa.Status.ToString(),
-                                        ["from_composer"] = sa.IsFromSubassemblyComposer
+                                        ["status"] = sa.StatusOf(),
+                                        ["from_composer"] = sa.IsComposer()
                                     });
                                 }
                         }

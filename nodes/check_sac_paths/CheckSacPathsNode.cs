@@ -76,7 +76,7 @@ namespace Civil3DFactory
                     assembly.UpgradeOpen();
                     foreach (CivSubassembly oldSa in targets)
                     {
-                        string before = oldSa.Status.ToString();
+                        string before = oldSa.StatusOf();
                         if (string.Equals(before, "UpToDate", StringComparison.OrdinalIgnoreCase))
                             continue;
 
@@ -100,7 +100,7 @@ namespace Civil3DFactory
                         string importName = oldName + "__C3DF_REPATH_" +
                             Guid.NewGuid().ToString("N").Substring(0, 8);
                         ObjectId newId = CivDoc.GetCivilDocument(db).SubassemblyCollection
-                            .ImportSACSubassembly(importName, path, oldOrigin);
+                            .ImportSac(importName, path, oldOrigin);
                         var newSa = (CivSubassembly)tr.GetObject(newId, OpenMode.ForWrite);
 
                         CopyParamValues(oldSa.ParamsDouble, newSa.ParamsDouble);
@@ -151,7 +151,7 @@ namespace Civil3DFactory
                 {
                     foreach (CivSubassembly sa in ComposerSubassemblies(assembly, tr))
                     {
-                        string status = sa.Status.ToString();
+                        string status = sa.StatusOf();
                         string sideStr = SafeString(() => sa.Side.ToString()) ?? "Unknown";
                         sacResults.Add(new JsonObject
                         {
@@ -219,7 +219,7 @@ namespace Civil3DFactory
                 foreach (ObjectId id in group.GetSubassemblyIds())
                 {
                     var sa = tr.GetObject(id, OpenMode.ForRead) as CivSubassembly;
-                    if (sa != null && sa.IsFromSubassemblyComposer) result.Add(sa);
+                    if (sa != null && sa.IsComposer()) result.Add(sa);
                 }
             }
             return result;

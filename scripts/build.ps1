@@ -52,6 +52,7 @@ if (-not $dotnet) { throw "dotnet SDK not found. Install .NET 8 SDK (and .NET 10
 $sdks = @(& $dotnet --list-sdks 2>$null | ForEach-Object { [int](($_ -split '\.')[0]) })
 
 $built = @()
+$Targets = @($Targets | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })   # "-Targets a,b" via powershell -File arrives as one string
 foreach ($tfm in $Targets) {
   if (-not $generationOf.ContainsKey($tfm)) { throw "Unknown target '$tfm'. Use net472, net8.0-windows, net10.0-windows." }
   if ($sdks -notcontains $sdkMajorOf[$tfm]) {

@@ -84,8 +84,8 @@ namespace Civil3DFactory
                         var composerSubs = ComposerSubassemblies(asm, tr);
                         if (composerSubs.Count == 0)
                         {
-                            ObjectId leftSaId = civ.SubassemblyCollection.ImportSACSubassembly(asmName + "_LEFT", leftPkt, Point3d.Origin);
-                            ObjectId rightSaId = civ.SubassemblyCollection.ImportSACSubassembly(asmName + "_RIGHT", rightPkt, Point3d.Origin);
+                            ObjectId leftSaId = civ.SubassemblyCollection.ImportSac(asmName + "_LEFT", leftPkt, Point3d.Origin);
+                            ObjectId rightSaId = civ.SubassemblyCollection.ImportSac(asmName + "_RIGHT", rightPkt, Point3d.Origin);
 
                             var leftSa = (CivSubassembly)tr.GetObject(leftSaId, OpenMode.ForWrite);
                             var rightSa = (CivSubassembly)tr.GetObject(rightSaId, OpenMode.ForWrite);

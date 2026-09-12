@@ -829,13 +829,13 @@ namespace Civil3DFactory
                     try { st = src.SourceType.ToString(); } catch { }
                     bool isCorridorSurf =
                         st.IndexOf("CorridorSurface", StringComparison.OrdinalIgnoreCase) >= 0;
-                    bool minesToo = src.SourceName.StartsWith(corridorName + " ")
-                                 || src.SourceName.Contains(roadSurf);
-                    bool keep = src.SourceName == sfName
-                             || src.SourceName == corridorName
+                    bool minesToo = src.SourceNameOf().StartsWith(corridorName + " ")
+                                 || src.SourceNameOf().Contains(roadSurf);
+                    bool keep = src.SourceNameOf() == sfName
+                             || src.SourceNameOf() == corridorName
                              || (isCorridorSurf && minesToo);
                     src.IsSampled = keep;
-                    string tag = src.SourceName + "  [" + st + "]";
+                    string tag = src.SourceNameOf() + "  [" + st + "]";
                     if (keep) sampled.Add(tag); else notSampled.Add(tag);
                 }
 
@@ -906,8 +906,8 @@ namespace Civil3DFactory
                 int marked = 0;
                 foreach (CivSectionSource src in slg.GetSectionSources())
                 {
-                    bool isEg = src.SourceName == sfName;
-                    bool isRoad = src.SourceName.Contains(roadSurf);
+                    bool isEg = src.SourceNameOf() == sfName;
+                    bool isRoad = src.SourceNameOf().Contains(roadSurf);
                     if ((isEg || isRoad) && !src.IsSampled)
                     {
                         try { src.IsSampled = true; marked++; } catch { }
@@ -1841,7 +1841,7 @@ namespace Civil3DFactory
                 // 代码集保险①：源级（走廊源的 Style 槽）
                 if (!codeSetId.IsNull)
                     foreach (CivSectionSource src in slg.GetSectionSources())
-                        if (src.SourceName == corridorName)
+                        if (src.SourceNameOf() == corridorName)
                             try { src.StyleId = codeSetId; } catch { }
 
                 var rangeOpts = new Autodesk.Civil.DatabaseServices.SectionViewGroupCreationRangeOptions(slg.ObjectId);
@@ -1891,7 +1891,7 @@ namespace Civil3DFactory
                 // secStyleId 在建组前已求出，这里是事后兜底（8 参数路径失败退回五参数时仍能补上）
                 foreach (CivSectionSource src in slg.GetSectionSources())
                 {
-                    bool isCorridor = src.SourceName == corridorName;
+                    bool isCorridor = src.SourceNameOf() == corridorName;
                     string sourceType = "";
                     try { sourceType = src.SourceType.ToString(); } catch { }
                     // 三类来源三种样式：走廊断面=代码集样式（Civil 的设计），
@@ -1976,9 +1976,13 @@ namespace Civil3DFactory
                                 // 直接建，不预先用 GetAvailableLabelGroupIds 过滤——
                                 // 那个方法返回的是**已存在**的组，不是"可创建"的组，
                                 // 拿它当守卫会把 Create 全拦下（实测 0 个，且不抛异常）。
+#if NET472
+                                throw new NotSupportedException("SectionCorridorPointLabelGroup needs Civil 3D 2023 or newer.");
+#else
                                 Autodesk.Civil.DatabaseServices.SectionCorridorPointLabelGroup
                                     .Create(svId, secId);
                                 pointLabelGroups++;
+#endif
                             }
                             catch (System.Exception ex)
                             {

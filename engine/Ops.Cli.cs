@@ -238,7 +238,7 @@ namespace Civil3DFactory
                             if (sa == null) continue;
                             var so = new JsonObject { ["name"] = sa.Name };
                             try { so["side"] = sa.Side.ToString(); } catch { }
-                            try { so["status"] = sa.Status.ToString(); } catch { }
+                            try { so["status"] = sa.StatusOf(); } catch { }
                             try { so["embedded_pkt"] = sa.UseEmbeddedProject; } catch { }
                             subs.Add(so);
                         }
@@ -283,7 +283,7 @@ namespace Civil3DFactory
                             foreach (CivSectionSource src in slg.GetSectionSources())
                             {
                                 string t = ""; try { t = src.SourceType.ToString(); } catch { }
-                                sources.Add(new JsonObject { ["name"] = src.SourceName, ["type"] = t, ["sampled"] = src.IsSampled });
+                                sources.Add(new JsonObject { ["name"] = src.SourceNameOf(), ["type"] = t, ["sampled"] = src.IsSampled });
                             }
                         }
                         catch { }
@@ -337,7 +337,7 @@ namespace Civil3DFactory
                             count++;
                             var sa = tr.GetObject(sid, OpenMode.ForRead) as CivSubassembly;
                             if (sa == null) continue;
-                            string status = ""; try { status = sa.Status.ToString(); } catch { }
+                            string status = ""; try { status = sa.StatusOf(); } catch { }
                             if (status.Length > 0 && !string.Equals(status, "UpToDate", StringComparison.OrdinalIgnoreCase))
                                 Issue(issues, "error", "subassembly_status", asm.Name + " / " + sa.Name,
                                     "Subassembly status is " + status + " (PKT not embedded or file missing): the corridor will build an empty shell. Re-import the PKT (check_sac_paths) or embed it.");
