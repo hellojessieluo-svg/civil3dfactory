@@ -28,7 +28,7 @@ if (Test-Path -LiteralPath $configPath) {
 }
 
 $rootAllow = @('README.md', 'SKILL.md', 'LICENSE', 'CONTRIBUTING.md', 'civil3dfactory.ps1', 'install.ps1', '.gitignore', '.gitattributes',
-               'engine', 'nodes', 'skills', 'examples', 'tools', 'scripts')
+               'engine', 'nodes', 'skills', 'examples', 'tools', 'scripts', 'docs')
 $textExt = @('.cs', '.ps1', '.json', '.py', '.md', '.txt', '.xml', '.csproj', '.sh', '.yml', '.yaml', '.gitignore', '.gitattributes', '.lisp', '.lsp', '.scr')
 
 if ($All) {

@@ -8,6 +8,28 @@ line. No UI, no clicks. A task JSON goes in, a result JSON comes out.
 civil3dfactory.ps1 -Dwg examples\channel-demo.dwg -Task examples\corridor\02-build.json
 ```
 
+## See it run
+
+Three real Claude Code sessions, one instruction each, on the demo drawing: the agent reads the skill, writes the task JSON, runs the engine and reports.
+
+**"Build a dredging subassembly: 20 m bottom, 1:3 side slopes, 2 m berm. Put it in the demo assembly."**
+
+![pkt-forge writes the subassembly pair, create_assembly embeds it, a corridor checks the codes](docs/media/01-pkt.gif)
+
+[full video](docs/media/01-pkt.mp4) - skill `civil3dfactory-pkt`
+
+**"Change the section view style: 5 m grid, cut hatched red, fill hatched blue. The section views are in tmp/m3/corridor-m3.dwg."**
+
+![section_view_style and shape_style edit the drawing's own styles, restyle_section_views applies them to 23 views](docs/media/02-styles.gif)
+
+[full video](docs/media/02-styles.mp4) - skill `civil3dfactory-styles`
+
+**"Build the corridor from centerline C1, bottom elevation 3.0. Export section views, profile view and quantities."**
+
+![profiles, corridor, sample lines, cut and fill per station to xlsx, section views on A3 pages, profile view](docs/media/03-corridor.gif)
+
+[full video](docs/media/03-corridor.mp4) - skill `civil3dfactory-corridor`
+
 ## What it does
 
 | Linear work (Civil 3D objects) | Plotting work (plain AutoCAD drawings) |
