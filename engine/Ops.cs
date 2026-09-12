@@ -1108,6 +1108,13 @@ namespace Civil3DFactory
                 WritesDrawing = false,
                 Run = ExportAllDwgTables
             },
+            ["set_surface_style"] = new OpDef
+            {
+                Description = "Assign a surface style to a surface by name (e.g. a triangles style for 3D shading, _No Display to hide the terrain)",
+                Parameters = "surface(required, surface name) style(required, SurfaceStyles name from list_styles)",
+                WritesDrawing = false,
+                Run = SetSurfaceStyle
+            },
             ["surface_stats"] = new OpDef
             {
                 Description = "Does the surface have geometry at all: vertex count, triangle count, elevation range (first stop when 'the result is 0')",
@@ -1349,6 +1356,31 @@ namespace Civil3DFactory
                 tr.Commit();
             }
             return arr;
+        }
+
+        static JsonNode SetSurfaceStyle(JsonObject a, Document doc)
+        {
+            string surfName = Need(a, "surface");
+            string styleName = Need(a, "style");
+            Database db = doc.Database;
+            CivDoc civ = Civ(db);
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                ObjectId styleId = FindStyleIdStrict(tr, civ.Styles.SurfaceStyles, styleName);
+                if (styleId.IsNull) throw new InvalidOperationException("Surface style '" + styleName + "' not found in SurfaceStyles.");
+                foreach (ObjectId id in ModelSpace(db, tr))
+                {
+                    var s = tr.GetObject(id, OpenMode.ForRead) as CivSurface;
+                    if (s == null || s.Name != surfName) continue;
+                    string before = "";
+                    try { before = s.StyleName; } catch { }
+                    s.UpgradeOpen();
+                    s.StyleId = styleId;
+                    tr.Commit();
+                    return new JsonObject { ["surface"] = surfName, ["style_before"] = before, ["style"] = styleName, ["handle"] = s.Handle.ToString() };
+                }
+                throw new InvalidOperationException("Surface '" + surfName + "' not found.");
+            }
         }
 
         static JsonNode ListSurfaces(JsonObject a, Document doc)
