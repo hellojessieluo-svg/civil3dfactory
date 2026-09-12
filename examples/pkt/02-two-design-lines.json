@@ -1,5 +1,5 @@
 {
-  "_comment": "Channel between two design lines (the LinkToMarkedPoint way): the demo's offset alignments C1_L / C1_R are the top edges; each slope-from-top subassembly targets its own line, runs down 1:3 to the design bottom and stops at the toe; a stock MarkPoint names the left toe and a stock LinkToMarkedPoint hooked to the right toe closes the bottom. The bottom width follows the lines, not a parameter. Run on channel-demo.dwg.",
+  "_comment": "Channel between two design lines (the LinkToMarkedPoint way): the demo's offset alignments C1_L16m / C1_R16m are the top edges; each slope-from-top subassembly targets its own line, runs down 1:3 to the design bottom and stops at the toe; a stock MarkPoint names the left toe and a stock LinkToMarkedPoint hooked to the right toe closes the bottom. The bottom width follows the lines, not a parameter. Run on channel-demo.dwg.",
   "ops": [
     {
       "op": "create_assembly",

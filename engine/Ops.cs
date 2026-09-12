@@ -6471,7 +6471,8 @@ namespace Civil3DFactory
 
         static string Station(double s)
         {
-            int km = (int)Math.Floor(s / 1000.0);
+            s = Math.Round(s, 3);                              // 999.9999 -> K1+000.000, not K0+1000.000
+            int km = (int)Math.Floor(s / 1000.0 + 1e-9);
             double rem = s - km * 1000.0;
             return "K" + km.ToString(CultureInfo.InvariantCulture) + "+" +
                    rem.ToString("000.000", CultureInfo.InvariantCulture);

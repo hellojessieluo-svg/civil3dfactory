@@ -69,7 +69,7 @@
       "alignment": "C1",
       "distance": 16,
       "style": "@C3DF-TopLine",
-      "_comment": "C1_L / C1_R: the top edges for the two-design-lines pattern; create_corridor assigns them to offset target slots by name"
+      "_comment": "C1_L16m / C1_R16m: the top edges for the two-design-lines pattern; create_corridor assigns them to offset target slots by name"
     },
     {
       "op": "create_assembly",

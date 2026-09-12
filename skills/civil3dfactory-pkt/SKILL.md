@@ -1,6 +1,6 @@
 ---
 name: civil3dfactory-pkt
-description: Parametric Civil 3D subassemblies without the Subassembly Composer UI - generate a LEFT/RIGHT .pkt pair (flat bottom, side slopes, optional bench and lining) with pkt-forge, import it as an assembly and embed it in the drawing, check the point / link / shape codes by building a corridor. Use when a cross-section needs a custom subassembly or an assembly must be created or repaired. Load civil3dfactory first.
+description: Parametric Civil 3D subassemblies without the Subassembly Composer UI - generate a LEFT/RIGHT .pkt pair with pkt-forge (flat bottom, side slopes, optional bench and lining; or slope-from-top pieces closed between two design lines with stock MarkPoint + LinkToMarkedPoint), import it as an assembly and embed it in the drawing, check the point / link / shape codes by building a corridor. Use when a cross-section needs a custom subassembly or an assembly must be created or repaired. Load civil3dfactory first.
 ---
 
 # civil3dfactory-pkt
@@ -44,7 +44,7 @@ links `Top, Datum, Bottom, Flat, Slope, Bench, Daylight, Cut` (+ `Lining, Subbas
 
 ## Second pattern: channel between two design lines (LinkToMarkedPoint)
 
-When the top edges are drawn (two design lines, e.g. offset alignments `C1_L` / `C1_R` in the demo) the bottom width is not a
+When the top edges are drawn (two design lines, e.g. offset alignments `C1_L16m` / `C1_R16m` in the demo) the bottom width is not a
 parameter: each side slopes from its own line down to the design bottom and the bottom is closed between the two toes.
 
 ```
