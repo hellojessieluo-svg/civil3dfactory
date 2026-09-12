@@ -120,6 +120,14 @@ if ($Release) {
     if (Test-Path -LiteralPath $exe) { Copy-Item -LiteralPath $exe -Destination $dist -Force; Write-Host "Release    : $(Join-Path $dist (Split-Path $tool -Leaf))" }
     else { Write-Warning "Missing $exe - run tools\<tool>\build_exe.ps1 before publishing the release." }
   }
+  # pkt-forge as one framework-dependent exe (needs the .NET 8 runtime that Civil 3D 2025+ ships; older hosts install it once)
+  $pktProj = Join-Path $root "tools\pkt-forge\PktForge.csproj"
+  $pktOut = Join-Path $root "tools\pkt-forge\bin\publish"
+  & $dotnet publish $pktProj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o $pktOut -nologo -v minimal
+  if ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $pktOut "PktForge.exe"))) {
+    Copy-Item -LiteralPath (Join-Path $pktOut "PktForge.exe") -Destination $dist -Force
+    Write-Host "Release    : $(Join-Path $dist 'PktForge.exe')"
+  } else { Write-Warning "pkt-forge publish failed; PktForge.exe not staged." }
   if (-not $NoTag -and $commit -ne "nogit") {
     $tag = "v$version"
     $existing = (& git -C $repoRoot rev-parse -q --verify "refs/tags/$tag" 2>$null)

@@ -118,11 +118,19 @@ if ($installed) {
 Step "3/5 exe tools (tools\)"
 $tools = @(
   @{ Dir = "dwg-attribute-editor";   Exe = "DWGAttributeEditor.exe" },
-  @{ Dir = "dwg-titleblock-plotter"; Exe = "DWGTitleblockPlotter.exe" }
+  @{ Dir = "dwg-titleblock-plotter"; Exe = "DWGTitleblockPlotter.exe" },
+  @{ Dir = "pkt-forge\bin\out";      Exe = "PktForge.exe" }
 )
 foreach ($t in $tools) {
   $dir = Join-Path $root "tools\$($t.Dir)"
   $exe = Join-Path $dir $t.Exe
+  New-Item -ItemType Directory -Force $dir | Out-Null
+  if ($BuildTools -and $t.Exe -eq "PktForge.exe") {
+    if ($sdks.Count -eq 0) { Warn "PktForge.exe: -BuildTools needs a .NET SDK"; continue }
+    & dotnet build (Join-Path $root 'tools\pkt-forge\PktForge.csproj') -c Release -o $dir -nologo -v minimal
+    if ($LASTEXITCODE -eq 0) { Ok "PktForge.exe: built" } else { Warn "PktForge.exe: build failed" }
+    continue
+  }
   if ($BuildTools) {
     if (-not $py) { Warn "$($t.Exe): -BuildTools needs Python 3.10+ on PATH"; continue }
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dir 'build_exe.ps1')
