@@ -273,7 +273,7 @@ namespace Civil3DFactory
                     try { slgIds = al.GetSampleLineGroupIds(); } catch { continue; }
                     foreach (ObjectId gid in slgIds)
                     {
-                        var slg = tr.GetObject(gid, OpenMode.ForRead) as CivSampleLineGroup;
+                        var slg = tr.GetObject(gid, OpenMode.ForWrite) as CivSampleLineGroup;   // GetSectionSources / MaterialLists need a write-open group (read-open crashes accoreconsole with eNotOpenForWrite); nothing is changed
                         if (slg == null) continue;
                         var o = new JsonObject { ["name"] = slg.Name, ["alignment"] = al.Name };
                         try { o["sample_lines"] = slg.GetSampleLineIds().Count; } catch { }
@@ -408,7 +408,7 @@ namespace Civil3DFactory
                     try { slgIds = al.GetSampleLineGroupIds(); } catch { continue; }
                     foreach (ObjectId gid in slgIds)
                     {
-                        var slg = tr.GetObject(gid, OpenMode.ForRead) as CivSampleLineGroup;
+                        var slg = tr.GetObject(gid, OpenMode.ForWrite) as CivSampleLineGroup;   // GetSectionSources / MaterialLists need a write-open group (read-open crashes accoreconsole with eNotOpenForWrite); nothing is changed
                         if (slg == null) continue;
                         string obj = al.Name + " / " + slg.Name;
                         int lines = 0; try { lines = slg.GetSampleLineIds().Count; } catch { }
