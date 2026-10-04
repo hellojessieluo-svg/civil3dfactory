@@ -16,20 +16,17 @@ using CivilDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// create_corridor_regions (S04): build a **multi-region** corridor, each region with its own assembly.
     ///
-    /// The existing create_corridor builds one region with one assembly, but a channel in this project splits into 1~7 segments,
-    /// each picking a different assembly by left/right condition (normal/lotus/intersection); B1 alone has 7.
     ///
-    /// Method: CorridorCollection.Add(name) creates an empty shell -> Baselines.Add(baseline, alignment, design profile)
-    ///       -> BaselineRegions.Add(region name, assembly, start station, end station) per segment.
-    /// Targets: surface slots -> existing ground; offset slots -> {channel}_L / {channel}_R (output of S02).
     ///
-    /// Stations are clipped to the actual alignment range: stations in the parameter table may come from an old alignment
-    /// (B1 shrank from 3308.655 to 3285.119 after realignment); segments beyond it are clipped or dropped and reported in notes.
     /// </summary>
     public static partial class Ops
     {
+        /// <summary>
+        /// </summary>
+        internal static bool IsAdjSwitchSlot(string displayName)
+            => displayName != null && displayName.StartsWith("Adj_", StringComparison.OrdinalIgnoreCase);
+
         static JsonNode RunNodeCreateCorridorRegions(JsonObject args, Document doc)
             => CreateCorridorRegions(args, doc);
 
@@ -56,7 +53,7 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 CivAlign al = FindAlignment(tr, civ, alName);
-                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "' not found.");
+                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "'.");
                 double s0 = al.StartingStation, s1 = al.EndingStation;
 
                 ObjectId fgId = ObjectId.Null;
@@ -69,7 +66,7 @@ namespace Civil3DFactory
                     throw new InvalidOperationException("Alignment '" + alName + "' has no design profile; run create_design_profiles first.");
 
                 ObjectId sfId = FindSurfaceId(tr, civ, sfName);
-                if (sfId.IsNull) throw new InvalidOperationException("Surface '" + sfName + "' not found.");
+                if (sfId.IsNull) throw new InvalidOperationException("Surface '" + sfName + "'.");
 
                 var asmByName = new Dictionary<string, ObjectId>(StringComparer.OrdinalIgnoreCase);
                 foreach (ObjectId id in ModelSpace(db, tr))
@@ -104,9 +101,9 @@ namespace Civil3DFactory
                     if (r == null) continue;
                     string asmName = GetString(r, "assembly", null);
                     if (string.IsNullOrWhiteSpace(asmName))
-                    { notes.Add("Segment " + idx + " has no assembly, skipped"); skipped++; continue; }
+                    { notes.Add("Item " + idx + " has no assembly, skipped"); skipped++; continue; }
                     if (!asmByName.ContainsKey(asmName))
-                    { notes.Add("Segment " + idx + ": assembly '" + asmName + "' not in the drawing, skipped"); skipped++; continue; }
+                    { notes.Add("Item " + idx + ": assembly '" + asmName + "' not in the drawing, skipped"); skipped++; continue; }
 
                     double st = GetDouble(r, "start", double.NaN);
                     double en = GetDouble(r, "end", double.NaN);
@@ -117,13 +114,12 @@ namespace Civil3DFactory
                     if (en > s1) en = s1;
                     if (en - st < 1e-6)
                     {
-                        notes.Add("Segment " + idx + " " + Math.Round(rawSt, 3) + "~" + Math.Round(rawEn, 3) +
+                        notes.Add("Item " + idx + " " + Math.Round(rawSt, 3) + "~" + Math.Round(rawEn, 3) +
                                   " lies entirely outside the alignment range [" + Math.Round(s0, 3) + "," + Math.Round(s1, 3) + "], dropped");
                         skipped++; continue;
                     }
-                    // Threshold 1 mm: alignment endpoints carry sub-millimetre float noise; 1e-6 would report every harmless clip
                     if (Math.Abs(rawSt - st) > 0.001 || Math.Abs(rawEn - en) > 0.001)
-                        notes.Add("Segment " + idx + " stations clipped: " + Math.Round(rawSt, 3) + "~" + Math.Round(rawEn, 3) +
+                        notes.Add("Item " + idx + " stations clipped: " + Math.Round(rawSt, 3) + "~" + Math.Round(rawEn, 3) +
                                   " → " + Math.Round(st, 3) + "~" + Math.Round(en, 3));
 
                     string rName = GetString(r, "name", "RG-" + idx.ToString("00") + "-" + asmName);
@@ -141,7 +137,7 @@ namespace Civil3DFactory
                         });
                     }
                     catch (System.Exception ex)
-                    { notes.Add("Segment " + idx + " region creation failed: " + ex.Message); skipped++; }
+                    { notes.Add("Item " + idx + " region creation failed: " + ex.Message); skipped++; }
                 }
 
                 if (added.Count == 0)
@@ -149,17 +145,17 @@ namespace Civil3DFactory
 
                 corridor.Rebuild();
 
-                // Set targets
                 var targets = corridor.GetTargets();
                 var sfIds = new ObjectIdCollection { sfId };
                 var offIds = new ObjectIdCollection();
                 if (!leftId.IsNull) offIds.Add(leftId);
                 if (!rightId.IsNull) offIds.Add(rightId);
-                int sCount = 0, oCount = 0;
+                int sCount = 0, oCount = 0, sSkipped = 0;
                 foreach (CivTargetInfo t in targets)
                 {
                     string tt = t.TargetType.ToString();
-                    if (tt == "Surface") { t.TargetIds = sfIds; sCount++; }
+                    if (tt == "Surface" && IsAdjSwitchSlot(t.DisplayName)) sSkipped++;
+                    else if (tt == "Surface") { t.TargetIds = sfIds; sCount++; }
                     else if (tt == "Offset" && offIds.Count > 0) { t.TargetIds = offIds; oCount++; }
                 }
                 corridor.SetTargets(targets);
@@ -169,10 +165,6 @@ namespace Civil3DFactory
                 try { foreach (string c in corridor.GetLinkCodes()) codes.Add(c); }
                 catch (System.Exception) { }
 
-                // "Silent success = failure" guard (lesson from project A drawings, 2026-08-13):
-                // the grading subassembly (RiverSlope PKT) declares surface target slots and emits slope-*/bottom-* link codes only when it actually runs;
-                // no surface target at all = the subassembly did not run (typically PKT not embedded, UseEmbeddedProject=False, external .pkt missing),
-                // leaving only the degenerate ZCD surface: the next 62 steps all report ok=true with zero volumes. Stop it here.
                 if (sCount == 0 && !GetBool(a, "allow_no_surface_targets", false))
                     throw new InvalidOperationException(
                         "Corridor '" + corridorName + "' has no surface target slot after creation (surface_targets_set=0); link codes are only [" +
@@ -190,6 +182,7 @@ namespace Civil3DFactory
                     ["regions_added"] = added.Count,
                     ["regions_skipped"] = skipped,
                     ["surface_targets_set"] = sCount,
+                    ["surface_slots_skipped"] = sSkipped,
                     ["offset_targets_set"] = oCount,
                     ["regions"] = added,
                     ["link_codes"] = codes,

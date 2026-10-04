@@ -42,7 +42,7 @@ namespace Civil3DFactory
             double overlapRatio = GetDouble(a, "overlap_ratio", 0.10);
             int maxFrames = Math.Max(0, (int)GetDouble(a, "max_frames", 0));
             string prefix = GetString(a, "frame_prefix", "PLAN");
-            string layerName = GetString(a, "layer", "C3DF-PLAN-FRAME-NOPLOT");
+            string layerName = GetString(a, "layer", "G-ANNO-NPLT-FRAM");
             bool replaceExisting = GetBool(a, "replace_existing", true);
 
             if (scale <= 0) throw new InvalidOperationException("scale must be greater than 0.");
@@ -69,7 +69,7 @@ namespace Civil3DFactory
             {
                 Alignment alignment = FindAlignment(tr, civil, alignmentName);
                 if (alignment == null)
-                    throw new InvalidOperationException("Alignment '" + alignmentName + "' not found.");
+                    throw new InvalidOperationException("Alignment '" + alignmentName + "'.");
 
                 alignmentStart = alignment.StartingStation;
                 alignmentEnd = alignment.EndingStation;
@@ -155,6 +155,9 @@ namespace Civil3DFactory
                         if (ent == null || ent.IsErased ||
                             !string.Equals(ent.Layer, layerName, StringComparison.OrdinalIgnoreCase))
                             continue;
+                        if (!string.Equals(layerName, "C3DF-PLAN-FRAME-NOPLOT", StringComparison.OrdinalIgnoreCase) &&
+                            ent.GetXDataForApplication(PlanFrameRegApp) == null)
+                            continue;
                         ent.UpgradeOpen();
                         ent.Erase();
                         erased++;
@@ -188,6 +191,7 @@ namespace Civil3DFactory
                     };
                     ms.AppendEntity(label);
                     tr.AddNewlyCreatedDBObject(label, true);
+                    label.XData = new ResultBuffer(new TypedValue(1001, PlanFrameRegApp), new TypedValue(1000, "label:" + f.Name));
 
                     windows.Add(new JsonObject
                     {

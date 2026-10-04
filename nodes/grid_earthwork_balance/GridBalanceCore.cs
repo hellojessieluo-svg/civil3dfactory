@@ -7,16 +7,8 @@ using Autodesk.AutoCAD.Geometry;
 namespace Civil3DFactory.Geometry
 {
     /// <summary>
-    /// Grid earthwork balance core (single source of truth): scatter a grid over the volume surface -> cell-to-cell transportation problem (exact minimum haul distance x volume)
-    /// -> haul-distance histogram + aggregated haul arrows.
     ///
-    /// Shared by two entry points: factory node grid_earthwork_balance (AI via civil3dfactory.ps1) and
-    /// WaterBox command C3DF-GridBalance/PH (manual use by colleagues). Algorithm changes go here only.
     ///
-    /// Conventions:
-    ///  - sampled dz = comparison surface (design) - base surface (existing); dz&lt;0 cut, dz&gt;0 fill (same as bounded_volumes);
-    ///  - statistics cells (fine) carry volumes and colour blocks, solver cells (coarse) carry the hauls -- the volume truth is balanced to the TIN, cell size only affects haul-distance resolution;
-    ///  - the cut/fill imbalance goes to a virtual node (big-M distance) that only absorbs the remainder; it enters neither the histogram nor the arrows.
     /// </summary>
     public static class GridBalanceCore
     {
@@ -46,9 +38,7 @@ namespace Civil3DFactory.Geometry
             public long SolveMs;
         }
 
-        // ---------------- 1. Scatter the grid ----------------
 
-        /// <summary>Fine cells whose centre falls inside the ring. sampler returns dz (NaN = off surface).</summary>
         public static Result BuildCells(IList<Point2d> ring, double step,
                                         Func<double, double, double> sampler,
                                         double minDepth = 0.01)
@@ -99,7 +89,6 @@ namespace Civil3DFactory.Geometry
             return inside;
         }
 
-        /// <summary>Balance the grid integral to the TIN truth (proportional scaling, spatial distribution preserved).</summary>
         public static void Reconcile(Result r, double tinCut, double tinFill)
         {
             r.TinCut = tinCut; r.TinFill = tinFill;
@@ -119,9 +108,7 @@ namespace Civil3DFactory.Geometry
             }
         }
 
-        // ---------------- 2. Coarsen the solver grid ----------------
 
-        /// <summary>When cut+fill nodes exceed maxNodes, coarsen by an integer factor; returns the solver cell size.</summary>
         public static double Coarsen(Result r, double step, int maxNodes,
                                      out List<Cell> cut, out List<Cell> fill)
         {
@@ -150,11 +137,8 @@ namespace Civil3DFactory.Geometry
             return outp;
         }
 
-        // ---------------- 3. Transportation problem (SSP min-cost flow, exact) ----------------
 
         /// <summary>
-        /// supply = cut cells, demand = fill cells; the deficit side gets a big-M virtual node that absorbs the remainder (not in the result Flows).
-        /// Successive shortest paths + potentials, dense Dijkstra; size is controlled by Coarsen.
         /// </summary>
         public static void Solve(Result r, List<Cell> cut, List<Cell> fill)
         {
@@ -169,7 +153,6 @@ namespace Civil3DFactory.Geometry
             }
 
             double totC = SumV(cut), totF = SumV(fill);
-            // distance upper bound -> big M
             double maxD = 0;
             var sx = new double[m + 1]; var sy = new double[m + 1]; var sv = new double[m + 1];
             var tx = new double[n + 1]; var ty = new double[n + 1]; var tv = new double[n + 1];
@@ -188,7 +171,6 @@ namespace Civil3DFactory.Geometry
             if (totF > totC + 1e-6) { vSrc = true; sv[m] = totF - totC; M = m + 1; r.Shortfall = totF - totC; }
             else if (totC > totF + 1e-6) { vSnk = true; tv[n] = totC - totF; N = n + 1; r.Surplus = totC - totF; }
 
-            // distance function (virtual nodes always bigM)
             Func<int, int, double> cost = (i, j) =>
                 (vSrc && i == m) || (vSnk && j == n) ? bigM : Dist(sx[i], sy[i], tx[j], ty[j]);
 
@@ -196,7 +178,6 @@ namespace Civil3DFactory.Geometry
             var pot = new double[V];
             var remS = new double[M]; Array.Copy(sv, remS, M);
             var remT = new double[N]; Array.Copy(tv, remT, N);
-            // sparse flow storage: one j->flow dictionary per source
             var flow = new Dictionary<int, double>[M];
             for (int i = 0; i < M; i++) flow[i] = new Dictionary<int, double>();
 
@@ -210,7 +191,6 @@ namespace Civil3DFactory.Geometry
                 for (int k = 0; k < V; k++) { dist[k] = double.MaxValue; prev[k] = -1; done[k] = false; }
                 for (int i = 0; i < M; i++) if (remS[i] > 1e-9) dist[i] = 0;
 
-                // dense Dijkstra (reduced costs)
                 for (int it = 0; it < V; it++)
                 {
                     int u = -1; double best = double.MaxValue;
@@ -242,20 +222,18 @@ namespace Civil3DFactory.Geometry
                     }
                 }
 
-                // pick the nearest sink with a deficit
                 int target = -1; double bestT = double.MaxValue;
                 for (int j = 0; j < N; j++)
                     if (remT[j] > 1e-9 && dist[M + j] < bestT) { bestT = dist[M + j]; target = M + j; }
                 if (target < 0) throw new InvalidOperationException("Deficit remains but no reachable path -- should not happen.");
 
-                // trace back the path and find the bottleneck
                 double push = remT[target - M];
                 int node = target;
                 while (true)
                 {
                     int p = prev[node];
                     if (p < 0) { if (node < M) push = Math.Min(push, remS[node]); break; }
-                    if (node >= M) { /* source->sink forward arc, unbounded */ }
+                    if (node >= M) { /* Unbounded forward source-to-sink arc. */ }
                     else
                     {   // sink->source reverse arc, limited by existing flow
                         int j = p - M;
@@ -265,7 +243,6 @@ namespace Civil3DFactory.Geometry
                 }
                 if (push <= 1e-9) throw new InvalidOperationException("Augmenting amount is 0 -- numerical anomaly.");
 
-                // apply
                 node = target;
                 while (true)
                 {
@@ -286,13 +263,11 @@ namespace Civil3DFactory.Geometry
                 remT[target - M] -= push;
                 remainTotal -= push;
 
-                // update potentials
                 for (int k = 0; k < V; k++)
                     if (dist[k] < double.MaxValue) pot[k] += Math.Min(dist[k], bestT);
                     else pot[k] += bestT;
             }
 
-            // summarise (virtual excluded)
             double moved = 0, vd = 0;
             for (int i = 0; i < m; i++)
                 foreach (var kv in flow[i])
@@ -313,7 +288,6 @@ namespace Civil3DFactory.Geometry
         static double Dist(double ax, double ay, double bx, double by)
         { double dx = ax - bx, dy = ay - by; return Math.Sqrt(dx * dx + dy * dy); }
 
-        // ---------------- 4. Histogram and arrow aggregation ----------------
 
         public static void Histogram(Result r, double[] edges)
         {
@@ -327,7 +301,6 @@ namespace Civil3DFactory.Geometry
             }
         }
 
-        /// <summary>Aggregate by the display cell of source / sink; largest volumes first, truncated to maxArrows.</summary>
         public static List<Flow> AggregateArrows(Result r, double displayStep, int maxArrows)
         {
             var d = new Dictionary<string, double[]>();  // [Σv, Σv·sx, Σv·sy, Σv·tx, Σv·ty, Σv·dist]
@@ -349,12 +322,11 @@ namespace Civil3DFactory.Geometry
             return list;
         }
 
-        // ---------------- 5. Drawing (shared by both entry points) ----------------
 
-        public const string LayerCut = "C3DF-BALANCE-CUT";
-        public const string LayerFill = "C3DF-BALANCE-FILL";
-        public const string LayerArrow = "C3DF-BALANCE-ARROW";
-        public const string LayerText = "C3DF-BALANCE-NOTE";
+        public const string LayerCut = "C-GRID-CUT";
+        public const string LayerFill = "C-GRID-FILL";
+        public const string LayerArrow = "C-GRID-SYMB";
+        public const string LayerText = "C-GRID-TEXT";
 
         public static ObjectId EnsureLayer(Transaction tr, Database db, string name, short aci, byte transparencyPct)
         {
@@ -368,12 +340,9 @@ namespace Civil3DFactory.Geometry
             };
             ObjectId id = lt.Add(rec);
             tr.AddNewlyCreatedDBObject(rec, true);
-            // No Transparency: under accoreconsole set_Transparency throws eNoDatabase (even after appending);
-            // pure decoration, not worth a workaround -- users can enable it in the layer manager. transparencyPct stays as a placeholder.
             return id;
         }
 
-        /// <summary>Idempotent: wipe old entities on this tool's four layers (only the layers it draws on).</summary>
         public static int ClearOwnLayers(Transaction tr, Database db)
         {
             int erased = 0;
@@ -396,7 +365,6 @@ namespace Civil3DFactory.Geometry
             int cnt = 0;
             foreach (var c in cells)
             {
-                // Solid vertex order is Z-shaped: lower-left, lower-right, upper-left, upper-right
                 var s = new Solid(
                     new Point3d(c.X - h, c.Y - h, 0), new Point3d(c.X + h, c.Y - h, 0),
                     new Point3d(c.X - h, c.Y + h, 0), new Point3d(c.X + h, c.Y + h, 0))
@@ -448,7 +416,6 @@ namespace Civil3DFactory.Geometry
             tr.AddNewlyCreatedDBObject(t, true);
         }
 
-        /// <summary>Histogram text lines (same format for the command line / receipt of both entry points).</summary>
         public static List<string> HistogramLines(Result r)
         {
             var lines = new List<string>();

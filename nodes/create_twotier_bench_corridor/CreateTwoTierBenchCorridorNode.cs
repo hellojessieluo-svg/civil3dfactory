@@ -50,7 +50,7 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 CivAlignment al = FindAlignment(tr, civ, alName);
-                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "' not found.");
+                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "'.");
 
                 ObjectId fgId = ObjectId.Null;
                 foreach (ObjectId pid in al.GetProfileIds())
@@ -62,7 +62,7 @@ namespace Civil3DFactory
                     throw new InvalidOperationException("Alignment '" + alName + "' has no design profile; create the profile first.");
 
                 ObjectId sfId = FindSurfaceId(tr, civ, sfName);
-                if (sfId.IsNull) throw new InvalidOperationException("Surface '" + sfName + "' not found.");
+                if (sfId.IsNull) throw new InvalidOperationException("Surface '" + sfName + "'.");
 
                 // Find or create Assembly
                 CivAssembly asm = FindAssembly(db, tr, asmName);
@@ -119,13 +119,14 @@ namespace Civil3DFactory
                 // Set surface target
                 var targets = corridor.GetTargets();
                 var sfIds = new ObjectIdCollection { sfId };
-                int sCount = 0;
+                int sCount = 0, sSkipped = 0;
                 var slots = new JsonArray();
                 foreach (CivTargetInfo t in targets)
                 {
                     string tt = t.TargetType.ToString();
                     slots.Add(t.DisplayName + " [" + tt + "]");
-                    if (tt == "Surface") { t.TargetIds = sfIds; sCount++; }
+                    if (tt == "Surface" && IsAdjSwitchSlot(t.DisplayName)) sSkipped++;
+                    else if (tt == "Surface") { t.TargetIds = sfIds; sCount++; }
                 }
                 corridor.SetTargets(targets);
                 corridor.Rebuild();
@@ -146,6 +147,7 @@ namespace Civil3DFactory
                     ["m2"] = m2,
                     ["lining_thickness"] = thickness,
                     ["surface_targets_set"] = sCount,
+                    ["surface_slots_skipped"] = sSkipped,
                     ["target_slots"] = slots,
                     ["link_codes"] = codes
                 };

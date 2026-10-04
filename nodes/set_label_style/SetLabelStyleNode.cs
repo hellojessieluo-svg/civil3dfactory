@@ -16,21 +16,15 @@ namespace Civil3DFactory
     public static partial class Ops
     {
         /// <summary>
-        /// Edit label style components: visibility / text offset / line angle and length.
         ///
-        /// Why this part exists (2026-08-26, project B preliminary design sections): the section centerline origin point is drawn twice, by
-        /// the code set branch (@C3DF-centerline) and the marker branch (CL_Elev_WL_Label_1-400),
-        /// so 655 labels overlap exactly as "doubled text"; and the "dredge control line" sits only 0.42m from the normal water level label, guaranteed to collide.
-        /// The headless chain cannot drive GUI style edits, hence this op.
         ///
-        /// WARNING: only strongly-typed / whitelisted property access; no deep reflection crawl (native crash of accoreconsole, three in a row on 08-26).
         /// </summary>
         static JsonNode RunNodeSetLabelStyle(JsonObject a, Document doc)
         {
             string styleName = GetString(a, "style", null);
             if (string.IsNullOrEmpty(styleName))
                 throw new InvalidOperationException("style (label style name) is required.");
-            // components: [{name, visible?, x_offset?, y_offset?, angle_deg?, length?, contents?}]
+            // components: [{name, visible?, x_offset?, y_offset?, angle_deg?, length?, contents?, height?, block_height?}]
             var compEdits = a["components"] as JsonArray;
             if (compEdits == null || compEdits.Count == 0)
                 throw new InvalidOperationException("components array is required (each item needs name + at least one change).");
@@ -42,7 +36,6 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // Find the style: LabelStyles root + CodeSetStyles branch, same as dump_label_styles
                 var ids = new List<ObjectId>();
                 var seen = new HashSet<object>(ReferenceEqualityComparer.Instance);
                 object root = null;
@@ -109,7 +102,6 @@ namespace Civil3DFactory
                                 if (e["visible"] != null)
                                 {
                                     bool vis = e["visible"].GetValue<bool>();
-                                    // Visibility is General.Visible (PropertyBoolean). Whitelisted access, no deep crawl.
                                     if (SetGroupProp(c, "General", "Visible", vis)) { log["visible"] = vis; touched = true; }
                                 }
                                 var txt = c as CivLabelStyleTextComponent;
@@ -125,13 +117,17 @@ namespace Civil3DFactory
                                     { txt.Text.Angle.Value = e["angle_deg"].GetValue<double>() * Math.PI / 180.0; log["angle_deg"] = e["angle_deg"].GetValue<double>(); touched = true; }
                                     if (e["height"] != null)
                                     { txt.Text.Height.Value = e["height"].GetValue<double>(); log["height"] = txt.Text.Height.Value; touched = true; }
-                                    // Attachment: which point of the text sits on the anchor; enum names like TopCenter / MiddleCenter / BottomCenter
                                     if (e["attachment"] != null &&
                                         SetGroupProp(txt, "Text", "Attachment", e["attachment"].GetValue<string>()))
                                     { log["attachment"] = e["attachment"].GetValue<string>(); touched = true; }
                                 }
-                                // The two anchor items apply to text/line/block alike: anchor_component=component name (<Feature> means the feature itself),
-                                // anchor_location=anchor position enum name (TopCenter/BottomCenter/...). The spacing between two stacked lines is set by these two plus the attachment.
+                                var blk = c as Autodesk.Civil.DatabaseServices.Styles.LabelStyleBlockComponent;
+                                if (blk != null && e["block_height"] != null)
+                                {
+                                    log["block_height_before"] = blk.Block.BlockHeight.Value;
+                                    blk.Block.BlockHeight.Value = e["block_height"].GetValue<double>();
+                                    log["block_height"] = blk.Block.BlockHeight.Value; touched = true;
+                                }
                                 if (e["anchor_component"] != null &&
                                     SetGroupProp(c, "General", "AnchorComponent", e["anchor_component"].GetValue<string>()))
                                 { log["anchor_component"] = e["anchor_component"].GetValue<string>(); touched = true; }
@@ -146,9 +142,6 @@ namespace Civil3DFactory
                                     if (e["length"] != null &&
                                         SetGroupProp(c, "Line", "Length", e["length"].GetValue<double>()))
                                     { log["length"] = e["length"].GetValue<double>(); touched = true; }
-                                    foreach (var kv in new[] { ("start_x_offset", "StartPointXOffset"), ("start_y_offset", "StartPointYOffset"), ("end_x_offset", "EndPointXOffset"), ("end_y_offset", "EndPointYOffset") })
-                                        if (e[kv.Item1] != null && SetGroupProp(c, "Line", kv.Item2, e[kv.Item1].GetValue<double>()))
-                                        { log[kv.Item1] = e[kv.Item1].GetValue<double>(); touched = true; }
                                 }
 
                                 if (touched) applied.Add(log);
@@ -156,9 +149,6 @@ namespace Civil3DFactory
                         }
                     }
 
-                    // Dragged state (Dragged State page): dragged_state is a {property name: value} dictionary; property names follow the dragged_state keys
-                    // reported by dump_label_styles (e.g. DisplayType / TextHeight / LeaderType / LeaderAttachment),
-                    // enums given as name strings. Only sets Value on Property* wrappers, no deep crawl.
                     var dsEdits = a["dragged_state"] as JsonObject;
                     if (dsEdits != null && dsEdits.Count > 0)
                     {
@@ -181,7 +171,7 @@ namespace Civil3DFactory
             }
 
             if (stylesFound == 0)
-                throw new InvalidOperationException("Label style '" + styleName + "' not found.");
+                throw new InvalidOperationException("Label style '" + styleName + "'.");
             return new JsonObject
             {
                 ["style"] = styleName,
@@ -191,7 +181,6 @@ namespace Civil3DFactory
             };
         }
 
-        /// <summary>Whitelisted access obj.<group>.<prop>.Value = v. Touches only the two named levels, no deep crawl.</summary>
         static bool SetGroupProp(object obj, string group, string prop, object v)
         {
             try
@@ -205,7 +194,6 @@ namespace Civil3DFactory
             catch { return false; }
         }
 
-        /// <summary>holder.<prop>.Value = v (one level). Enums accept name strings, numbers go through ChangeType.</summary>
         static bool SetPropValue(object holder, string prop, object v)
         {
             try
@@ -233,7 +221,6 @@ namespace Civil3DFactory
             catch { return false; }
         }
 
-        /// <summary>Read obj.<group>.<prop>: with unwrap=true returns the wrapper's Value, otherwise the property object itself. Two whitelisted levels, no deep crawl.</summary>
         static object GetGroupProp(object obj, string group, string prop, bool unwrap = true)
         {
             try
@@ -252,8 +239,6 @@ namespace Civil3DFactory
             catch { return null; }
         }
 
-        /// <summary>Flatten the Property* wrappers of a settings holder (e.g. DraggedStateComponents) into {name: Value}.
-        /// Only touches properties whose type name starts with Property; anything else (might reach the Database) is never read.</summary>
         static JsonObject ShallowPropertyValues(object holder)
         {
             if (holder == null) return null;
@@ -262,7 +247,6 @@ namespace Civil3DFactory
             {
                 if (p.GetIndexParameters().Length != 0) continue;
                 string tn = p.PropertyType.Name;
-                // Only Civil's Property* wrappers (including generics like PropertyEnum`1); never read Database/Document/ObjectId types
                 if (tn.IndexOf("Property", StringComparison.Ordinal) < 0)
                 { o["?" + p.Name] = tn; continue; }
                 try

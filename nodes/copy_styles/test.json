@@ -1,0 +1,9 @@
+{
+  "node": "copy_styles",
+  "version": 1,
+  "fixture": null,
+  "prerequisites": [],
+  "assertions": [],
+  "status": "awaiting_public_fixture",
+  "notes": "Requires an appropriate drawing fixture. Private project runs are not public regression evidence."
+}

@@ -31,19 +31,11 @@ using CivCurveGroupType = Autodesk.Civil.CurbReturnCurveGroupType;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// The whole chain: "a straight line -> alignment -> offsets -> profiles -> corridor -> corridor surface -> sample lines -> quantities".
     ///
-    /// Every op edits the **in-memory** drawing database passed via /i; the original file on disk is untouched.
-    /// To keep results you must explicitly run save_dwg (defaults to saving as a new file; pass apply:true to write back to the original).
     ///
-    /// The computation logic was ported from the field-tested RiverQto (Civil3D-009), keeping the pitfalls it hit:
-    ///   - clear all old sample line groups on the alignment before creating a new one, otherwise material computation reports "should have been sampled";
-    ///   - the sampled-source flag must be set in the same transaction that creates the group; setting it after commit has no effect;
-    ///   - criteria surface slot names must be read from the criteria itself, never hard-coded (hard-coding fails silently -> all quantities 0).
     /// </summary>
     public static partial class Ops
     {
-        // ===================== 1. Existing ground surface (build a terrain so the chain is self-contained) =====================
 
         static JsonNode CreateSurfaceGrid(JsonObject a, Document doc)
         {
@@ -114,7 +106,6 @@ namespace Civil3DFactory
             }
         }
 
-        // ===================== 2. Draw a line -> define as alignment =====================
 
         static JsonNode CreateAlignment(JsonObject a, Document doc)
         {
@@ -212,7 +203,6 @@ namespace Civil3DFactory
             }
         }
 
-        // ===================== 3. Offset alignments =====================
 
         static JsonNode OffsetAlignment(JsonObject a, Document doc)
         {
@@ -295,11 +285,7 @@ namespace Civil3DFactory
             return new JsonObject { ["parent"] = alName, ["created"] = made };
         }
 
-        // ===================== 3b. Connected alignment: radius turn between two alignments (intersection) =====================
         //
-        // Native CreateConnectedAlignment: one connection station on each of the incoming/outgoing alignments + a radius produce a dynamic connected alignment;
-        // the turn follows automatically when the parents (including dynamic offset alignments) change. CurveGroupType is fixed to Arc (single arc).
-        // The gap that partial offsets (offset_alignment start/end_station) leave at the intersection is exactly what it connects.
 
         static JsonNode CreateConnectedAlignmentOp(JsonObject a, Document doc)
         {
@@ -496,7 +482,6 @@ namespace Civil3DFactory
             }
         }
 
-        // ===================== 4. Profiles: existing ground + flat design line =====================
 
         static JsonNode CreateProfiles(JsonObject a, Document doc)
         {
@@ -548,7 +533,6 @@ namespace Civil3DFactory
             }
         }
 
-        // ===================== 5. Corridor (create + set targets) =====================
 
         static JsonNode CreateCorridor(JsonObject a, Document doc)
         {
@@ -571,7 +555,7 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 CivAlignment al = FindAlignment(tr, civ, alName);
-                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "' not found.");
+                if (al == null) throw new InvalidOperationException("Alignment '" + alName + "'.");
 
                 ObjectId fgId = ObjectId.Null;
                 foreach (ObjectId pid in al.GetProfileIds())
@@ -583,7 +567,7 @@ namespace Civil3DFactory
                     throw new InvalidOperationException("Alignment '" + alName + "' has no design profile; run create_profiles first.");
 
                 ObjectId sfId = FindSurfaceId(tr, civ, sfName);
-                if (sfId.IsNull) throw new InvalidOperationException("Surface '" + sfName + "' not found.");
+                if (sfId.IsNull) throw new InvalidOperationException("Surface '" + sfName + "'.");
 
                 ObjectId asmId = ObjectId.Null;
                 foreach (ObjectId id in ModelSpace(db, tr))
@@ -593,7 +577,6 @@ namespace Civil3DFactory
                 }
                 if (asmId.IsNull) throw new InvalidOperationException("Assembly '" + asmName + "' not found in the drawing (use civil_env to list names).");
 
-                // Left/right offset alignments: found by name prefix, independent of the offset distance
                 ObjectId leftId = ObjectId.Null, rightId = ObjectId.Null;
                 foreach (ObjectId aid in civ.GetAlignmentIds())
                 {
@@ -607,23 +590,22 @@ namespace Civil3DFactory
                 var corridor = (CivCorridor)tr.GetObject(corridorId, OpenMode.ForWrite);
                 corridor.Rebuild();
 
-                // Set targets: surface slots -> existing ground; offset slots -> left/right offset alignments
                 var targets = corridor.GetTargets();
                 var sfIds = new ObjectIdCollection { sfId };
                 var offIds = new ObjectIdCollection();
                 if (!leftId.IsNull) offIds.Add(leftId);
                 if (!rightId.IsNull) offIds.Add(rightId);
 
-                int sCount = 0, oCount = 0;
+                int sCount = 0, oCount = 0, sSkipped = 0;
                 var slots = new JsonArray();
                 foreach (CivTargetInfo t in targets)
                 {
                     string tt = t.TargetType.ToString();
                     slots.Add(t.DisplayName + " [" + tt + "]");
-                    if (tt == "Surface") { t.TargetIds = sfIds; sCount++; }
+                    if (tt == "Surface" && IsAdjSwitchSlot(t.DisplayName)) sSkipped++;
+                    else if (tt == "Surface") { t.TargetIds = sfIds; sCount++; }
                     else if (tt == "Offset" && offIds.Count > 0) {
                         t.TargetIds = offIds; oCount++;
-                        // same-side pick (left piece -> left line): property exists from 2025.x on, set by reflection so 2022-2024 still compile
                         try { var pSame = t.GetType().GetProperty("UseSameSideTarget"); if (pSame != null && pSame.CanWrite) pSame.SetValue(t, true, null); } catch { }
                     }
                 }
@@ -638,6 +620,7 @@ namespace Civil3DFactory
                     ["corridor"] = corridorName,
                     ["assembly"] = asmName,
                     ["surface_targets_set"] = sCount,
+                    ["surface_slots_skipped"] = sSkipped,
                     ["offset_targets_set"] = oCount,
                     ["offset_alignments"] = offIds.Count,
                     ["target_slots"] = slots,
@@ -648,7 +631,6 @@ namespace Civil3DFactory
             }
         }
 
-        // ===================== 6. Corridor surface =====================
 
         static JsonNode CreateCorridorSurface(JsonObject a, Document doc)
         {
@@ -716,7 +698,6 @@ namespace Civil3DFactory
             }
         }
 
-        // ===================== 7. Sample line group =====================
 
         static void TraceSampleLineStage(string stage, string detail = "")
         {
@@ -881,7 +862,6 @@ namespace Civil3DFactory
             return res;
         }
 
-        // ===================== 8. Compute quantities (material list) =====================
 
         static JsonNode ComputeQuantities(JsonObject a, Document doc)
         {
@@ -946,8 +926,9 @@ namespace Civil3DFactory
 
                 // Overwrite/rebuild: clear all material lists on the group (names are auto-generated, cannot match by name)
                 var toRemove = new List<Guid>();
-                foreach (CivQtoMaterialList ex in slg.MaterialLists) toRemove.Add(ex.Guid);
+                if (!GetBool(a, "keep_existing", false)) foreach (CivQtoMaterialList ex in slg.MaterialLists) toRemove.Add(ex.Guid);
                 foreach (Guid g in toRemove) slg.MaterialLists.Remove(g);
+                if (GetBool(a, "clear_only", false)) { tr.Commit(); return new JsonObject { ["alignment"] = alName, ["removed_material_lists"] = toRemove.Count, ["marked_sampled"] = marked }; }
 
                 var slotLog = new JsonArray();
                 using (var mapping = new CivQtoMapping(critId, slgId))
@@ -1029,7 +1010,6 @@ namespace Civil3DFactory
             }
         }
 
-        // ===================== 9. Export quantities =====================
 
         static JsonNode ExportQuantities(JsonObject a, Document doc)
         {
@@ -1092,10 +1072,6 @@ namespace Civil3DFactory
         static readonly string[] HeadersQto =
             { "No.", "Station", "Cumulative cut(m³)", "Cumulative fill(m³)", "Incremental cut(m³)", "Incremental fill(m³)" };
 
-        // ===================== 9.5 Drawing output: profile views / section views (model space) =====================
-        // Ported from RiverQto's plotting module (field-tested). Placement follows the final scheme there:
-        // let Civil 3D create the draft, then TransformBy each view sorted by station onto a custom grid
-        // -- Civil 3D's own draft layout wraps/overlaps and cannot be controlled. Anchor = midpoint of the view's bottom edge = sv.Location.
 
         static JsonNode CreateProfileView(JsonObject a, Document doc)
         {
@@ -1488,8 +1464,6 @@ namespace Civil3DFactory
             throw new InvalidOperationException(category + " '" + name + "' not found.");
         }
 
-        /// <summary>Pick the "line label group" (Vertical Alignment Line Label Group) -- identified by type name;
-        /// station/curve/PVI groups are left alone.</summary>
         static void CollectLineLabelGroups(Transaction tr, ObjectIdCollection ids, List<ObjectId> outIds)
         {
             if (ids == null) return;
@@ -1509,11 +1483,6 @@ namespace Civil3DFactory
             }
         }
 
-        /// <summary>Find this profile view's line label groups in model space: identified by type name, ownership compared via ProfileViewId reflection;
-        /// anything whose owner cannot be determined is left alone (better to keep it than delete another view's labels).</summary>
-        /// <summary>Collect all label group entities hanging on the given profile (Profile object):
-        /// PVI station/elevation, tangent grade, etc.; type name contains LabelGroup and ProfileId points to it.
-        /// These labels belong to no view; the view-side label set cannot reach them, so "no labels" must delete them from the database by name.</summary>
         static void CollectProfileLabelGroupsInDb(Transaction tr, Database db,
             ObjectId profileId, List<ObjectId> outIds)
         {
@@ -1557,8 +1526,6 @@ namespace Civil3DFactory
             }
         }
 
-        /// <summary>Find a profile major station label style by name (e.g. @EG); throw and list the available ones when not found,
-        /// never fall back to "first in collection" -- a wrong label style is harder to spot than none.</summary>
         static ObjectId NeedProfileLabelStyle(Transaction tr, CivDoc civ, string name)
         {
             object coll = civ.Styles.LabelStyles.ProfileLabelStyles.MajorStationLabelStyles;
@@ -1878,6 +1845,21 @@ namespace Civil3DFactory
                         if (src.SourceNameOf() == corridorName)
                             try { src.StyleId = codeSetId; } catch { }
 
+                {
+                    string gpsName0 = GetString(a, "group_plot_style", null);
+                    if (!string.IsNullOrEmpty(gpsName0))
+                    {
+                        ObjectId gid0 = FindStyleId(tr, civ.Styles.GroupPlotStyles, gpsName0);
+                        if (gid0.IsNull) throw new InvalidOperationException("Group plot style not found: '" + gpsName0 + "'; ambiguous or missing styles are not guessed.");
+                        var gps0 = (Autodesk.Civil.DatabaseServices.Styles.GroupPlotStyle)tr.GetObject(gid0, OpenMode.ForWrite);
+                        if (a["plot_rows"] != null) gps0.MaximumInColumn = (int)GetDouble(a, "plot_rows", 4);
+                        if (a["plot_cols"] != null) gps0.MaximumInRow = (int)GetDouble(a, "plot_cols", 1);
+                        if (a["space_row"] != null) gps0.SpaceRow = GetDouble(a, "space_row", 0);
+                        if (a["space_col"] != null) gps0.SpaceColumn = GetDouble(a, "space_col", 0);
+                        creationNote += " gps_pre:" + gpsName0 + " rows=" + gps0.MaximumInColumn + " cols=" + gps0.MaximumInRow
+                                      + " space_row_mm=" + Math.Round(gps0.SpaceRow * 1000, 1) + " space_col_mm=" + Math.Round(gps0.SpaceColumn * 1000, 1) + ";";
+                    }
+                }
                 var rangeOpts = new Autodesk.Civil.DatabaseServices.SectionViewGroupCreationRangeOptions(slg.ObjectId);
                 rangeOpts.SetOffsetRange(-offLeft, offRight);
                 rangeOpts.UseUserSpecifiedOffset = true;
@@ -2052,10 +2034,25 @@ namespace Civil3DFactory
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 CivSampleLineGroup slg2 = FindSampleLineGroup(tr, civ, alName, groupName);
+                string gpsName = GetString(a, "group_plot_style", null);
+                ObjectId gpsId = ObjectId.Null;
+                if (!string.IsNullOrEmpty(gpsName))
+                {
+                    gpsId = FindStyleId(tr, civ.Styles.GroupPlotStyles, gpsName);
+                    if (gpsId.IsNull) throw new InvalidOperationException("Group plot style not found: '" + gpsName + "'; ambiguous or missing styles are not guessed.");
+                    var gps = (Autodesk.Civil.DatabaseServices.Styles.GroupPlotStyle)tr.GetObject(gpsId, OpenMode.ForWrite);
+                    if (a["plot_rows"] != null) gps.MaximumInColumn = (int)GetDouble(a, "plot_rows", 4);
+                    if (a["plot_cols"] != null) gps.MaximumInRow = (int)GetDouble(a, "plot_cols", 1);
+                    if (a["space_row"] != null) gps.SpaceRow = GetDouble(a, "space_row", 0);
+                    if (a["space_col"] != null) gps.SpaceColumn = GetDouble(a, "space_col", 0);
+                    creationNote += " group_plot_style:" + gpsName + " rows=" + gps.MaximumInColumn + " cols=" + gps.MaximumInRow
+                                  + " space_row=" + gps.SpaceRow + " space_col=" + gps.SpaceColumn + " cell=" + gps.CellSizeType + " rule=" + gps.PlotRule + ";";
+                }
                 foreach (Autodesk.Civil.DatabaseServices.SectionViewGroup g in slg2.SectionViewGroups)
                 {
                     try
                     {
+                        if (!gpsId.IsNull) g.PlotStyleId = gpsId;
                         var m = g.GetType().GetMethod("UpdateLayout", Type.EmptyTypes);
                         if (m != null) { m.Invoke(g, null); layoutUpdated++; }
                     }
@@ -2111,7 +2108,8 @@ namespace Civil3DFactory
                 tr.Commit();
             }
 
-            // Grid placement: sorted by station, column-major, groups continue downwards
+            // Grid placement applies only to draft views; production uses the template.
+            if (placement != "production")
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 CivSampleLineGroup slg = FindSampleLineGroup(tr, civ, alName, groupName);
@@ -2263,18 +2261,6 @@ namespace Civil3DFactory
             };
         }
 
-        static int CountLayouts(Database db)
-        {
-            int n = 0;
-            using (var tr = db.TransactionManager.StartTransaction())
-            {
-                var dict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
-                foreach (DBDictionaryEntry e in dict) if (e.Key != "Model") n++;
-                tr.Commit();
-            }
-            return n;
-        }
-
         static CivSampleLineGroup FindSampleLineGroup(Transaction tr, CivDoc civ, string alName, string groupName)
         {
             CivAlignment al = FindAlignment(tr, civ, alName);
@@ -2287,9 +2273,6 @@ namespace Civil3DFactory
             return null;
         }
 
-        // ===================== Plot prerequisite: model space scale =====================
-        // Civil 3D's "model space scale" is the annotation scale CANNOSCALE: labels, symbols and sheet frame sizes all follow it.
-        // Pin it before plotting (e.g. 1:500); frame sizes and section view grid spacing later depend on it.
 
         static JsonNode SetScale(JsonObject a, Document doc)
         {
@@ -2329,10 +2312,6 @@ namespace Civil3DFactory
 
             db.Cannoscale = ctx;
 
-            // Civil 3D labels (labels and bands of section/profile views) **ignore CANNOSCALE**;
-            // they scale by "Drawing Settings -> Units and Zone -> Scale". Setting only CANNOSCALE leaves text sizes unchanged
-            // -- measured with four variants (unset / scale:500 / name half-width / name full-width, including setting before creating section views):
-            // text sizes identical, only the scale annotation follows CANNOSCALE. So both must be set.
             JsonNode civilBefore = null, civilAfter = null;
             string civilNote = null;
             try
@@ -2340,9 +2319,6 @@ namespace Civil3DFactory
                 CivDoc civ = Civ(db);
                 var uz = civ.Settings.DrawingSettings.UnitZoneSettings;
                 civilBefore = uz.DrawingScale;
-                // Metric sheets: annotation scale 1:500 is stored as "paper 1 : drawing 0.5", and Civil's drawing scale also wants 0.5 (not 500).
-                // Measured on project A's recipe: 0.5 -> annotation "H 1:500"; 500 -> annotation "1:500000" and every label text x1000
-                // (regression on 2026-09-05 hit all three drawing types). Default to the same ratio as the annotation scale; pass drawing_scale explicitly for anything else.
                 double want = ctx.PaperUnits > 0 ? ctx.DrawingUnits / ctx.PaperUnits : 0;
                 double target = GetDouble(a, "drawing_scale", want);
                 if (target > 0)
@@ -2368,10 +2344,6 @@ namespace Civil3DFactory
             };
         }
 
-        // ===================== Plot post-step: export Civil objects to plain CAD =====================
-        // Civil 3D objects (alignments/section views/surfaces) are proxies on other machines and in other software, and plot unreliably.
-        // `-EXPORTTOAUTOCAD` explodes them into plain CAD entities and saves as a new file (the original is untouched).
-        // Note: the year-suffixed AECEXPORTTOAUTOCAD20xx exists only in the full GUI; in acc the hyphenated command must be used.
 
         static JsonNode ExportToAutocad(JsonObject a, Document doc)
         {
@@ -2390,10 +2362,6 @@ namespace Civil3DFactory
             string version = GetString(a, "version", "2018");   // 2010 turns unexploded AEC objects into proxies with a warning
             var ed = doc.Editor;
 
-            // Some AEC objects (confirmed: section QTO volume tables) make -EXPORTTOAUTOCAD fail internally with
-            // erase failed (eLockViolation) and abort entirely. For plots with tables: after save_dwg has written the file
-            // (keeping live tables in the base drawing), explode those classes in place into plain entities within the same session, then export.
-            // explode_classes takes an array of DXF class names (e.g. AECC_SECTION_VIEW_QUANTITY_TAKEOFF_TABLE).
             int exploded = 0, explodeFailed = 0;
             var explodeClasses = a["explode_classes"] as JsonArray;
             if (explodeClasses != null && explodeClasses.Count > 0)
@@ -2437,11 +2405,6 @@ namespace Civil3DFactory
                 }
             }
 
-            // The command-line path must use forward slashes; backslashes are treated as escapes in the command stream.
-            // Prompt sequence (recorded 2026-07-21):
-            //   Export options [Format\Bind\...] <Enter for filename>:   <- this step needs an empty Enter to reach the file name
-            //   Export drawing name <default>:
-            // Without that empty Enter the command treats the path as an invalid option and keeps re-prompting -> headless hangs forever (hit in this run).
             string cmdPath = outPath.Replace('\\', '/');
             if (string.Equals(version, "2018", StringComparison.OrdinalIgnoreCase))
                 ed.Command("_-EXPORTTOAUTOCAD", "", cmdPath);          // default format, Enter straight to the file name
@@ -2463,17 +2426,16 @@ namespace Civil3DFactory
             };
         }
 
-        // Attach material volume tables to **existing** section views (without rebuilding the views). Why a separate node:
-        // (1) when tables are attached at view creation and arrange then moves the views, headless anchoring does not follow, and tables stay off-page at the old spot;
-        //    the correct order = arrange first, attach tables after; this node is that "attach after" step.
-        // (2) create_section_views deletes and rebuilds, destroying the layout / point labels; this node touches tables only.
-        // clear_all=true first deletes every section QTO table in model space (pass once on the first alignment of a chain, to avoid stale tables).
         static JsonNode RunNodeAddVolumeTables(JsonObject a, Document doc)
         {
             string alName = Need(a, "alignment");
             string groupName = GetString(a, "group", null);
             bool clearAll = GetBool(a, "clear_all", false);
             bool create = GetBool(a, "create", true);      // false = clear only, no tables (the unload entry when AEC tables cannot be plotted)
+            string tableTypeName = GetString(a, "table_type", "total");
+            var tableType = tableTypeName.ToLowerInvariant() == "material"
+                ? Autodesk.Civil.DatabaseServices.VolumeTableType.Material
+                : Autodesk.Civil.DatabaseServices.VolumeTableType.TotalVolume;
             double offX = GetDouble(a, "offset_x", 5);
             double offY = GetDouble(a, "offset_y", 0);
 
@@ -2509,8 +2471,6 @@ namespace Civil3DFactory
             var svIds = new List<ObjectId>();
             using (var tr = db.TransactionManager.StartTransaction())
             {
-                // Group name convention same as create_section_views: default <alignment>_SampleLines,
-                // and if not found and the alignment has exactly one group, use it.
                 CivSampleLineGroup slg = FindSampleLineGroup(
                     tr, civ, alName, string.IsNullOrEmpty(groupName) ? alName + "_SampleLines" : groupName);
                 if (slg == null && string.IsNullOrEmpty(groupName))
@@ -2538,7 +2498,7 @@ namespace Civil3DFactory
             }
             if (mlGuid == Guid.Empty)
                 throw new InvalidOperationException(
-                    "The sample line group of alignment '" + alName + "' has no material list; run compute_quantities first.");
+                    "Alignment '" + alName + "' has no material list; run compute_quantities first.");
             if (!create)
                 return new JsonObject
                 {
@@ -2553,7 +2513,6 @@ namespace Civil3DFactory
             string firstErr = null;
             foreach (ObjectId svId in svIds)
             {
-                // ! One view per transaction; ForRead crashes the process outright (lesson from create_section_views)
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     try
@@ -2567,8 +2526,7 @@ namespace Civil3DFactory
                             Autodesk.Civil.DatabaseServices.SectionViewVolumeTableAnchorType.TopLeft;
                         vt.OffsetX = offX;
                         vt.OffsetY = offY;
-                        vt.CreateVolumeTable(
-                            Autodesk.Civil.DatabaseServices.VolumeTableType.TotalVolume, mlGuid);
+                        vt.CreateVolumeTable(tableType, mlGuid);
                         made++;
                         tr.Commit();
                     }
@@ -2583,6 +2541,7 @@ namespace Civil3DFactory
             return new JsonObject
             {
                 ["alignment"] = alName,
+                ["table_type"] = tableTypeName,
                 ["tables_created"] = made,
                 ["section_views"] = svIds.Count,
                 ["cleared_old_tables"] = cleared,
@@ -2590,12 +2549,6 @@ namespace Civil3DFactory
             };
         }
 
-        // Self-drawn section volume tables (plain CAD lines + text, not AEC tables). Why not Civil's QTO tables:
-        // AECC section QTO tables make -EXPORTTOAUTOCAD fail internally with erase failed (eLockViolation) and abort entirely,
-        // and in accore the managed Explode returns an empty set while native EXPLODE refuses -- they simply cannot leave a headless chain.
-        // The dyke demolition chain already labels volumes on sections (compute_embankment_demolition); this node uses the same idea.
-        // Data source same as export_quantities: incremental/cumulative cut per station from the material list.
-        // Entities carry XData (C3DF_SVT) for identification; clear=true removes old tables first on re-run, idempotent.
         const string SvtRegApp = "C3DF_SVT";
 
         static JsonNode RunNodeDrawSectionVolumeTables(JsonObject a, Document doc)
@@ -2612,7 +2565,7 @@ namespace Civil3DFactory
             double offX = GetDouble(a, "offset_x_mm", 2.0) * k;
             double offY = GetDouble(a, "offset_y_mm", 0.0) * k;
             bool clear = GetBool(a, "clear", true);
-            string layerName = GetString(a, "layer", "C3DF-VolumeTable");
+            string layerName = GetString(a, "layer", "C-XSEC-QNTY");
             string targetDwg = GetString(a, "target_dwg", null);
             string textStyleName = GetString(a, "text_style", null);
             string stationPrefix = GetString(a, "station_prefix", "Sta ");
@@ -2622,6 +2575,9 @@ namespace Civil3DFactory
             string rowLabel = GetString(a, "row_label", "Cut");
             int limit = (int)GetDouble(a, "limit", 0);
             bool dryRun = GetBool(a, "dry_run", false);
+            string svtTag = GetString(a, "tag", alName);
+            string clearScope = GetString(a, "clear_scope", "tag").ToLowerInvariant();
+            if (clearScope != "tag" && clearScope != "all") throw new InvalidOperationException("clear_scope must be tag or all.");
 
             if (!string.IsNullOrEmpty(targetDwg))
             {
@@ -2634,8 +2590,6 @@ namespace Civil3DFactory
             Database db = doc.Database;
             CivDoc civ = Civ(db);
 
-            // ---------- Phase A: read data and positions from the Civil drawing (read-only) ----------
-            // station -> { cut section area m², incremental cut m³ }
             var dataByStation = new List<KeyValuePair<double, double[]>>();
             var views = new List<KeyValuePair<double, ObjectId>>();
             bool areaFromApi = true;
@@ -2659,7 +2613,7 @@ namespace Civil3DFactory
                 foreach (CivQtoMaterialList ml in slg.MaterialLists) { mlGuid = ml.Guid; break; }
                 if (mlGuid == Guid.Empty)
                     throw new InvalidOperationException(
-                        "The sample line group of alignment '" + alName + "' has no material list; run compute_quantities first.");
+                        "Alignment '" + alName + "' has no material list; run compute_quantities first.");
 
                 var result = slg.GetTotalVolumeResultDataForMaterialList(mlGuid);
                 foreach (CivQtoSectionalResult sec in result.GetResultsAlongSampleLines())
@@ -2679,13 +2633,20 @@ namespace Civil3DFactory
                 tr.Commit();
             }
 
-            // One row per table: { table left x, table top y, station, area, volume }
             var tables = new List<double[]>();
+            var zones = new List<double[]>();
             int noData = 0;
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 foreach (var kv in views)
                 {
+                    try
+                    {
+                        var sv0 = (Autodesk.Civil.DatabaseServices.SectionView)tr.GetObject(kv.Value, OpenMode.ForRead);
+                        Extents3d e0 = sv0.GeometricExtents;
+                        zones.Add(new[] { e0.MaxPoint.X - k, e0.MaxPoint.Y - 60 * k, e0.MaxPoint.X + 150 * k, e0.MaxPoint.Y + 20 * k });
+                    }
+                    catch { }
                     double station = kv.Key;
                     double area = double.NaN, vol = double.NaN;
                     foreach (var vv in dataByStation)
@@ -2727,14 +2688,13 @@ namespace Civil3DFactory
                     ["first"] = sample
                 };
 
-            // ---------- Phase B: draw ----------
-            int made = 0, cleared = 0;
+            int made = 0, cleared = 0, clearedLegacy = 0;
             string writtenTo, note = null;
             if (string.IsNullOrEmpty(targetDwg))
             {
                 made = PaintSvtTables(db, tables, clear, layerName, textStyleName,
                                       textH, rowH, col1, col2, col3,
-                                      stationPrefix, headItem, headArea, headVol, rowLabel, out cleared);
+                                      stationPrefix, headItem, headArea, headVol, rowLabel, svtTag, clearScope, zones, out cleared, out clearedLegacy);
                 writtenTo = "(current drawing in memory; save with save_dwg)";
             }
             else
@@ -2745,7 +2705,7 @@ namespace Civil3DFactory
                     tdb.CloseInput(true);
                     made = PaintSvtTables(tdb, tables, clear, layerName, textStyleName,
                                           textH, rowH, col1, col2, col3,
-                                          stationPrefix, headItem, headArea, headVol, rowLabel, out cleared);
+                                          stationPrefix, headItem, headArea, headVol, rowLabel, svtTag, clearScope, zones, out cleared, out clearedLegacy);
                     writtenTo = targetDwg;
                     try
                     {
@@ -2753,7 +2713,6 @@ namespace Civil3DFactory
                     }
                     catch (System.Exception ex)
                     {
-                        // House rule: when the target is locked, only one "-locked-pending-replace" file may be left next to the original
                         string alt = Path.Combine(
                             Path.GetDirectoryName(targetDwg),
                             Path.GetFileNameWithoutExtension(targetDwg) + "-locked-pending-replace.dwg");
@@ -2770,6 +2729,9 @@ namespace Civil3DFactory
                 ["tables_drawn"] = made,
                 ["tables_found"] = found,
                 ["cleared"] = cleared,
+                ["cleared_legacy"] = clearedLegacy,
+                ["clear_scope"] = clearScope,
+                ["tag"] = svtTag,
                 ["views_without_data"] = noData,
                 ["area_from_api"] = areaFromApi,
                 ["layer"] = layerName,
@@ -2779,23 +2741,16 @@ namespace Civil3DFactory
             };
         }
 
-        // Draw the tables into model space of the given Database (current drawing or an external finished drawing both go through here).
-        // Table layout (project B preliminary design, sheet 1201 final): three rows, first row spans all columns with the station, second is the header, third the data.
         //   ┌──────────────────────────────┐
-        //   │          Sta 0+000.00        │
         //   ├──────┬────────────┬──────────┤
-        //   │ Item │ Area (m²)  │ Cut (m³) │
         //   ├──────┼────────────┼──────────┤
-        //   │ Cut  │    9.57    │   0.00   │
         //   └──────┴────────────┴──────────┘
         static int PaintSvtTables(Database tdb, List<double[]> tables, bool clear,
                                   string layerName, string textStyleName,
                                   double textH, double rowH, double col1, double col2, double col3,
                                   string stationPrefix, string headItem, string headArea, string headVol,
-                                  string rowLabel, out int cleared)
+                                  string rowLabel, string tag, string clearScope, List<double[]> zones, out int cleared, out int clearedLegacy)
         {
-            // To create entities in an external Database, WorkingDatabase must be switched to it,
-            // otherwise SetDatabaseDefaults takes the current drawing's defaults and AppendEntity throws eWrongDatabase.
             Database prevWorking = HostApplicationServices.WorkingDatabase;
             bool switched = !ReferenceEquals(prevWorking, tdb);
             if (switched) HostApplicationServices.WorkingDatabase = tdb;
@@ -2803,7 +2758,7 @@ namespace Civil3DFactory
             {
                 return PaintSvtTablesCore(tdb, tables, clear, layerName, textStyleName,
                                           textH, rowH, col1, col2, col3,
-                                          stationPrefix, headItem, headArea, headVol, rowLabel, out cleared);
+                                          stationPrefix, headItem, headArea, headVol, rowLabel, tag, clearScope, zones, out cleared, out clearedLegacy);
             }
             finally
             {
@@ -2815,11 +2770,10 @@ namespace Civil3DFactory
                                   string layerName, string textStyleName,
                                   double textH, double rowH, double col1, double col2, double col3,
                                   string stationPrefix, string headItem, string headArea, string headVol,
-                                  string rowLabel, out int cleared)
+                                  string rowLabel, string tag, string clearScope, List<double[]> zones, out int cleared, out int clearedLegacy)
         {
-            cleared = 0;
+            cleared = 0; clearedLegacy = 0;
 
-            // Layer + RegApp
             using (var tr = tdb.TransactionManager.StartTransaction())
             {
                 var lt = (LayerTable)tr.GetObject(tdb.LayerTableId, OpenMode.ForRead);
@@ -2853,13 +2807,28 @@ namespace Civil3DFactory
                         try { ent0 = tr.GetObject(id, OpenMode.ForRead) as Entity; }
                         catch { continue; }
                         if (ent0 == null) continue;
-                        // Two identification rules: on this layer (the layer is dedicated to this node) or carrying C3DF_SVT XData.
-                        // XData alone is not enough -- empty XData with only a RegApp name is dropped on save, and old tables could no longer be cleared.
-                        bool mine = string.Equals(ent0.Layer, layerName, StringComparison.OrdinalIgnoreCase);
-                        if (!mine && ent0.GetXDataForApplication(SvtRegApp) == null) continue;
+                        bool legacyLayer = string.Equals(ent0.Layer, "C3DF-VolumeTable", StringComparison.OrdinalIgnoreCase);
+                        ResultBuffer xd = ent0.GetXDataForApplication(SvtRegApp);
+                        if (!legacyLayer && xd == null) continue;
+                        string entTag = null;
+                        if (xd != null) foreach (TypedValue tv in xd.AsArray()) { var str = tv.Value as string; if (str != null && str.StartsWith("tag:", StringComparison.Ordinal)) { entTag = str.Substring(4); break; } }
+                        bool legacy = false;
+                        if (clearScope != "all")
+                        {
+                            if (entTag != null) { if (!string.Equals(entTag, tag, StringComparison.Ordinal)) continue; }
+                            else
+                            {
+                                Extents3d ex0; try { ex0 = ent0.GeometricExtents; } catch { continue; }
+                                double cx = (ex0.MinPoint.X + ex0.MaxPoint.X) / 2, cy = (ex0.MinPoint.Y + ex0.MaxPoint.Y) / 2;
+                                bool inZone = false;
+                                foreach (var z in zones) if (cx >= z[0] && cx <= z[2] && cy >= z[1] && cy <= z[3]) { inZone = true; break; }
+                                if (!inZone) continue;
+                                legacy = true;
+                            }
+                        }
                         ent0.UpgradeOpen();
                         ent0.Erase();
-                        cleared++;
+                        if (legacy) clearedLegacy++; else cleared++;
                     }
                     tr.Commit();
                 }
@@ -2874,19 +2843,20 @@ namespace Civil3DFactory
                 var lt = (LayerTable)tr.GetObject(tdb.LayerTableId, OpenMode.ForRead);
                 ObjectId layerId = lt[layerName];
 
-                // Text style: the parameter when given (e.g. the -SimHei style left by the font normalisation chain), otherwise the current default
                 ObjectId styleId = ObjectId.Null;
                 var tst = (TextStyleTable)tr.GetObject(tdb.TextStyleTableId, OpenMode.ForRead);
                 if (!string.IsNullOrEmpty(textStyleName))
                 {
                     if (!tst.Has(textStyleName))
-                        throw new InvalidOperationException("The drawing has no text style '" + textStyleName + "'.");
+                        throw new InvalidOperationException("Text style not found in drawing: '" + textStyleName + "'.");
                     styleId = tst[textStyleName];
                 }
+                else if (tst.Has("-Bold")) styleId = tst["-Bold"];
 
                 var xdata = new ResultBuffer(
                     new TypedValue((int)DxfCode.ExtendedDataRegAppName, SvtRegApp),
-                    new TypedValue((int)DxfCode.ExtendedDataAsciiString, "SectionVolumeTable"));
+                    new TypedValue((int)DxfCode.ExtendedDataAsciiString, "Section volume table"),
+                    new TypedValue((int)DxfCode.ExtendedDataAsciiString, "tag:" + tag));
 
                 Action<Entity> put = e =>
                 {
@@ -2926,7 +2896,6 @@ namespace Civil3DFactory
                     put(pl);
                     put(new Line(new Point3d(x0, yR1, 0), new Point3d(x0 + w, yR1, 0)));
                     put(new Line(new Point3d(x0, yR2, 0), new Point3d(x0 + w, yR2, 0)));
-                    // Vertical lines span only the lower two rows; the first row is a merged cell
                     put(new Line(new Point3d(x0 + col1, y0, 0), new Point3d(x0 + col1, yR1, 0)));
                     put(new Line(new Point3d(x0 + col1 + col2, y0, 0), new Point3d(x0 + col1 + col2, yR1, 0)));
 
@@ -2949,10 +2918,6 @@ namespace Civil3DFactory
             return made;
         }
 
-        // ===================== Plot: batch insert sheet frames by scale =====================
-        // Frame size in model space = paper size (mm) x scale denominator / 1000 (metres).
-        // A3 landscape 420x297 at 1:500 -> 210 m x 148.5 m per sheet. So set_scale must run before inserting frames.
-        // Idempotent: frames inserted by this op carry an XData tag; re-running deletes the previous ones instead of piling up.
 
         const string TitleBlockXdataApp = "C3DF_TITLEBLOCK";
 
@@ -3308,19 +3273,21 @@ namespace Civil3DFactory
             } finally { HostApplicationServices.WorkingDatabase = prevWdb; }
         }
 
-        // ===================== Diagnostics: what is in the drawing =====================
 
         static JsonNode EntityStats(JsonObject a, Document doc)
         {
             string byWhat = GetString(a, "by", "type");     // type | layer
             int top = (int)GetDouble(a, "top", 30);
+            string space = GetString(a, "space", "model");
             Database db = doc.Database;
             var counts = new Dictionary<string, int>();
             int total = 0;
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                foreach (ObjectId id in ModelSpace(db, tr))
+                var scan = new List<ObjectId>();
+                foreach (var host in TextHosts(db, tr, space)) foreach (ObjectId hid in host.Value) scan.Add(hid);
+                foreach (ObjectId id in scan)
                 {
                     DBObject o;
                     try { o = tr.GetObject(id, OpenMode.ForRead); } catch { continue; }
@@ -3341,12 +3308,9 @@ namespace Civil3DFactory
             for (int i = 0; i < list.Count && i < top; i++)
                 arr.Add(new JsonObject { [byWhat] = list[i].Key, ["count"] = list[i].Value });
 
-            return new JsonObject { ["total_entities"] = total, ["group_by"] = byWhat, ["top"] = arr };
+            return new JsonObject { ["total_entities"] = total, ["group_by"] = byWhat, ["space"] = space, ["top"] = arr };
         }
 
-        // ===================== Plot helper: turn all layers on =====================
-        // The most common "blank sheet" in headless plotting: the objects' layer is off/frozen.
-        // New Civil objects land on the project's own layers by LayerKey, and those layers may have been off in the original drawing.
 
         static JsonNode LayersOff(JsonObject a, Document doc)
         {
@@ -3390,7 +3354,6 @@ namespace Civil3DFactory
                     var ltr = (LayerTableRecord)tr.GetObject(id, OpenMode.ForRead);
                     bool needOn = ltr.IsOff, needThaw = ltr.IsFrozen;
                     if (!needOn && !needThaw) continue;
-                    // The current layer cannot be frozen; skip it to avoid an exception
                     if (needThaw && id == db.Clayer) needThaw = false;
                     ltr.UpgradeOpen();
                     if (needOn) { ltr.IsOff = false; turnedOn.Add(ltr.Name); }
@@ -3406,14 +3369,7 @@ namespace Civil3DFactory
             };
         }
 
-        // ===================== 10. Save =====================
 
-        // Some Civil APIs (confirmed: SectionViewVolumeTableGroup.CreateVolumeTable) hand back new objects
-        // open for write and outside the caller's transaction; committing does not close them, SaveAs throws
-        // eWasOpenForWrite and the written file is corrupt (ErrorStatus=434). Before saving, scan the whole database and
-        // DowngradeOpen every object still open for write, so any handle a node forgot to close is caught here.
-        // ! Must use a plain StartTransaction: OpenCloseTransaction throws eWasOpenForWrite outright on objects
-        // already open for write elsewhere (the count is always 0); a plain transaction can attach to already-open objects.
         static int ReclaimWriteOpen(Database db)
         {
             int reclaimed = 0;
@@ -3531,9 +3487,6 @@ namespace Civil3DFactory
             };
         }
 
-        // ===================== Diagnostics: does the surface/corridor actually have geometry =====================
-        // The most common cause of "result is 0" is not a wrong computation but an upstream surface/corridor that is simply empty.
-        // These two ops turn "is there anything there" into visible numbers.
 
         static JsonNode SurfaceStats(JsonObject a, Document doc)
         {
@@ -3548,8 +3501,6 @@ namespace Civil3DFactory
                     if (s == null) continue;
                     if (!string.IsNullOrEmpty(want) && s.Name != want) continue;
 
-                    // ! Do not iterate Vertices/Triangles: headless it **crashes** the process (AccessViolation,
-                    // uncatchable in .NET; the result file stops at ops:[] with nothing). Statistics always go through the property interface.
                     var o = new JsonObject { ["name"] = s.Name, ["type"] = s.GetType().Name };
                     o["general"] = InvokeAndDump(s, "GetGeneralProperties");
                     if (s is CivTinSurface) o["tin"] = InvokeAndDump(s, "GetTinProperties");
@@ -3601,7 +3552,6 @@ namespace Civil3DFactory
                     catch (System.Exception ex) { o["surface_error"] = ex.GetType().Name + ": " + ex.Message; }
                     o["corridor_surfaces"] = surfs;
 
-                    // Baselines/regions require iterating managed wrapper objects, which risks a hard crash headless; not touched by default
                     if (GetBool(a, "deep", false))
                     {
                         var bls = new JsonArray();
@@ -3637,9 +3587,6 @@ namespace Civil3DFactory
             return arr;
         }
 
-        /// <summary>Read-only inventory of corridor targets: corridor -> baseline -> region -> the object each target slot points to.
-        /// Curve targets (polylines/feature lines etc.) are also sampled along their length to measure the offset distribution relative to the baseline alignment --
-        /// small spread = constant-offset segment (can be replaced by an offset alignment), large spread = widening segment (promote the line to an alignment before using it as a target).</summary>
         static JsonNode CorridorTargets(JsonObject a, Document doc)
         {
             string want = GetString(a, "name", null);
@@ -3695,7 +3642,6 @@ namespace Civil3DFactory
                     catch (System.Exception ex) { co["baseline_error"] = ex.GetType().Name + ": " + ex.Message; }
                     co["baselines"] = bls;
 
-                    // Corridor-level targets (create_corridor sets targets at this level; fallback for what the region level cannot read)
                     var cslots = new JsonArray();
                     try
                     {
@@ -3724,7 +3670,6 @@ namespace Civil3DFactory
             return arr;
         }
 
-        /// <summary>Batch rename alignments (objects and handles untouched; offset/corridor references all preserved).</summary>
         static JsonNode RenameAlignments(JsonObject a, Document doc)
         {
             var items = a["items"] as JsonArray;
@@ -3752,8 +3697,6 @@ namespace Civil3DFactory
             return new JsonObject { ["renamed"] = done };
         }
 
-        /// <summary>Resolve one target slot: display name/type/subassembly, and for each target object its class name/handle/layer;
-        /// alignment targets report offset alignment info, plain curves are sampled along their length to measure the offset distribution relative to the reference alignment.</summary>
         static JsonObject DumpTargetSlot(Transaction tr, CivTargetInfo t, CivAlignment refAl, double lo, double hi, double step, int maxSamples)
         {
             var so = new JsonObject
@@ -3806,7 +3749,6 @@ namespace Civil3DFactory
             return so;
         }
 
-        /// <summary>Sample a curve at equal spacing and compute station/offset relative to the alignment per point; only samples inside the [lo,hi] station window are counted.</summary>
         static JsonNode SampleCurveOffsets(Curve cur, CivAlignment al, double lo, double hi, double step, int maxSamples)
         {
             double len;
@@ -3850,8 +3792,6 @@ namespace Civil3DFactory
             return o;
         }
 
-        /// <summary>Call a parameterless method on an object and dump all readable properties of the return value as JSON.
-        /// No need to guess the struct member names returned by statistics interfaces (GetGeneralProperties / GetTinProperties).</summary>
         static JsonNode InvokeAndDump(object target, string methodName)
         {
             try
@@ -3880,8 +3820,6 @@ namespace Civil3DFactory
             catch (System.Exception ex) { return "(" + ex.GetType().Name + ": " + Truncate(ex.Message, 100) + ")"; }
         }
 
-        /// <summary>Rebuild a corridor (diagnostic: what remains of a GUI-built corridor after a headless rebuild
-        /// tells whether the subassembly code actually runs inside accoreconsole).</summary>
         static JsonNode RebuildCorridor(JsonObject a, Document doc)
         {
             string name = Need(a, "name");
@@ -3911,9 +3849,6 @@ namespace Civil3DFactory
             try { return f() ?? ""; } catch (System.Exception ex) { return "(" + ex.GetType().Name + ")"; }
         }
 
-        // ===================== Look up real API signatures =====================
-        // AeccDbMgd is a mixed-mode assembly; it cannot be reflected out of process (MetadataLoadContext is tedious too),
-        // but inside the acc process it is already loaded -- reflecting directly is easiest. Use it to check signatures before writing new ops instead of guessing.
 
         static JsonNode ApiSignatures(JsonObject a, Document doc)
         {
@@ -4007,10 +3942,6 @@ namespace Civil3DFactory
             return arr;
         }
 
-        /// <summary>Convert a line/polyline into an alignment.
-        /// This version has **no** CreateFromPolyline (the snippet copied from the web does not compile on 2025);
-        /// the real name is Alignment.Create(CivilDocument, PolylineOptions, ...),
-        /// with the polyline, erase-source and add-spirals flags all packed into PolylineOptions (found with the api op).</summary>
         static ObjectId CreateAlignmentFromEntity(Transaction tr, CivDoc civ, string name,
             ObjectId siteId, ObjectId entId, ObjectId layerId, ObjectId styleId, ObjectId labelId,
             bool eraseSource, bool addCurves)
@@ -4039,7 +3970,6 @@ namespace Civil3DFactory
             return n;
         }
 
-        // ===================== Shared helpers =====================
 
         static CivDoc Civ(Database db)
         {
@@ -4064,13 +3994,8 @@ namespace Civil3DFactory
             return id;
         }
 
-        /// <summary>Find a style by name; when name is empty or not found, fall back to the first in the collection (Null when the collection is empty).</summary>
         static ObjectId FindStyleId(Transaction tr, object collection, string name)
         {
-            // Match order: exact > case-insensitive > unique prefix > unique substring > first in collection (old fallback).
-            // Prefix/substring exist for libraries whose "style names carry a version suffix": the drawing has @C3DF-SimpleGrid[Defalt],
-            // @C3DF-river-dregde[Default-v2.0], while the caller only remembers the short name. The old behaviour of falling straight back to
-            // the first entry on an exact miss silently sets the wrong style, worse than none.
             ObjectId first = ObjectId.Null;
             var en = collection as System.Collections.IEnumerable;
             if (en == null) return ObjectId.Null;
@@ -4109,8 +4034,6 @@ namespace Civil3DFactory
             return first;
         }
 
-        /// <summary>When one short name matches several styles take the highest version: the style library writes versions into names
-        /// (@C3DF-river-dregde[Default] / [Default-v2.0]); taking the first in the collection is a random pick.</summary>
         static ObjectId PickNewestStyle(List<KeyValuePair<ObjectId, string>> cands)
         {
             ObjectId best = cands[0].Key;
@@ -4130,7 +4053,6 @@ namespace Civil3DFactory
             return best;
         }
 
-        /// <summary>Extract the vN[.N] version number from a style name; 0 when absent.</summary>
         static double StyleVersion(string name)
         {
             if (string.IsNullOrEmpty(name)) return 0;
@@ -4237,7 +4159,6 @@ namespace Civil3DFactory
             return ObjectId.Null;
         }
 
-        // ===================== Export all tables in the DWG drawing =====================
 
         public class ExtractedTableData
         {
@@ -4452,6 +4373,18 @@ namespace Civil3DFactory
             t = System.Text.RegularExpressions.Regex.Replace(t, @"[\{\}]", "");
             t = System.Text.RegularExpressions.Regex.Replace(t, @"\\L|\\l|\\O|\\o|\\K|\\k|\\~", "");
             return t.Trim();
+        }
+
+        static int CountLayouts(Database db)
+        {
+            int n = 0;
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var dict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+                foreach (DBDictionaryEntry e in dict) if (e.Key != "Model") n++;
+                tr.Commit();
+            }
+            return n;
         }
     }
 }

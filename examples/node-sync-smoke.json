@@ -1,0 +1,86 @@
+{
+  "ops": [
+    {
+      "op": "list_surfaces"
+    },
+    {
+      "op": "list_feature_lines"
+    },
+    {
+      "op": "data_shortcuts",
+      "action": "setup",
+      "reflect": true
+    },
+    {
+      "op": "set_profile_view_axes",
+      "dry_run": true
+    },
+    {
+      "op": "set_section_view_axes",
+      "dry_run": true
+    },
+    {
+      "op": "purge_dead_sections",
+      "dry_run": true
+    },
+    {
+      "op": "create_flat_surface",
+      "items": [
+        {
+          "name": "SyncSmokeSurface",
+          "elev": 5,
+          "outer": [
+            [
+              0,
+              0
+            ],
+            [
+              40,
+              0
+            ],
+            [
+              40,
+              40
+            ],
+            [
+              0,
+              40
+            ]
+          ]
+        }
+      ],
+      "step": 10
+    },
+    {
+      "op": "rename_surfaces",
+      "items": [
+        {
+          "from": "SyncSmokeSurface",
+          "to": "SyncSmokeRenamed"
+        }
+      ]
+    },
+    {
+      "op": "paste_surfaces",
+      "name": "SyncSmokePasted",
+      "sources": [
+        "SyncSmokeRenamed"
+      ]
+    },
+    {
+      "op": "surface_folders",
+      "folders": [
+        {
+          "name": "SyncSmoke",
+          "surfaces": [
+            "SyncSmokeRenamed",
+            "SyncSmokePasted"
+          ]
+        }
+      ]
+    },
+    {
+      "op": "list_surfaces"
+    }
+  ]
+}

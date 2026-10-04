@@ -10,9 +10,6 @@ using Autodesk.AutoCAD.Geometry;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// Scan closed LWPOLYLINEs in model space, write area labels and export a detail table.
-    /// Node output is tagged with C3DF_POLYAREA XData; a rerun only cleans its own text and never touches user objects.
-    /// area_overrides lets you override the area per source polyline handle, e.g. to enter manually checked values.
     /// </summary>
     public static partial class Ops
     {
@@ -43,7 +40,7 @@ namespace Civil3DFactory
             if (decimals < 0 || decimals > 8) decimals = 2;
 
             string sourceLayer = GetString(a, "source_layer", null);
-            string annotationLayer = GetString(a, "annotation_layer", "C3DF-AREA-LABEL");
+            string annotationLayer = GetString(a, "annotation_layer", "C-ANNO-LABL-AREA");
             string prefix = GetString(a, "prefix", "");
             string suffix = GetString(a, "suffix", " m²");
             short colorIndex = (short)Math.Max(1, Math.Min(255, (int)GetDouble(a, "color_index", 1)));
@@ -155,7 +152,7 @@ namespace Civil3DFactory
                     throw new InvalidOperationException(
                         string.IsNullOrWhiteSpace(sourceLayer)
                             ? "No usable closed lightweight polyline (LWPOLYLINE) in model space."
-                            : "No usable closed lightweight polyline (LWPOLYLINE) on layer '" + sourceLayer + "'.");
+                            : "Layer '" + sourceLayer + "'.");
 
                 var excelFiles = new List<string>();
                 if (exportExcel)
@@ -173,7 +170,7 @@ namespace Civil3DFactory
                     string[] headers =
                     {
                         "No.", "Polyline handle", "Layer", "Object type",
-                        "Read area (m2)", "Adopted area (m2)", "Remarks"
+                        "Read area (m2)", "Adopted area (m2)", "Notes"
                     };
                     var rows = new List<object[]>();
                     for (int i = 0; i < items.Count; i++)

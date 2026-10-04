@@ -46,8 +46,12 @@ Four real Claude Code sessions, one instruction each, on the demo drawings: the 
 | material-based quantities: cumulative / incremental cut and fill per station, xlsx | |
 | section views, profile views, styles | |
 
-The two lines are separate on purpose: headless plotting cannot render Civil 3D objects, so the bridge from a Civil model
-to plain-CAD sheets (layouts, viewports, export) stays a manual step in this version.
+The source tree includes 139 node contracts, including surface data shortcuts, corridor target and assembly edits,
+section/profile annotations, label placement, layout viewports and sheet indexes. See the
+[node update and validation notes](docs/node-update.md).
+
+Plotting requires plain AutoCAD entities. Use the layout, viewport and export operations to prepare drawings,
+then inspect the exported sheets before plotting. Some host-dependent steps still require the Civil 3D UI.
 
 ## For AI agents - one line
 

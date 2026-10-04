@@ -14,20 +14,30 @@ namespace Civil3DFactory
 {
     public static partial class Ops
     {
-        const string SectionRowLabelLayer = "C3DF-SECTION-ROW-LABEL";
-        const string SectionSheetFrameLayer = "C3DF-SECTION-SHEET-FRAME";
+        const string SectionRowLabelLayer = "C-XSEC-TEXT";
+        const string SectionSheetFrameLayer = "G-ANNO-NPLT-FRAM";
+        const string SectionSheetRegApp = "C3DF_SECTION_SHEET";
+        const string OldRowLabelName = "C3DF-SECTION-ROW-LABEL";
+        const string OldFrameName = "C3DF-SECTION-SHEET-FRAME";
+
+        static bool SectionSheetOwned(Entity e, string oldName)
+        {
+            if (string.Equals(e.Layer, oldName, StringComparison.OrdinalIgnoreCase)) return true;
+            ResultBuffer rb = null;
+            try { rb = e.GetXDataForApplication(SectionSheetRegApp); } catch { }
+            return rb != null;
+        }
+
+        static void TagSectionSheet(Transaction tr, Database db, Entity e, string what)
+        {
+            EnsureRegApp(tr, db, SectionSheetRegApp);
+            e.XData = new ResultBuffer(new TypedValue((int)DxfCode.ExtendedDataRegAppName, SectionSheetRegApp),
+                                       new TypedValue((int)DxfCode.ExtendedDataAsciiString, what));
+        }
 
         /// <summary>
-        /// Single source of truth for section-view layout: move the generated section views onto the empty area right of all alignments.
         ///
-        /// Two layouts:
-        ///   rows   (default) one alignment per row, frames laid out along +X, alignment name at the row head; easiest for browsing and checking;
-        ///   sheets           frames arranged in a grid by sheets_per_row, rows x cols views per page.
-        /// Frame size in model space = paper mm x plot scale / 1000 (A3@1:200 = 84 x 59.4 m, which fits only one
-        /// +/-30 m wide section; 4 per page needs 1:500 or coarser).
         ///
-        /// Positioning is done by writing Graph.Location; section views are not rebuilt, so styles, labels and volume tables are all kept.
-        /// A view that does not fit its cell is not silently ignored: it is recorded in oversize and counted in the result.
         /// </summary>
         static JsonNode RunNodeArrangeSectionSheets(JsonObject args, Document doc)
         {
@@ -52,8 +62,6 @@ namespace Civil3DFactory
             double innerRatio = GetDouble(args, "inner_margin_ratio", 0.05);
             bool perAlignmentNewSheet = GetBool(args, "per_alignment_new_sheet", true);
             var onlyAlignments = args["alignments"] as JsonArray;
-            // Section view display width: narrow it here if given (OffsetLeft/Right are writable; no need to regenerate views).
-            // Sample width is usually taken from the widest dike, so views overflow the cell at plot time; this is the only place to trim it.
             double offLeft = GetDouble(args, "offset_left", 0);
             double offRight = GetDouble(args, "offset_right", 0);
 
@@ -62,15 +70,12 @@ namespace Civil3DFactory
             double inner = Math.Min(paperW, paperH) * innerRatio * scale / 1000.0;
             double cellW = (sheetW - 2 * inner) / cols;
             double cellH = (sheetH - 2 * inner) / rows;
-            // Row/column pitch given directly (model units, = distance between adjacent view centres); 0 = old behaviour, evenly divide the frame.
-            // Section views are often shorter than an evenly divided cell, leaving a lot of white; this is the only knob to tighten row spacing.
             double rowPitch = GetDouble(args, "row_pitch", 0);
             double colPitch = GetDouble(args, "col_pitch", 0);
             if (rowPitch < 0 || colPitch < 0) throw new ArgumentException("row_pitch/col_pitch cannot be negative.");
             double effH = rowPitch > 0 ? rowPitch : cellH;
             double effW = colPitch > 0 ? colPitch : cellW;
 
-            // Frame helper rectangles: page edges become visible, and DWGTitleblockPlotter can batch-plot by "closed polylines on a layer"
             bool wantFrames = GetBool(args, "draw_frames", true);
             bool wantLabel = GetBool(args, "row_label", true) && layout == "rows";
             double labelHeight = GetDouble(args, "label_height", sheetH * 0.05);
@@ -83,7 +88,6 @@ namespace Civil3DFactory
             if (onlyAlignments != null)
                 foreach (JsonNode n in onlyAlignments) wanted.Add(n.GetValue<string>());
 
-            // -- Layout origin: right of the bounding box of all alignments (alignments only, no section views) --
             double x0 = GetDouble(args, "x", double.NaN);
             double y0 = GetDouble(args, "y", double.NaN);
             var alignNames = new List<string>();
@@ -114,13 +118,12 @@ namespace Civil3DFactory
             }
             alignNames.Sort(CompareDikeName);
 
-            // On rerun, first remove last run's row-head texts and frames so old ones do not overlap the new layout
             int labelsErased = 0, framesErased = 0;
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
-                bool hasLabelLayer = lt.Has(SectionRowLabelLayer);
-                bool hasFrameLayer = lt.Has(SectionSheetFrameLayer);
+                bool hasLabelLayer = lt.Has(SectionRowLabelLayer) || lt.Has(OldRowLabelName);
+                bool hasFrameLayer = lt.Has(SectionSheetFrameLayer) || lt.Has(OldFrameName);
                 if (hasLabelLayer || hasFrameLayer)
                 {
                     foreach (ObjectId id in ModelSpace(db, tr))
@@ -129,11 +132,13 @@ namespace Civil3DFactory
                         try { ent = tr.GetObject(id, OpenMode.ForRead) as Entity; }
                         catch { continue; }
                         if (ent == null) continue;
-                        if (wantLabel && ent is DBText && ent.Layer == SectionRowLabelLayer)
+                        if (wantLabel && ent is DBText && (ent.Layer == SectionRowLabelLayer || ent.Layer == OldRowLabelName)
+                            && SectionSheetOwned(ent, OldRowLabelName))
                         {
                             ent.UpgradeOpen(); ent.Erase(); labelsErased++;
                         }
-                        else if (wantFrames && ent is Polyline && ent.Layer == SectionSheetFrameLayer)
+                        else if (wantFrames && ent is Polyline && (ent.Layer == SectionSheetFrameLayer || ent.Layer == OldFrameName)
+                                 && SectionSheetOwned(ent, OldFrameName))
                         {
                             ent.UpgradeOpen(); ent.Erase(); framesErased++;
                         }
@@ -155,7 +160,6 @@ namespace Civil3DFactory
             {
                 if (wanted.Count > 0 && !wanted.Contains(alName)) continue;
 
-                // Collect all section views of this alignment, sorted by station
                 var items = new List<(double station, ObjectId svId)>();
                 using (Transaction tr = db.TransactionManager.StartTransaction())
                 {
@@ -183,7 +187,6 @@ namespace Civil3DFactory
 
                 if (layout == "sheets")
                 {
-                    // When each alignment gets its own booklet, pad to the start of the next page so two dikes never share a frame
                     if (perAlignmentNewSheet && globalSlot % perPage != 0)
                         globalSlot += perPage - (globalSlot % perPage);
                     startPage = globalSlot / perPage;
@@ -195,7 +198,6 @@ namespace Civil3DFactory
                     int slot;
                     if (layout == "rows")
                     {
-                        // One alignment per row: frames laid out along +X, frame index i/perPage within the row
                         int sheetIdx = i / perPage;
                         slot = i % perPage;
                         sheetLeft = x0 + sheetIdx * (sheetW + sheetGap);
@@ -221,7 +223,6 @@ namespace Civil3DFactory
                         var sv = (CivSectionView)tr.GetObject(items[i].svId, OpenMode.ForWrite);
                         if (offLeft > 0 || offRight > 0)
                         {
-                            // Trim the range before measuring the bounding box, otherwise positioning by the old width drifts
                             try
                             {
                                 sv.IsOffsetRangeAutomatic = false;
@@ -248,7 +249,6 @@ namespace Civil3DFactory
                                 ["cell_h"] = Math.Round(effH, 2)
                             });
 
-                        // Location is not necessarily the graph's lower-left; translating "current centre -> target centre" is the most robust
                         double curCx = (ext.MinPoint.X + ext.MaxPoint.X) / 2;
                         double curCy = (ext.MinPoint.Y + ext.MaxPoint.Y) / 2;
                         sv.Location = new Point3d(
@@ -317,7 +317,6 @@ namespace Civil3DFactory
                 }
             }
 
-            // Draw frame helper rectangles (closed polyline, one per page)
             int framesDrawn = 0;
             if (wantFrames && pages.Count > 0)
             {
@@ -342,6 +341,7 @@ namespace Civil3DFactory
                         ms.AppendEntity(pl);
                         tr.AddNewlyCreatedDBObject(pl, true);
                         pl.LayerId = layerId;    // layer can only be set after appending to the database
+                        TagSectionSheet(tr, db, pl, "frame");
                         framesDrawn++;
                     }
                     tr.Commit();
@@ -396,8 +396,6 @@ namespace Civil3DFactory
             return id;
         }
 
-        /// <summary>Row-head alignment name: right-aligned against the first frame, vertically centred on the row.
-        /// Same pattern as annotate_grid_elevations: once an alignment mode is set you must give AlignmentPoint and call AdjustAlignment, otherwise it has no effect.</summary>
         static void AddRowLabel(Database db, string text, double x, double y, double height)
         {
             using (Transaction tr = db.TransactionManager.StartTransaction())
@@ -430,12 +428,12 @@ namespace Civil3DFactory
                 t.AlignmentPoint = pt;
                 ms.AppendEntity(t);
                 tr.AddNewlyCreatedDBObject(t, true);
+                TagSectionSheet(tr, db, t, "row_label");
                 t.AdjustAlignment(db);
                 tr.Commit();
             }
         }
 
-        /// <summary>Dike number ordering: X-2 sorts before X-10 (plain string ordering would reverse them).</summary>
         static int CompareDikeName(string a, string b)
         {
             int na = DikeNumber(a), nb = DikeNumber(b);

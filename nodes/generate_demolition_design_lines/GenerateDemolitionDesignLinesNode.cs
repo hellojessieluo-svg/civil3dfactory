@@ -12,12 +12,7 @@ namespace Civil3DFactory
     public static partial class Ops
     {
         /// <summary>
-        /// Embankment-removal section design lines: stripping line / excavation line / slopes / hatch / leader labels.
-        /// Ported line by line from C3DF-GenDesignLine of the embankment-removal plugin V1 (single-section acceptance passed 2026-06),
-        /// replacing "window selection + command-line prompts" with "scan model space by layer + parameters from the contract".
         ///
-        /// The drawn lines may be fine-tuned by hand -- the downstream compute_embankment_demolition reads the actual lines in the drawing,
-        /// not this node's in-memory result. Special sections such as side slopes still need manual boundary edits, as in the old workflow.
         /// </summary>
         static JsonNode RunNodeGenerateDemolitionDesignLines(JsonObject a, Document doc)
             => GenerateDemolitionDesignLines(a, doc);
@@ -45,14 +40,14 @@ namespace Civil3DFactory
             JsonObject h0By = a["bottom_elev_by_section"] as JsonObject;
 
             if (tTh < 0) throw new InvalidOperationException("strip_thickness must not be negative.");
-            if (slopeM <= 0) throw new InvalidOperationException("slope_ratio_m must be greater than 0 (the m of 1:m).");
+            if (slopeM <= 0) throw new InvalidOperationException("slope_ratio_m must be positive (m in 1:m).");
             if (halfW <= 0) throw new InvalidOperationException("excavation_half_width must be greater than 0.");
 
-            string layStrip = GetString(a, "strip_line_layer", "C3DF-STRIP-LINE");
-            string layExc = GetString(a, "excavation_line_layer", "C3DF-CUT-LINE");
-            string layHatch = GetString(a, "hatch_layer", "C3DF-HATCH");
-            string layNote = GetString(a, "annotation_layer", "C3DF-LABEL");
-            string layCl = GetString(a, "centerline_layer", "C3DF-CL");
+            string layStrip = GetString(a, "strip_line_layer", "C-DIKE-STRP");
+            string layExc = GetString(a, "excavation_line_layer", "C-DIKE-CUT");
+            string layHatch = GetString(a, "hatch_layer", "C-DIKE-HTCH");
+            string layNote = GetString(a, "annotation_layer", "C-DIKE-TEXT");
+            string layCl = GetString(a, "centerline_layer", "C-DIKE-CNTR");
 
             double hatchScale = GetDouble(a, "hatch_scale", 15.0);
             double textHeight = GetDouble(a, "text_height", 2.5);
@@ -89,7 +84,7 @@ namespace Civil3DFactory
                 List<MeasuredSection> all = Sections.Read(db, tr, opt);
                 if (all.Count == 0)
                     throw new InvalidOperationException(
-                        "No ground-line polyline found in model space on layer '" + opt.GroundLayer + "'; check ground_layer first.");
+                        "Model space on layer '" + opt.GroundLayer + "'; check ground_layer first.");
 
                 List<MeasuredSection> picked = all.Where(s => Sections.Matches(s, filter)).ToList();
                 if (picked.Count == 0)
@@ -116,7 +111,6 @@ namespace Civil3DFactory
                     double h0 = DikeBottomElev(h0By, s, h0Default);
                     string warn = "";
 
-                    // ---- Stripping: segments where the ground is above the threshold are lowered by tTh as a whole ----
                     List<(double a, double b)> strips = Sections.StripIntervals(s, thr);
                     var stripLines = new List<List<Point2d>>();
                     var stripRanges = new JsonArray();
@@ -132,7 +126,6 @@ namespace Civil3DFactory
 
                     List<Point2d> surf = Sections.ComposeSurface(s, stripLines);
 
-                    // ---- Excavation: segments where the stripped surface is above the bottom elevation, limited to +-W, with a slope on the truncated end ----
                     List<(double a, double b)> regions = Sections.RegionsAbove(surf, h0)
                         .Where(r => r.b > -halfW && r.a < halfW && r.b - r.a > 0.05).ToList();
 
@@ -198,7 +191,6 @@ namespace Civil3DFactory
             };
         }
 
-        /// <summary>Bottom elevation per section: look up by full sheet name first, then by survey line name, else use the global value.</summary>
         static double DikeBottomElev(JsonObject map, MeasuredSection s, double dflt)
         {
             if (map == null) return dflt;
@@ -220,7 +212,6 @@ namespace Civil3DFactory
             return dflt;
         }
 
-        /// <summary>Clean-up before a re-run: erase only the types this node draws (polyline / hatch / text) on the target layers; leave other objects alone.</summary>
         static int DikeEraseOnLayers(Transaction tr, BlockTableRecord space, string[] layers)
         {
             var set = new HashSet<string>(layers.Where(l => !string.IsNullOrWhiteSpace(l)),
@@ -238,7 +229,6 @@ namespace Civil3DFactory
             return victims.Count;
         }
 
-        /// <summary>Closed hatch between lower boundary and upper boundary; the boundary polyline exists only to create the hatch and is erased afterwards.</summary>
         static bool DikeHatch(BlockTableRecord space, Transaction tr,
                               List<Point2d> lower, List<Point2d> upper,
                               MeasuredSection s, ObjectId layer, string pattern, double scale)
@@ -281,9 +271,6 @@ namespace Civil3DFactory
         }
 
         /// <summary>
-        /// Text style: if not given, use the drawing's current style. The default STANDARD is usually paired with txt.shx, where CJK text shows as ????
-        /// (one of the leftovers of the embankment-removal plugin V1), so this hook points to an existing CJK-capable style in the drawing,
-        /// or run normalize_textstyles first.
         /// </summary>
         static ObjectId DikeTextStyle(Transaction tr, Database db, string name)
         {
@@ -295,7 +282,6 @@ namespace Civil3DFactory
             return tst[name];
         }
 
-        /// <summary>Design labels: removal centerline, original ground line, topsoil stripping, subsoil excavation, design elevation.</summary>
         static int DikeLabels(BlockTableRecord space, Transaction tr, MeasuredSection s,
                               ObjectId layNote, ObjectId layCl,
                               double thr, double t, double h0,
@@ -348,7 +334,6 @@ namespace Civil3DFactory
             return n;
         }
 
-        /// <summary>Leader label: anchor -> slanted line -> underline + text.</summary>
         static int DikeLeader(BlockTableRecord space, Transaction tr, MeasuredSection s,
                               ObjectId layer, Point2d anchor, Point2d txtAt,
                               string text, double textHeight, ObjectId styleId)

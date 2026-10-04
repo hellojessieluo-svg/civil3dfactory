@@ -29,7 +29,7 @@ namespace Civil3DFactory
         static JsonNode CreatePlanLayoutsFromFrames(JsonObject a, Document doc)
         {
             string block = Need(a, "block");
-            string layer = GetString(a, "frame_layer", "C3DF-PLAN-FRAME-NOPLOT");
+            string layer = GetString(a, "frame_layer", "G-ANNO-NPLT-FRAM");
             string layoutPrefix = GetString(a, "layout_prefix", "PlanSheet-");
             int maxLayouts = Math.Max(0, (int)GetDouble(a, "max_layouts", 0));
             var frames = ReadStoredPlanFrames(doc.Database, layer);

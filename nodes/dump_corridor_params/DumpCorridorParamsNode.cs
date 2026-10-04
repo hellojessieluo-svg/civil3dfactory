@@ -20,11 +20,7 @@ using PBool = Autodesk.Civil.Runtime.ParamBool;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// dump_corridor_params: flatten all design parameters of a corridor model into JSON:
-    /// corridor -> baseline -> region -> assembly -> subassembly -> display name and current value of every parameter.
     ///
-    /// Purpose: pull the design parameters scattered across assemblies (bottom elevation, side slope, width...)
-    /// as a snapshot and write-back target list for "parameter-table-driven models". Read-only, drawing untouched.
     /// </summary>
     public static partial class Ops
     {
@@ -133,6 +129,11 @@ namespace Civil3DFactory
                             ["group"] = DcpSafe(delegate { return g.Name; }),
                             ["name"] = DcpSafe(delegate { return sub.Name; }),
                             ["side"] = DcpSafe(delegate { return sub.Side.ToString(); }),
+                            ["status"] = DcpSafe(delegate { return sub.StatusOf(); }),
+                            ["geometry_project"] = DcpSafe(delegate { return sub.GeometryGenerator.ProjectOrAssemblyName; }),
+                            ["geometry_class"] = DcpSafe(delegate { return sub.GeometryGenerator.MacroOrClassName; }),
+                            ["geometry_mode"] = DcpSafe(delegate { return sub.GeometryGenerator.GeometryGenerateMode.ToString(); }),
+                            ["use_embedded_project"] = DcpSafe(delegate { return sub.UseEmbeddedProject.ToString(); }),
                             ["params"] = DcpParams(sub)
                         });
                     }
@@ -190,8 +191,6 @@ namespace Civil3DFactory
             return arr;
         }
 
-        /// <summary>Design profile (ProfileType.FG) of the alignment: name + station/elevation of every PVI.
-        /// The dredge bottom elevation lives here, not in assembly parameters.</summary>
         static JsonNode DcpProfile(Transaction tr, ObjectId alId)
         {
             if (alId.IsNull) return null;

@@ -83,5 +83,25 @@ namespace Civil3DFactory
             return col.ImportSACSubassembly(name, pktPath, origin);
 #endif
         }
+
+        internal static void CreateCorridorPointLabels(ObjectId view, ObjectId section)
+        {
+            Type type = typeof(Autodesk.Civil.DatabaseServices.SectionView).Assembly.GetType(
+                "Autodesk.Civil.DatabaseServices.SectionCorridorPointLabelGroup");
+            MethodInfo method = type == null ? null : type.GetMethod("Create", new[] { typeof(ObjectId), typeof(ObjectId) });
+            if (method == null) throw new NotSupportedException("Corridor point label groups require a newer Civil 3D host.");
+            method.Invoke(null, new object[] { view, section });
+        }
+        internal static ObjectIdCollection CorridorPointLabelIds(Autodesk.Civil.DatabaseServices.SectionView view)
+        {
+            MethodInfo method = view.GetType().GetMethod("GetSectionCorridorPointLabelGroupIds", Type.EmptyTypes);
+            return method == null ? new ObjectIdCollection() : (ObjectIdCollection)method.Invoke(view, null);
+        }
+        internal static void UpdateSectionGroupLayout(Autodesk.Civil.DatabaseServices.SectionViewGroup group)
+        {
+            MethodInfo method = group.GetType().GetMethod("UpdateLayout", Type.EmptyTypes);
+            if (method == null) throw new NotSupportedException("UpdateLayout is unavailable in this Civil 3D version.");
+            method.Invoke(group, null);
+        }
     }
 }

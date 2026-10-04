@@ -12,16 +12,8 @@ namespace Civil3DFactory
     public static partial class Ops
     {
         /// <summary>
-        /// Batch-place General Note Labels: given a list of points, place one label per point with the specified style.
-        /// This is how coordinate labelling is automated: the style contains X=&lt;[Northing]&gt; / Y=&lt;[Easting]&gt;,
-        /// so the label picks up the values automatically when placed and follows when dragged; no manual copying of coordinates.
         ///
-        /// Why this node exists (2026-09-02 phase-5 template coordinate label tuning):
-        /// the anchor position / dragged-state display of a label style is not exposed in the .NET API; the only way to check it is to actually place a label and look at the rendering;
-        /// so "batch coordinate labels at given points" was made a formal entry point along the way.
         ///
-        /// Each point may carry dx/dy (drawing units): if given, the label is dragged into its dragged state (with leader), used to inspect/output the dragged-state layout.
-        /// Changes stay in memory; call save_dwg explicitly to persist.
         /// </summary>
         static JsonNode RunNodeAddNoteLabel(JsonObject a, Document doc)
         {
@@ -36,6 +28,8 @@ namespace Civil3DFactory
             Database db = doc.Database;
             CivDoc civ = Civ(db);
             var placed = new JsonArray();
+            var handles = new JsonArray();
+            int index = -1;
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
@@ -59,9 +53,28 @@ namespace Civil3DFactory
 
                 foreach (JsonNode pn in pts)
                 {
+                    index++;
                     var p = pn as JsonObject;
                     if (p == null) continue;
                     double x = GetDouble(p, "x", double.NaN), y = GetDouble(p, "y", double.NaN);
+                    string pvName = GetString(p, "profile_view", null);
+                    if (!string.IsNullOrEmpty(pvName))
+                    {
+                        double st = GetDouble(p, "station", double.NaN), el = GetDouble(p, "elevation", double.NaN);
+                        if (double.IsNaN(st) || double.IsNaN(el)) throw new InvalidOperationException("profile_view requires station and elevation.");
+                        ObjectId pvId = ObjectId.Null;
+                        var btN = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+                        var msN = (BlockTableRecord)tr.GetObject(btN[BlockTableRecord.ModelSpace], OpenMode.ForRead);
+                        foreach (ObjectId vid in msN)
+                        {
+                            if (vid.ObjectClass.Name != "AeccDbGraphProfile") continue;
+                            var pvv = tr.GetObject(vid, OpenMode.ForRead) as Autodesk.Civil.DatabaseServices.ProfileView;
+                            if (pvv != null && pvv.Name == pvName) { pvId = vid; break; }
+                        }
+                        if (pvId.IsNull) throw new InvalidOperationException("Profile view not found: " + pvName);
+                        var pv = (Autodesk.Civil.DatabaseServices.ProfileView)tr.GetObject(pvId, OpenMode.ForRead);
+                        double xx = 0, yy = 0; pv.FindXYAtStationAndElevation(st, el, ref xx, ref yy); x = xx; y = yy;
+                    }
                     if (double.IsNaN(x) || double.IsNaN(y))
                         throw new InvalidOperationException("Every points item must have x, y.");
                     var loc = new Point3d(x, y, 0);
@@ -69,12 +82,30 @@ namespace Civil3DFactory
                     var lbl = (CivNoteLabel)tr.GetObject(lid, OpenMode.ForWrite);
                     lbl.StyleId = styleId;
                     if (!string.IsNullOrEmpty(layer)) lbl.Layer = layer;
+                    string txt = GetString(p, "text", null);
+                    if (!string.IsNullOrEmpty(txt))
+                    {
+                        var ls = (Autodesk.Civil.DatabaseServices.Styles.LabelStyle)tr.GetObject(styleId, OpenMode.ForRead);
+                        var comps = ls.GetComponents(Autodesk.Civil.DatabaseServices.Styles.LabelStyleComponentType.Text);
+                        if (comps.Count == 0) throw new InvalidOperationException("Style " + styleName + " has no text component to override.");
+                        foreach (ObjectId cid in comps) lbl.SetTextComponentOverride(cid, txt);
+                    }
                     var rec = new JsonObject
                     {
+                        ["index"] = index,
                         ["handle"] = lbl.Handle.ToString(),
                         ["x"] = x,
                         ["y"] = y
                     };
+                    if (!string.IsNullOrEmpty(pvName))
+                    {
+                        rec["profile_view"] = pvName;
+                        rec["station"] = GetDouble(p, "station", double.NaN);
+                        rec["elevation"] = GetDouble(p, "elevation", double.NaN);
+                    }
+                    if (!string.IsNullOrEmpty(txt)) rec["text"] = txt;
+                    rec["layer"] = lbl.Layer;
+                    handles.Add(lbl.Handle.ToString());
                     double dx = GetDouble(p, "dx", 0), dy = GetDouble(p, "dy", 0);
                     if (dx != 0 || dy != 0)
                     {
@@ -93,6 +124,7 @@ namespace Civil3DFactory
             {
                 ["style"] = styleName,
                 ["placed"] = placed.Count,
+                ["handles"] = handles,
                 ["labels"] = placed
             };
         }

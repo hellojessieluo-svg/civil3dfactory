@@ -16,18 +16,8 @@ using CivDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// Post-dredge surface merge node (design AND existing, take the lower).
     ///
-    /// Dredging only cuts, never fills: where the design surface is below existing, cut to design; where existing is already below design, keep existing --
-    ///     z(P) = min(z_design(P), z_existing(P))
     ///
-    /// Method (zero-difference-line clipping):
-    ///   1. ExtractBorder of the design surface becomes the extent of the post surface (outer boundary clip, holes as Hide);
-    ///   2. build a temporary difference TIN (z = design - existing, vertices = union of both surfaces' vertices) and extract the zero contour at epsilon on the cut side --
-    ///      this is the cut / no-cut divide (crease); it goes onto crease_layer as the cut-area boundary line and into the post surface as a breakline;
-    ///   3. post surface vertices = design vertices AND existing + existing vertices inside the extent AND design + zero-line points; build the TIN;
-    ///   4. verify: existing vs post GetVolumeProperties -- min() is never above existing, so fill must be ~0;
-    ///      non-zero fill means the merge is wrong; silent success = failure.
     /// </summary>
     public static partial class Ops
     {
@@ -46,8 +36,8 @@ namespace Civil3DFactory
                 string.Equals(outName, existName, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("out_surface must not share a name with an input surface (it would overwrite the input).");
 
-            string surfLayer = GetString(a, "surface_layer", "C3DF-POST-SURFACE");
-            string creaseLayer = GetString(a, "crease_layer", "C3DF-POST-ZERO-LINE");
+            string surfLayer = GetString(a, "surface_layer", "C-DRDG-POST");
+            string creaseLayer = GetString(a, "crease_layer", "C-DRDG-BNDY");
             bool drawCrease = GetBool(a, "draw_crease_lines", true);
             double minCrease = GetDouble(a, "min_crease_length", 1.0);
             double eps = Math.Abs(GetDouble(a, "contour_epsilon", 0.001));
@@ -69,9 +59,9 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 ObjectId designId = FindSurfaceId(tr, civ, designName);
-                if (designId.IsNull) throw new InvalidOperationException("Design surface '" + designName + "' not found.");
+                if (designId.IsNull) throw new InvalidOperationException("Design surface '" + designName + "'.");
                 ObjectId existId = FindSurfaceId(tr, civ, existName);
-                if (existId.IsNull) throw new InvalidOperationException("Existing ground surface '" + existName + "' not found.");
+                if (existId.IsNull) throw new InvalidOperationException("Existing ground surface '" + existName + "'.");
 
                 var designTin = tr.GetObject(designId, OpenMode.ForRead) as CivTinSurface;
                 if (designTin == null)
@@ -80,7 +70,6 @@ namespace Civil3DFactory
                 if (existTin == null)
                     throw new InvalidOperationException("Existing surface '" + existName + "' is not a TIN surface (this node reads vertices).");
 
-                // ---- Idempotent clean-up: same-named post surface, zero lines drawn by this node, temporary surfaces left from last run ----
                 if (clearExisting)
                     clearedOld = PostClearOld(tr, db, civ, outName, tmpDiffName);
 
@@ -89,7 +78,6 @@ namespace Civil3DFactory
                 ObjectId lyCrease = GridEnsureLayer(tr, db, creaseLayer, 6);
                 var btr = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
 
-                // ---- 1. Design surface outline -> point rings (outer ring + hole rings) ----
                 var rings = new List<List<Point2d>>();
                 var borderEnts = new ObjectIdCollection();
                 try { borderEnts = designTin.ExtractBorder(ExtractType.Plan); }
@@ -118,7 +106,6 @@ namespace Civil3DFactory
                 if (rings.Count > 1)
                     warnings.Add((JsonNode)("Design surface outline has " + rings.Count + " rings; the largest is the outer boundary, the rest are treated as Hide holes."));
 
-                // ---- 2. Collect points: design vertices AND existing + existing vertices inside the extent AND design + boundary ring points ----
                 var postPts = new Point3dCollection();
                 var diffPts = new Point3dCollection();
                 var offExistingPts = new List<Point3d>();
@@ -160,10 +147,6 @@ namespace Civil3DFactory
                     else offDesign++;   // inside a hole of the design surface: the post surface should not cover it either; point not added
                 }
 
-                // Densify along edges: inside a TIN triangle the surface is planar, so any re-triangulation is exact there; the error only appears where
-                // a post-surface triangle crosses an edge of the original TIN (chord floating over a convex shoulder). So sample along the two TINs'
-                // own edges at the given step (z still = min), which fits better than a blind grid -- a blind grid crossing steep banks diagonally
-                // actually amplifies noise (SY1 measured: no grid 0.56%, 5 m blind grid 1.10%, 2 m blind grid 0.47%).
                 int edgePts = 0;
                 if (gridStep > 0)
                 {
@@ -191,7 +174,6 @@ namespace Civil3DFactory
                 if (existVertsUsed == 0)
                     warnings.Add((JsonNode)"Not a single existing vertex found inside the design extent (no densified points in the existing surface here?); post-surface detail relies entirely on design vertices and the zero line.");
 
-                // ---- 3. Temporary difference TIN -> zero contour (at epsilon on the cut side) ----
                 var creaseIds = new ObjectIdCollection();
                 int creasePts = 0, creaseDropped = 0;
                 ObjectId diffId = ObjectId.Null;
@@ -265,7 +247,6 @@ namespace Civil3DFactory
                 if (creaseIds.Count == 0 && creasePts == 0)
                     warnings.Add((JsonNode)"No zero line extracted at all: the design surface is either entirely below existing (all cut) or entirely above (all existing kept) -- check the verify volumes to tell which.");
 
-                // ---- 4. Build the post TIN ----
                 ObjectId oldOut = FindSurfaceId(tr, civ, outName);
                 if (!oldOut.IsNull) tr.GetObject(oldOut, OpenMode.ForWrite).Erase();
 
@@ -274,7 +255,8 @@ namespace Civil3DFactory
                 postTin.LayerId = lySurf;
                 postTin.AddVertices(postPts);
 
-                if (creaseIds.Count > 0)
+                bool addBreaklines = GetBool(a, "breaklines", true);
+                if (creaseIds.Count > 0 && addBreaklines)
                 {
                     try { postTin.BreaklinesDefinition.AddStandardBreaklines(creaseIds, 1.0, 0.0, 0.0, 0.0); }
                     catch (System.Exception ex)
@@ -300,7 +282,6 @@ namespace Civil3DFactory
 
                 try { postTin.Rebuild(); } catch (System.Exception) { }
 
-                // ---- 5. verify: existing vs post (fill must be ~0), plus existing vs design for reference ----
                 double postCut = 0, postFill = 0, designCut = 0, designFill = 0;
                 double fillRatio = 0;
                 bool verified = false;
@@ -312,7 +293,6 @@ namespace Civil3DFactory
                     PostTryVolume(tr, civ, "_C3DF_POST_COMPARE-" + Sanitize(outName), existId, designId,
                         out designCut, out designFill, warnings, "existing vs design");
 
-                    // Locate residual fill: sample at half-cell offsets (grid nodes themselves never show fill on either surface), aggregate positive differences per 50 m cell
                     if (verified && postFill > 1.0 && gridStep > 0)
                     {
                         const double cell = 50.0;
@@ -419,7 +399,6 @@ namespace Civil3DFactory
             }
         }
 
-        /// <summary>Build a temporary volume surface to read cut/fill, deleted right after reading. Failures go to warnings, not thrown.</summary>
         static bool PostTryVolume(Transaction tr, CivDoc civ, string tmpName,
             ObjectId baseId, ObjectId compId, out double cut, out double fill,
             JsonArray warnings, string what)
@@ -453,9 +432,6 @@ namespace Civil3DFactory
         }
 
         /// <summary>
-        /// Sample along all edges of one TIN at the given step (each edge walked once after de-duplication);
-        /// each sample z = min(design, existing), and zD-zE is fed to the difference TIN at the same time.
-        /// Only edges that intersect the bounding box and (when rings exist) have at least one end inside a ring; points not sampled on either surface are skipped.
         /// </summary>
         static int PostSampleTinEdges(CivTinSurface src, CivTinSurface designTin, CivTinSurface existTin,
             double step, Extents3d dext, List<List<Point2d>> rings,
@@ -508,7 +484,6 @@ namespace Civil3DFactory
             return added;
         }
 
-        /// <summary>Flatten any curve into a 2D point ring by step (polylines use their vertices directly, others are sampled evenly).</summary>
         static List<Point2d> PostRingFromCurve(Curve cv, double step)
         {
             var pts = new List<Point2d>();
@@ -529,7 +504,6 @@ namespace Civil3DFactory
             return pts;
         }
 
-        /// <summary>Get the vertex sequence of a curve: real vertices for polylines (the zero line is a polyline anyway), others sampled by maxSeg.</summary>
         static List<Point2d> PostCurvePoints(Curve cv, double maxSeg)
         {
             var pts = new List<Point2d>();
@@ -561,7 +535,6 @@ namespace Civil3DFactory
             return pts;
         }
 
-        /// <summary>Even-odd inside test over multiple rings (outer ring + hole rings together: hit an odd number of rings = inside).</summary>
         static bool PostInsideRings(Point2d p, List<List<Point2d>> rings)
         {
             int hits = 0;
@@ -577,7 +550,6 @@ namespace Civil3DFactory
                 new TypedValue((int)DxfCode.ExtendedDataAsciiString, kind));
         }
 
-        /// <summary>Clear last run's output: same-named post surface, zero lines carrying this node's XData for that post surface, leftover temporary surfaces.</summary>
         static int PostClearOld(Transaction tr, Database db, CivDoc civ, string outName, string tmpDiffName)
         {
             int n = 0;

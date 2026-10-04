@@ -10,16 +10,8 @@ using CivSurface = Autodesk.Civil.DatabaseServices.Surface;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// Grid-node elevation annotation node.
     ///
-    /// Takes a boundary layer as parameter and processes **every closed polyline** on it: draws a square grid (Lines) inside the boundary,
-    /// and around every grid intersection inside the boundary places 3 single-line texts with values already filled in:
-    ///     top-left = difference (design - existing)   top-right = design elevation   bottom-right = existing elevation   bottom-left = empty
     ///
-    /// Same algorithm and XData convention (AppName C3DF_GRIDELEV) as the existing interactive plugin GridElev (C3DF-GridGen),
-    /// so this node's output can still be maintained manually with C3DF-ElevFromSurface / C3DF-CalcDiff.
-    /// Difference: the interactive version picks one boundary at a time, this node batches by layer; surfaces are fetched by name and
-    /// CivilApplication.ActiveDocument is never touched (unavailable in accoreconsole).
     /// </summary>
     public static partial class Ops
     {
@@ -48,10 +40,10 @@ namespace Civil3DFactory
             bool drawGrid = GetBool(a, "draw_grid", true);
             bool clearExisting = GetBool(a, "clear_existing", true);
 
-            string lyGridName = GetString(a, "grid_layer", "C3DF-GRID");
-            string lyDesignName = GetString(a, "design_layer", "C3DF-DESIGN-ELEV");
-            string lyExistName = GetString(a, "exist_layer", "C3DF-EXISTING-ELEV");
-            string lyDiffName = GetString(a, "diff_layer", "C3DF-DIFFERENCE");
+            string lyGridName = GetString(a, "grid_layer", "C-GRID");
+            string lyDesignName = GetString(a, "design_layer", "C-GRID-ELEV-DSGN");
+            string lyExistName = GetString(a, "exist_layer", "V-GRID-ELEV");
+            string lyDiffName = GetString(a, "diff_layer", "C-GRID-ELEV-DIFF");
 
             string fmt = "F" + decimals.ToString(CultureInfo.InvariantCulture);
             double m = offsetFactor * h;
@@ -67,16 +59,14 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 ObjectId dId = FindSurfaceId(tr, civ, designName);
-                if (dId.IsNull) throw new InvalidOperationException("Design surface '" + designName + "' not found.");
+                if (dId.IsNull) throw new InvalidOperationException("Design surface '" + designName + "'.");
                 ObjectId eId = FindSurfaceId(tr, civ, existName);
-                if (eId.IsNull) throw new InvalidOperationException("Existing ground surface '" + existName + "' not found.");
+                if (eId.IsNull) throw new InvalidOperationException("Existing ground surface '" + existName + "'.");
                 var dSurf = (CivSurface)tr.GetObject(dId, OpenMode.ForRead);
                 var eSurf = (CivSurface)tr.GetObject(eId, OpenMode.ForRead);
 
-                // Clean previous output: only objects carrying this node's XData; user-drawn objects are never touched
                 if (clearExisting) cleared = EraseTaggedEntities(tr, db, GridAppName);
 
-                // Collect polylines on the boundary layer
                 var bndIds = new List<ObjectId>();
                 foreach (ObjectId id in ModelSpace(db, tr))
                 {
@@ -88,7 +78,7 @@ namespace Civil3DFactory
                 }
                 if (bndIds.Count == 0)
                     throw new InvalidOperationException(
-                        "No usable " + (closedOnly ? "closed " : "") + "polyline (LWPOLYLINE) on layer '" + bndLayer + "'.");
+                        "Layer '" + bndLayer + "' has no usable " + (closedOnly ? "closed " : "") + "polylines (LWPOLYLINE).");
 
                 EnsureRegApp(tr, db, GridAppName);
                 ObjectId lyGrid = GridEnsureLayer(tr, db, lyGridName, 4);
@@ -97,7 +87,6 @@ namespace Civil3DFactory
                 ObjectId lyF = GridEnsureLayer(tr, db, lyDiffName, 1);
                 var btr = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
 
-                // When several parcels share a boundary, each node is labelled once (global dedupe by coordinate)
                 var seen = new HashSet<string>();
 
                 foreach (ObjectId bid in bndIds)
@@ -215,10 +204,7 @@ namespace Civil3DFactory
             }
         }
 
-        // ---------- Clean previous output: delete only objects with C3DF_GRIDELEV XData ----------
-        // ---------- Grid coordinates / clipping / inside test (same algorithm as GridElev) ----------
 
-        /// <summary>Coordinate sequence between lo..hi aligned to integer multiples of step, so grids of adjacent parcels line up.</summary>
         static List<double> GridCoords(double lo, double hi, double step)
         {
             var res = new List<double>();
@@ -227,7 +213,6 @@ namespace Civil3DFactory
             return res;
         }
 
-        /// <summary>Clip a line by the boundary and draw only the pieces inside; returns the number of pieces drawn.</summary>
         static int GridDrawClipped(Transaction tr, BlockTableRecord btr, ObjectId layer,
             Entity boundary, List<Point2d> poly, Point3d a, Point3d b)
         {
@@ -256,7 +241,6 @@ namespace Civil3DFactory
             return drawn;
         }
 
-        /// <summary>Sample the boundary by step into a point ring (arcs included) for the point-in-polygon test.</summary>
         static List<Point2d> GridSamplePolygon(Curve c, double step)
         {
             var pts = new List<Point2d>();
@@ -293,7 +277,6 @@ namespace Civil3DFactory
             catch (System.Exception) { z = 0; return false; }
         }
 
-        // ---------- XData / entities / layers ----------
 
         static string GridNodeKey(Point3d p)
         {

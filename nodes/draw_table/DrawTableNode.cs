@@ -10,9 +10,6 @@ namespace Civil3DFactory
 {
     public static partial class Ops
     {
-        // Hand-drawn data table (pure CAD lines + text), in model space or a given layout.
-        // Purpose: put quantity tables on drawings. OLE tables cannot be pasted or edited headless; a drawn table plots in accore, survives pure-CAD export, and a rerun updates the numbers.
-        // Entities carry XData (C3DF_TBL:<name>) for identification; a rerun with the same name removes the old table first; entities on the dedicated layer are recognised too.
         const string TblRegApp = "C3DF_TBL";
 
         static JsonNode RunNodeDrawTable(JsonObject a, Document doc)
@@ -28,7 +25,7 @@ namespace Civil3DFactory
             double rowH = GetDouble(a, "row_height", 5.0);
             double textH = GetDouble(a, "text_height", 2.5);
             double totalW = GetDouble(a, "width", 0.0);
-            string layerName = GetString(a, "layer", "C3DF-TABLE");
+            string layerName = GetString(a, "layer", "C-QNTY-TABL");
             short color = (short)GetDouble(a, "color", 7);
             string textStyleName = GetString(a, "text_style", null);
             bool clear = GetBool(a, "clear", true);
@@ -37,12 +34,20 @@ namespace Civil3DFactory
             bool mask = GetBool(a, "mask", false);                 // Wipeout under the table to mask model content in the viewport (the opaque background of OLE)
             double lwMm = GetDouble(a, "lineweight", 0.25);          // layer lineweight mm; 0 = not set
 
-            // column count = longest row
             int nCols = 0;
             foreach (JsonNode r in rows) nCols = Math.Max(nCols, ((JsonArray)r).Count);
             if (nCols == 0) throw new InvalidOperationException("rows contains no cell");
 
-            // Column widths: col_widths explicit; otherwise estimated from the longest text per column (CJK 1.0 x height, ASCII 0.6 x height + 2 x height padding), then scaled proportionally to width
+            double styleWf = 1.0;
+            using (var tr0 = doc.Database.TransactionManager.StartTransaction())
+            {
+                var tst0 = (TextStyleTable)tr0.GetObject(doc.Database.TextStyleTableId, OpenMode.ForRead);
+                ObjectId sid0 = !string.IsNullOrEmpty(textStyleName) ? (tst0.Has(textStyleName) ? tst0[textStyleName] : ObjectId.Null)
+                                                                     : (tst0.Has("-Bold") ? tst0["-Bold"] : doc.Database.Textstyle);
+                styleWf = LpStyleWf(tr0, sid0);
+                tr0.Commit();
+            }
+
             var colW = new double[nCols];
             if (a["col_widths"] is JsonArray cw && cw.Count == nCols)
             {
@@ -57,7 +62,7 @@ namespace Civil3DFactory
                     for (int c = 0; c < ra.Count; c++)
                     {
                         string s = CellText(ra[c]);
-                        double est = EstTextWidth(s, textH) + 2 * textH;
+                        double est = EstTextWidth(s, textH, styleWf) + 2 * textH;
                         if (est > colW[c]) colW[c] = est;
                     }
                 }
@@ -77,7 +82,6 @@ namespace Civil3DFactory
             string drawOrderNote = null;
             using (var tr = db.TransactionManager.StartTransaction())
             {
-                // Target space
                 BlockTableRecord btr;
                 if (string.Equals(space, "Model", StringComparison.OrdinalIgnoreCase))
                 {
@@ -88,12 +92,11 @@ namespace Civil3DFactory
                 {
                     var dict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
                     if (!dict.Contains(space))
-                        throw new InvalidOperationException("Layout '" + space + "' not in the drawing.");
+                        throw new InvalidOperationException("Layout '" + space + "'.");
                     var layout = (Layout)tr.GetObject(dict.GetAt(space), OpenMode.ForRead);
                     btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForWrite);
                 }
 
-                // Layer + RegApp
                 var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
                 ObjectId layerId;
                 if (lt.Has(layerName)) layerId = lt[layerName];
@@ -124,7 +127,6 @@ namespace Civil3DFactory
                     rat.DowngradeOpen();
                 }
 
-                // Remove the old table: entities in the same space with C3DF_TBL XData and the same name
                 if (clear)
                 {
                     foreach (ObjectId id in btr)
@@ -144,15 +146,15 @@ namespace Civil3DFactory
                     }
                 }
 
-                // Text style: parameter > "-SimHei"-style > drawing default
                 ObjectId styleId = ObjectId.Null;
                 var tst = (TextStyleTable)tr.GetObject(db.TextStyleTableId, OpenMode.ForRead);
                 if (!string.IsNullOrEmpty(textStyleName))
                 {
                     if (!tst.Has(textStyleName))
-                        throw new InvalidOperationException("Text style '" + textStyleName + "' not in the drawing.");
+                        throw new InvalidOperationException("Text style not found in drawing: '" + textStyleName + "'.");
                     styleId = tst[textStyleName];
                 }
+                else if (tst.Has("-Bold")) styleId = tst["-Bold"];
 
                 var xdata = new ResultBuffer(
                     new TypedValue((int)DxfCode.ExtendedDataRegAppName, TblRegApp),
@@ -169,7 +171,6 @@ namespace Civil3DFactory
                     made++;
                 };
 
-                // White mask (drawn first, at the bottom): Wipeout by the table outline, WIPEOUTFRAME set to 0 so no frame line shows
                 if (mask)
                 {
                     var wo = new Wipeout();
@@ -184,19 +185,16 @@ namespace Civil3DFactory
                     try { Application.SetSystemVariable("WIPEOUTFRAME", 0); } catch { }
                 }
 
-                // Horizontal lines
                 double yb = yTop;
                 var rowYs = new List<double> { yTop };
                 for (int r = 0; r < rows.Count; r++) { yb -= r < headerRows ? headerH : rowH; rowYs.Add(yb); }
                 foreach (double y in rowYs)
                     put(new Line(new Point3d(x0, y, 0), new Point3d(x0 + sumW, y, 0)));
-                // Vertical lines
                 double xc = x0;
                 var colXs = new List<double> { x0 };
                 for (int c = 0; c < nCols; c++) { xc += colW[c]; colXs.Add(xc); }
                 foreach (double x in colXs)
                     put(new Line(new Point3d(x, yTop, 0), new Point3d(x, yTop - totalH, 0)));
-                // Text (centred)
                 for (int r = 0; r < rows.Count; r++)
                 {
                     var ra = (JsonArray)rows[r];
@@ -206,19 +204,20 @@ namespace Civil3DFactory
                         string s = CellText(ra[c]);
                         if (string.IsNullOrWhiteSpace(s)) continue;
                         double cx = (colXs[c] + colXs[c + 1]) / 2.0;
-                        var t = new DBText { TextString = s, Height = textH, Position = new Point3d(cx, cy, 0) };
+                        var t = new DBText();
+                        put(t);
+                        t.TextString = s; t.Height = textH;
                         if (!styleId.IsNull) t.TextStyleId = styleId;
+                        double avail = colW[c] - 0.6 * textH;
+                        double est = EstTextWidth(s, textH, styleWf);
+                        t.WidthFactor = (est > avail && est > 0) ? Math.Max(0.5, styleWf * avail / est) : styleWf;
+                        t.Position = new Point3d(cx, cy, 0);
                         t.HorizontalMode = TextHorizontalMode.TextCenter;
                         t.VerticalMode = TextVerticalMode.TextVerticalMid;
                         t.AlignmentPoint = new Point3d(cx, cy, 0);
-                        // If the text is wider than the cell, reduce the width factor so it does not overflow
-                        double avail = colW[c] - 0.6 * textH;
-                        double est = EstTextWidth(s, textH);
-                        if (est > avail && est > 0) t.WidthFactor = Math.Max(0.5, avail / est);
-                        put(t);
+                        try { t.AdjustAlignment(db); } catch { }
                     }
                 }
-                // Bring to front: viewports in layouts are often draw-ordered to the front, so a new table would be hidden by model content in the viewport
                 try
                 {
                     var dot = (DrawOrderTable)tr.GetObject(btr.DrawOrderTableId, OpenMode.ForWrite);
@@ -259,12 +258,9 @@ namespace Civil3DFactory
             return n.ToJsonString().Trim('"');
         }
 
-        // Rough text width: CJK 1.0 x height, others 0.6 x height (CJK glyph width = height x width factor x 0.7 empirically, with margin)
-        static double EstTextWidth(string s, double h)
+        static double EstTextWidth(string s, double h, double wf)
         {
-            double w = 0;
-            foreach (char ch in s) w += ch > 0x2E7F ? 1.0 * h : 0.6 * h;
-            return w;
+            return LabelGeo.TextWidth(s, h, wf);
         }
 
         static JsonArray ToJsonArray(double[] arr)

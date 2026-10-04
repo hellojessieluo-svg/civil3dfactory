@@ -12,8 +12,6 @@ namespace Civil3DFactory
         static JsonNode RunNodeAssignLayers(JsonObject args, Document doc)
             => AssignLayers(args, doc);
 
-        // Batch layer assignment: per group, move alignments (by name) or any entity (by handle) to the given layer, creating it if missing.
-        // Only the Layer property is touched; geometry/styles/attachments are left alone.
         static JsonNode AssignLayers(JsonObject a, Document doc)
         {
             var groups = a["groups"] as JsonArray;
@@ -50,6 +48,7 @@ namespace Civil3DFactory
                     }
 
                     int moved = 0;
+                    bool byLayer = GetBool(a, "bylayer", false);
                     var missing = new JsonArray();
                     if (g["alignments"] is JsonArray als)
                         foreach (JsonNode n in als)
@@ -68,6 +67,12 @@ namespace Civil3DFactory
                             if (tr.GetObject(id, OpenMode.ForWrite) is not Entity e)
                             { missing.Add(h); continue; }
                             if (e.LayerId != layerId) { e.LayerId = layerId; moved++; }
+                            if (byLayer)
+                            {
+                                try { e.ColorIndex = 256; } catch { }
+                                try { e.Linetype = "ByLayer"; } catch { }
+                                try { e.LineWeight = LineWeight.ByLayer; } catch { }
+                            }
                         }
                     movedTotal += moved;
                     var line = new JsonObject { ["layer"] = layer, ["moved"] = moved };

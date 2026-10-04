@@ -42,7 +42,7 @@
     "name": "Alignment to polyline",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "alignment": "civil.alignment"
     },
@@ -75,7 +75,7 @@
     "name": "Export alignments as polyline DWG",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "alignment": "flow:civil.alignment"
     },
@@ -105,7 +105,7 @@
     "name": "Export corridor feature lines as 3D polyline DWG",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "corridor": "flow:civil.corridor"
     },
@@ -133,7 +133,7 @@
     "name": "Dump corridor parameters",
     "version": "0.1",
     "kind": "inspection",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {},
     "parameters": {
       "corridors": "boolean?=true",
@@ -149,11 +149,39 @@
     "effect": "read"
   },
   {
+    "id": "extract_dwg_text",
+    "name": "Extract dwg text",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "powershell_external",
+    "implementation": "nodes/extract_dwg_text/run.ps1",
+    "inputs": {
+      "drawings": "path[]"
+    },
+    "parameters": {
+      "out": "path",
+      "result": "path?",
+      "log": "path?",
+      "keep_dxf": "boolean=false",
+      "python": "path?",
+      "timeout_sec": "integer=900"
+    },
+    "outputs": {
+      "markdown": "file.md",
+      "documents": "object[]",
+      "document_count": "integer",
+      "text_count": "integer",
+      "result": "file.json",
+      "log": "file.log"
+    },
+    "effect": "read"
+  },
+  {
     "id": "replace_alignment_geometry",
     "name": "Replace alignment geometry in place",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "alignment": "civil.alignment"
     },
@@ -222,7 +250,7 @@
   {
     "id": "create_corridor",
     "name": "Build corridor",
-    "version": "0.1",
+    "version": "0.2",
     "kind": "production",
     "inputs": {
       "alignment": "civil.alignment",
@@ -307,7 +335,7 @@
     "version": "0.1",
     "kind": "production",
     "inputs": {
-      "material_list": "civil.material_list"
+      "material_list": "flow:civil.material_list"
     },
     "parameters": {
       "outdir": "path",
@@ -405,7 +433,7 @@
       "y": "number?",
       "style": "list:civil.style.section_view?",
       "code_set": "list:civil.codeset?",
-      "code_mappings": "array?<{code:string,style:string,label_style?:string,style_type?:link|point|shape}>",
+      "code_mappings": "array<{code:string,style:string,label_style?:string,style_type?:link|point|shape}>?",
       "section_style": "list:civil.style.section?",
       "material_style": "list:civil.style.section?",
       "elev_min": "number?=0",
@@ -418,7 +446,11 @@
       "row_spacing": "number?=45",
       "group_spacing": "number?=0",
       "volume_table": "boolean?=false",
-      "corridor_point_labels": "boolean?=false"
+      "corridor_point_labels": "boolean?=false",
+      "append_station": "number?",
+      "template_view": "string?",
+      "dx": "number?=0",
+      "dy": "number?=-28"
     },
     "outputs": {
       "section_views": "civil.section_view[]"
@@ -430,7 +462,7 @@
     "name": "Restyle section views in place",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "alignment": "civil.alignment?"
     },
@@ -457,7 +489,7 @@
     "executor": "powershell_external",
     "implementation": "nodes/restore_corridor_section_labels/run.ps1",
     "inputs": {
-      "drawing": "file.dwg"
+      "drawing": "path"
     },
     "parameters": {
       "out": "path",
@@ -481,9 +513,9 @@
     "name": "Export to plain AutoCAD",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
-      "drawing": "file.dwg"
+      "drawing": "flow:file.dwg"
     },
     "parameters": {
       "out": "path",
@@ -502,10 +534,10 @@
     "name": "Insert attribute title blocks",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
-      "drawing": "file.dwg",
-      "title_block_library": "file.dwg?"
+      "drawing": "flow:file.dwg",
+      "title_block_library": "flow:file.dwg?"
     },
     "parameters": {
       "block": "list:dwg.blockname",
@@ -544,7 +576,7 @@
     "executor": "powershell_external",
     "implementation": "nodes/normalize_textstyles/run.ps1",
     "inputs": {
-      "drawing": "file.dwg"
+      "drawing": "path"
     },
     "parameters": {
       "out": "path",
@@ -570,7 +602,7 @@
     "executor": "powershell_external",
     "implementation": "nodes/plot_attribute_titleblocks/run.ps1",
     "inputs": {
-      "drawing": "file.dwg"
+      "drawing": "path"
     },
     "parameters": {
       "output_directory": "path",
@@ -591,9 +623,9 @@
     "name": "Create horizontal plan frames along alignment",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
-      "drawing": "file.dwg",
+      "drawing": "flow:file.dwg",
       "alignment": "civil.alignment"
     },
     "parameters": {
@@ -613,7 +645,7 @@
     },
     "outputs": {
       "frames": "cad.polyline[]",
-      "windows": "model_window[]",
+      "windows": "cad.model_window[]",
       "count": "integer",
       "truncated_by_max_frames": "boolean"
     },
@@ -624,11 +656,11 @@
     "name": "Create plain layouts from plan frames",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
-      "drawing": "file.dwg",
-      "frames": "cad.polyline[]",
-      "title_block_library": "file.dwg?"
+      "drawing": "flow:file.dwg",
+      "frames": "flow:cad.polyline[]",
+      "title_block_library": "flow:file.dwg?"
     },
     "parameters": {
       "block": "list:dwg.blockname",
@@ -658,10 +690,10 @@
     "name": "Annotate grid corner elevations",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
-      "drawing": "file.dwg",
-      "boundaries": "cad.polyline[]",
+      "drawing": "flow:file.dwg",
+      "boundaries": "flow:cad.polyline[]",
       "design_surface": "civil.surface",
       "existing_surface": "civil.surface"
     },
@@ -698,7 +730,7 @@
     "name": "Surface volume and dredging statistics",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "base_surface": "civil.surface",
       "comparison_surface": "civil.surface"
@@ -709,7 +741,8 @@
       "export_excel": "boolean",
       "excel_out_path": "path",
       "draw_dwg_table": "boolean",
-      "table_insertion_point": "pick.point"
+      "table_insertion_point": "pick.point",
+      "boundary_polyline": "string?(removed; supplying it raises an error)"
     },
     "outputs": {
       "cut_volume": "number",
@@ -725,7 +758,7 @@
     "name": "Parcel inward/outward grading",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "parcel_boundary": "pick.entity<polyline>",
       "target_surface": "civil.surface?"
@@ -753,7 +786,7 @@
     "name": "Batch hatch closed regions with footer table (placeholder, no calibration)",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {},
     "parameters": {
       "interaction_mode": "string",
@@ -771,9 +804,9 @@
   {
     "id": "create_twotier_bench_corridor",
     "name": "Two-tier bench subassembly and 3D corridor pipeline (native C#)",
-    "version": "0.1",
+    "version": "0.2",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "alignment": "civil.alignment",
       "surface": "civil.surface"
@@ -806,9 +839,9 @@
     "name": "Annotate closed polyline areas with Excel summary",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
-      "drawing": "file.dwg"
+      "drawing": "flow:file.dwg"
     },
     "parameters": {
       "source_layer": "list:dwg.layer?",
@@ -885,10 +918,23 @@
     "inputs": {},
     "parameters": {
       "dwg": "path",
-      "name": "string"
+      "name": "string",
+      "mode": "string?=clone",
+      "as": "string?",
+      "layer": "string?",
+      "boundaries": "boolean?=true",
+      "copy_build_options": "boolean?=true",
+      "probe": "boolean?=false",
+      "replace": "boolean?=false"
     },
     "outputs": {
-      "surface": "civil.surface"
+      "surface": "civil.surface",
+      "mode": "string",
+      "imported": "boolean",
+      "elev_min": "number",
+      "elev_max": "number",
+      "points": "integer",
+      "layer": "string"
     },
     "effect": "modify"
   },
@@ -925,7 +971,7 @@
     "name": "Calibrate measured sections and extract ground lines",
     "version": "0.1",
     "kind": "inspection",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {},
     "parameters": {
       "ground_layer": "list:dwg.layer?=dmx*",
@@ -953,7 +999,7 @@
     "name": "Embankment demolition design lines (strip/cut/slope/hatch/label)",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {},
     "parameters": {
       "ground_layer": "list:dwg.layer?=dmx*",
@@ -971,11 +1017,11 @@
       "bottom_elev_by_section": "object?",
       "slope_ratio_m": "number?=3.0",
       "excavation_half_width": "number?=8.0",
-      "strip_line_layer": "list:dwg.layer?=C3DF-STRIP-LINE",
-      "excavation_line_layer": "list:dwg.layer?=C3DF-CUT-LINE",
-      "hatch_layer": "list:dwg.layer?=C3DF-HATCH",
-      "annotation_layer": "list:dwg.layer?=C3DF-LABEL",
-      "centerline_layer": "list:dwg.layer?=C3DF-CL",
+      "strip_line_layer": "list:dwg.layer?=C-DIKE-STRP",
+      "excavation_line_layer": "list:dwg.layer?=C-DIKE-CUT",
+      "hatch_layer": "list:dwg.layer?=C-DIKE-HTCH",
+      "annotation_layer": "list:dwg.layer?=C-DIKE-TEXT",
+      "centerline_layer": "list:dwg.layer?=C-DIKE-CNTR",
       "hatch_scale": "number?=15",
       "text_height": "number?=2.5",
       "text_style": "list:dwg.textstyle?",
@@ -1002,7 +1048,7 @@
     "name": "Embankment demolition quantities (average end area)",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {},
     "parameters": {
       "ground_layer": "list:dwg.layer?=dmx*",
@@ -1014,11 +1060,11 @@
       "table_depth": "number?=80",
       "pair_tol_x": "number?=3",
       "line_filter": "string?",
-      "strip_line_layer": "list:dwg.layer?=C3DF-STRIP-LINE",
-      "excavation_line_layer": "list:dwg.layer?=C3DF-CUT-LINE",
+      "strip_line_layer": "list:dwg.layer?=C-DIKE-STRP",
+      "excavation_line_layer": "list:dwg.layer?=C-DIKE-CUT",
       "own_margin": "number?=30",
       "annotate_sections": "boolean?=true",
-      "annotation_layer": "list:dwg.layer?=C3DF-QTY-LABEL",
+      "annotation_layer": "list:dwg.layer?=C-QNTY-TEXT",
       "text_height": "number?=2.5",
       "text_style": "list:dwg.textstyle?",
       "clear_existing": "boolean?=true",
@@ -1049,7 +1095,7 @@
     "name": "Sample surface elevations along polylines",
     "version": "0.1",
     "kind": "inspection",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "surface": "civil.surface"
     },
@@ -1085,7 +1131,7 @@
     "name": "Survey dredge regions and trial parameters",
     "version": "0.1",
     "kind": "inspection",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "surface": "civil.surface?",
       "start_surface": "civil.surface?"
@@ -1125,7 +1171,7 @@
     "name": "Dredge grading surface (closed boundary to bottom elevation + slope)",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "surface": "civil.surface",
       "start_surface": "civil.surface?"
@@ -1146,9 +1192,9 @@
       "slope_step": "number?=2",
       "flat_step": "number?=20",
       "surface_prefix": "string?=DredgeDesign-",
-      "surface_layer": "list:dwg.layer?=C3DF-DREDGE-SURFACE",
-      "crest_layer": "list:dwg.layer?=C3DF-DREDGE-TOP",
-      "toe_layer": "list:dwg.layer?=C3DF-DREDGE-TOE",
+      "surface_layer": "list:dwg.layer?=C-DRDG-SURF",
+      "crest_layer": "list:dwg.layer?=C-DRDG-TOP",
+      "toe_layer": "list:dwg.layer?=C-DRDG-TOE",
       "draw_crest_line": "boolean?=true",
       "draw_toe_line": "boolean?=true",
       "clear_existing": "boolean?=true"
@@ -1169,22 +1215,23 @@
     "name": "Merge post-dredge surface (min of design and existing)",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "design_surface": "civil.surface",
       "existing_surface": "civil.surface"
     },
     "parameters": {
       "out_surface": "string?",
-      "surface_layer": "list:dwg.layer?=C3DF-POST-SURFACE",
-      "crease_layer": "list:dwg.layer?=C3DF-POST-ZERO-LINE",
+      "surface_layer": "list:dwg.layer?=C-DRDG-POST",
+      "crease_layer": "list:dwg.layer?=C-DRDG-BNDY",
       "draw_crease_lines": "boolean?=true",
       "min_crease_length": "number?=1",
       "contour_epsilon": "number?=0.001",
       "border_step": "number?=2",
       "edge_step": "number?=2",
       "clear_existing": "boolean?=true",
-      "verify": "boolean?=true"
+      "verify": "boolean?=true",
+      "breaklines": "boolean?=true"
     },
     "outputs": {
       "out_surface": "string",
@@ -1214,7 +1261,7 @@
     "name": "Rebind volume tables to material lists",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {},
     "parameters": {},
     "outputs": {
@@ -1229,7 +1276,7 @@
     "name": "Reattach baseline profile",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "corridor": "civil.corridor"
     },
@@ -1251,7 +1298,7 @@
     "name": "List profiles and profile views",
     "version": "0.1",
     "kind": "inspection",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {},
     "parameters": {
       "alignment": "string?",
@@ -1271,7 +1318,7 @@
     "name": "Dump material styles",
     "version": "0.1",
     "kind": "inspection",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {},
     "parameters": {
       "sample": "integer?=5"
@@ -1286,9 +1333,9 @@
     "name": "Fix self-intersecting polylines (remove loops)",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
-      "handles": "cad.polyline[]?"
+      "handles": "pick.entities<polyline>?"
     },
     "parameters": {
       "layer": "string?",
@@ -1311,7 +1358,7 @@
     "name": "Export material volume workbook",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {},
     "parameters": {
       "out": "path?",
@@ -1332,7 +1379,7 @@
     "name": "Sync corridor regions to alignment range",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "corridor": "civil.corridor"
     },
@@ -1350,7 +1397,7 @@
     "name": "Refresh sample lines (keep group, regenerate lines)",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "alignment": "civil.alignment"
     },
@@ -1368,11 +1415,392 @@
     "effect": "modify"
   },
   {
+    "id": "add_section_labels",
+    "name": "Add section labels",
+    "version": "0.3",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "source_prefixes": "string[]",
+      "style_template": "string?=@C3DF-AdjacentSurface-{name}",
+      "fallback_style": "string?",
+      "range_len": "number?=0.5",
+      "clear": "boolean?=true",
+      "alignments": "string[]?",
+      "label_type": "string?=grade_break",
+      "style": "string?",
+      "increment": "number?=20",
+      "end_margin": "number{unit:mm}?=2",
+      "avoid": "boolean?=true",
+      "pick": "enum[all|best]?=all",
+      "step_mm": "number{unit:mm}?=4",
+      "scale": "number?",
+      "obstacles_dwg": "path?",
+      "live_obstacles": "boolean?=true",
+      "ignore_text": "string?",
+      "text_box": "object?",
+      "text_height_mm": "number{unit:mm}?=3.5",
+      "weights": "object?",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "created": "integer",
+      "per_surface": "object",
+      "mode": "string",
+      "groups": "integer",
+      "candidates": "integer",
+      "shown": "integer",
+      "hidden": "integer",
+      "withdrawn_count": "integer",
+      "withdrawn": "object[]",
+      "placed": "object[]",
+      "erased_empty_groups": "integer",
+      "visibility_failed": "integer",
+      "text_box": "object",
+      "obstacles": "object",
+      "cleared_old_groups": "integer",
+      "note": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "dump_geometry",
+    "name": "Dump geometry",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "surfaces": "string[]?",
+      "surface_prefix": "string?",
+      "layers": "string[]?",
+      "out": "path?",
+      "arc_tol": "number?=0.5"
+    },
+    "outputs": {
+      "surfaces": "object[]",
+      "polylines": "object[]"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "create_flat_surface",
+    "name": "Create flat surface",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "items": "object[]",
+      "step": "number?=20"
+    },
+    "outputs": {
+      "created": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "add_surface_points",
+    "name": "Add surface points",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "items": "object[]",
+      "rebuild": "boolean?=true",
+      "clear_boundaries": "boolean?(defaults to whether holes are supplied)",
+      "holes_non_destructive": "boolean?=true",
+      "non_destructive": "boolean?=true"
+    },
+    "outputs": {
+      "items": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "set_surface_style",
+    "name": "Set surface style",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "style": "list:civil.style.surface",
+      "surfaces": "string[]?",
+      "prefix": "string?",
+      "layer": "list:dwg.layer?"
+    },
+    "outputs": {
+      "done": "string[]",
+      "missing": "string[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "shape_hatch",
+    "name": "Shape hatch",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "name": "list:civil.style.shape",
+      "view": "enum[Section|Plan|Profile|Model]?=Section",
+      "set": "object?"
+    },
+    "outputs": {
+      "before": "object",
+      "after": "object"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "add_stock_subassemblies",
+    "name": "Add stock subassemblies",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {
+      "assembly": "civil.assembly"
+    },
+    "parameters": {
+      "items": "object[]"
+    },
+    "outputs": {
+      "added": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "update_section_view_groups",
+    "name": "Update section view groups",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "alignments": "string[]?"
+    },
+    "outputs": {
+      "groups": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "set_group_plot_style",
+    "name": "Set group plot style",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "name": "list:civil.style.groupplot",
+      "rows": "integer?",
+      "cols": "integer?",
+      "space_row_mm": "number?",
+      "space_col_mm": "number?",
+      "gap_between_pages_mm": "number?"
+    },
+    "outputs": {
+      "before": "object",
+      "after": "object",
+      "reread_space_row_mm": "number"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "surface_folders",
+    "name": "Surface folders",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "folders": "object[]"
+    },
+    "outputs": {
+      "folders": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "paste_surfaces",
+    "name": "Paste surfaces",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {
+      "sources": "civil.surface[]"
+    },
+    "parameters": {
+      "name": "string",
+      "style": "list:civil.style.surface?",
+      "layer": "list:dwg.layer?",
+      "replace": "boolean?=true"
+    },
+    "outputs": {
+      "handle": "string",
+      "points": "integer",
+      "triangles": "integer",
+      "pasted": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "set_corridor_targets",
+    "name": "Set corridor targets",
+    "version": "0.2",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {
+      "corridor": "civil.corridor"
+    },
+    "parameters": {
+      "targets": "object[]",
+      "rebuild": "boolean?=true"
+    },
+    "outputs": {
+      "applied": "object[]",
+      "unmatched": "object[]",
+      "regions_not_found": "object[]",
+      "rebuilt": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "set_region_assembly",
+    "name": "Set region assembly",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {
+      "corridor": "civil.corridor",
+      "assembly": "civil.assembly"
+    },
+    "parameters": {
+      "corridor": "list:civil.corridor",
+      "assembly": "list:civil.assembly",
+      "regions": "string[]?",
+      "baseline": "string?",
+      "dry_run": "boolean?=true",
+      "rebuild": "boolean?=true"
+    },
+    "outputs": {
+      "regions_changed": "integer",
+      "regions_already": "integer",
+      "regions_not_found": "string[]",
+      "details": "object[]",
+      "targets_after": "object[]",
+      "assembly_subassemblies": "object[]",
+      "rebuilt": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_assembly",
+    "name": "Assembly from PKT files and stock subassemblies",
+    "version": "1.1",
+    "kind": "production",
+    "executor": "engine",
+    "inputs": {
+      "left_pkt": "path?",
+      "right_pkt": "path?",
+      "items": "array?[{name?,pkt|stock,params?,attach?{to,point_code|point_index}}]"
+    },
+    "parameters": {
+      "name": "string",
+      "params": "object?",
+      "embed": "boolean?=true",
+      "replace": "boolean?=true",
+      "x": "number?",
+      "y": "number?"
+    },
+    "outputs": {
+      "assembly": "civil.assembly"
+    },
+    "effect": "modify",
+    "notes": "Either the LEFT/RIGHT pkt pair or an ordered items list. A stock item (Subassembly.MarkPoint, Subassembly.LinkToMarkedPoint ...) is imported from the Civil 3D catalog; attach hooks a piece to a point of an earlier piece, found by point code."
+  },
+  {
+    "id": "set_subassembly_params",
+    "name": "Set subassembly params",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {
+      "assembly": "civil.assembly"
+    },
+    "parameters": {
+      "assembly": "string",
+      "subassembly": "string?",
+      "params_double": "object?",
+      "params_long": "object?",
+      "params_string": "object?",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "subassemblies_touched": "integer",
+      "params_changed": "integer",
+      "params_already_equal": "integer",
+      "params_not_found": "integer",
+      "details": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "copy_styles",
+    "name": "Copy styles",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "items": "object[]",
+      "dry_run": "boolean?=true",
+      "method": "enum[clone|add_copy_display]?"
+    },
+    "outputs": {
+      "dry_run": "boolean",
+      "done": "object[]",
+      "failed": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "set_sample_line_sources",
+    "name": "Set sample line sources",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {
+      "alignment": "civil.alignment",
+      "sources": "civil.surface[]"
+    },
+    "parameters": {
+      "surface": "civil.surface?",
+      "group": "civil.sample_line_group?",
+      "sampled": "boolean?=true",
+      "section_style": "list:civil.style.section?",
+      "draw": "boolean?=true",
+      "probe_station": "number?"
+    },
+    "outputs": {
+      "alignment": "string",
+      "group": "string",
+      "sampled": "boolean",
+      "changed": "object[]",
+      "sources_after": "string[]"
+    },
+    "effect": "modify"
+  },
+  {
     "id": "restore_sample_line_labels",
     "name": "Restore sample line labels (station names)",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {},
     "parameters": {
       "style": "string?=@C3DF-AlignmentStation",
@@ -1397,7 +1825,7 @@
     "name": "Set polyline elevation",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {},
     "parameters": {
       "elevation": "number?",
@@ -1418,7 +1846,7 @@
     "name": "Bounded cut/fill volumes",
     "version": "0.1",
     "kind": "inspection",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "volume_surface": "civil.surface?",
       "base_surface": "civil.surface?",
@@ -1458,7 +1886,7 @@
     "name": "Grid earthwork balance",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "volume_surface": "civil.surface?",
       "base_surface": "civil.surface?",
@@ -1508,7 +1936,7 @@
     "name": "Erase entities by handle",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {},
     "parameters": {
       "handles": "string[]",
@@ -1527,9 +1955,9 @@
     "name": "Offset cone contours (batch inward offset of closed boundaries)",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
-      "boundaries": "cad.polyline[]?"
+      "boundaries": "pick.entities<polyline>?"
     },
     "parameters": {
       "layer": "string?",
@@ -1561,7 +1989,7 @@
     "name": "Import design lines (centerlines to alignments, boundaries as width source)",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {},
     "parameters": {
       "dwg": "path",
@@ -1588,7 +2016,7 @@
     "name": "Offsets from boundary (left/right offset alignments as corridor width targets)",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "alignment": "civil.alignment"
     },
@@ -1614,7 +2042,7 @@
     "name": "Create ground and design profiles in batch (end ramps to terrain)",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "surface": "civil.surface",
       "alignment": "civil.alignment"
@@ -1642,9 +2070,9 @@
   {
     "id": "create_corridor_regions",
     "name": "Create multi-region corridor (assembly per region)",
-    "version": "0.1",
+    "version": "0.2",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "alignment": "civil.alignment",
       "surface": "civil.surface",
@@ -1664,6 +2092,7 @@
       "regions_added": "integer",
       "regions_skipped": "integer",
       "surface_targets_set": "integer",
+      "surface_slots_skipped": "integer",
       "offset_targets_set": "integer",
       "link_codes": "string[]",
       "regions": "object[]",
@@ -1676,7 +2105,7 @@
     "name": "Export design lines as polyline DWG (centerlines/edges/boundaries)",
     "version": "0.1",
     "kind": "production",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "alignment": "flow:civil.alignment"
     },
@@ -1712,7 +2141,7 @@
     "name": "Measure channel width along alignment",
     "version": "0.1",
     "kind": "inspection",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {
       "alignment": "civil.alignment"
     },
@@ -1731,7 +2160,7 @@
     "name": "Find objects still open for write",
     "version": "0.1",
     "kind": "inspection",
-    "executor": "engine",
+    "executor": "civil3dfactory",
     "inputs": {},
     "parameters": {
       "max": "integer?=100"
@@ -1745,29 +2174,1509 @@
     "effect": "read"
   },
   {
-    "id": "create_assembly",
-    "name": "Assembly from PKT files and stock subassemblies",
-    "version": "1.1",
+    "id": "add_note_label",
+    "name": "Add note label",
+    "version": "0.2",
     "kind": "production",
-    "executor": "engine",
-    "inputs": {
-      "left_pkt": "path?",
-      "right_pkt": "path?",
-      "items": "array?[{name?,pkt|stock,params?,attach?{to,point_code|point_index}}]"
-    },
+    "executor": "civil3dfactory",
+    "inputs": {},
     "parameters": {
-      "name": "string",
-      "params": "object?",
-      "embed": "boolean?=true",
-      "replace": "boolean?=true",
-      "x": "number?",
-      "y": "number?"
+      "style": "string",
+      "points": "object[]",
+      "layer": "list:dwg.layer?"
     },
     "outputs": {
-      "assembly": "civil.assembly"
+      "placed": "integer",
+      "dragged": "integer",
+      "labels": "object[]",
+      "handles": "string[]",
+      "style": "string"
     },
-    "effect": "modify",
-    "notes": "Either the LEFT/RIGHT pkt pair or an ordered items list. A stock item (Subassembly.MarkPoint, Subassembly.LinkToMarkedPoint ...) is imported from the Civil 3D catalog; attach hooks a piece to a point of an earlier piece, found by point code."
+    "effect": "modify"
+  },
+  {
+    "id": "assign_layers",
+    "name": "Assign layers",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "groups": "object[]",
+      "bylayer": "boolean?=false"
+    },
+    "outputs": {
+      "moved_total": "integer",
+      "groups": "object[]",
+      "missing": "string[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "clone_civil_set",
+    "name": "Clone civil set",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "dwg": "path",
+      "surfaces": "string[]?",
+      "all_surfaces": "boolean?=false",
+      "feature_lines": "boolean?=true",
+      "gradings": "boolean?=true",
+      "sites": "boolean?=true",
+      "layers": "list:dwg.layer[]?",
+      "drop_cloned_entities": "boolean?=false",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "cloned": "object",
+      "surfaces_new": "string[]",
+      "missing_surfaces": "string[]",
+      "dropped_entities": "integer",
+      "dry_run": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_connected_alignment",
+    "name": "Create connected alignment",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "name": "string",
+      "in_alignment": "civil.alignment",
+      "in_station": "number",
+      "out_alignment": "civil.alignment",
+      "out_station": "number",
+      "radius": "number?=20",
+      "greater_than_180": "boolean?=false",
+      "offset_in": "number?=0",
+      "offset_out": "number?=0",
+      "overlap_in": "number?=0.01",
+      "overlap_out": "number?=0.01",
+      "verify_station_window": "number?=80",
+      "verify_tol": "number?=0.5",
+      "style": "list:civil.style.alignment?",
+      "label_set": "list:civil.labelset.alignment?"
+    },
+    "outputs": {
+      "alignment": "string",
+      "handle": "string",
+      "length": "number",
+      "radius": "number",
+      "geometry_verified": "boolean",
+      "attempts_before_success": "integer"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_fillet_alignment",
+    "name": "Create fillet alignment",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "name": "string",
+      "line1": "pick.points",
+      "line2": "pick.points",
+      "radius": "number?=20",
+      "greater_than_180": "boolean?=false",
+      "style": "list:civil.style.alignment?",
+      "label_set": "list:civil.labelset.alignment?"
+    },
+    "outputs": {
+      "alignment": "string",
+      "handle": "string",
+      "length": "number",
+      "arc_length": "number",
+      "radius": "number",
+      "constraint": "string",
+      "entities": "integer"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "data_shortcuts",
+    "name": "Data shortcuts",
+    "version": "0.2",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "action": "enum[setup|list|publish|reference|repair]?=list",
+      "working_folder": "path?",
+      "project": "string?",
+      "description": "string?",
+      "surfaces": "string[]?",
+      "source_dwg": "path?",
+      "reflect": "boolean?=false",
+      "target": "path?",
+      "auto_repair_other": "boolean?=false"
+    },
+    "outputs": {
+      "action": "string",
+      "current_project": "string",
+      "exportable": "object[]",
+      "published": "object[]",
+      "referenced": "object[]",
+      "missing": "string[]",
+      "broken": "object[]",
+      "repaired": "string[]",
+      "failed": "object[]"
+    },
+    "effect": "persist"
+  },
+  {
+    "id": "dedupe_entities",
+    "name": "Dedupe entities",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "layer": "list:dwg.layer?",
+      "tol": "number?=0.001",
+      "moves": "object[]?",
+      "erases": "object[]?",
+      "erase_lines": "object[]?"
+    },
+    "outputs": {
+      "scanned": "integer",
+      "erased_duplicates": "integer",
+      "erased_by_content": "integer",
+      "erased_by_layer": "integer",
+      "moved_texts": "integer"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "draw_polylines",
+    "name": "Draw polylines",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "polylines": "object[]",
+      "layer": "list:dwg.layer?=0",
+      "color": "integer{0..256}?=7",
+      "clear_layers": "list:dwg.layer[]?"
+    },
+    "outputs": {
+      "drawn": "integer",
+      "cleared": "integer",
+      "items": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "draw_table",
+    "name": "Draw table",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "rows": "array<string[]>",
+      "x": "number",
+      "y": "number",
+      "space": "string?=Model",
+      "width": "number?",
+      "col_widths": "number[]?",
+      "row_height": "number?=5",
+      "text_height": "number?=2.5",
+      "header_rows": "integer?=1",
+      "header_row_height": "number?",
+      "layer": "list:dwg.layer?=C-QNTY-TABL",
+      "color": "integer{0..256}?=7",
+      "text_style": "list:dwg.textstyle?",
+      "name": null,
+      "clear": "boolean?=true",
+      "mask": "boolean?=false",
+      "lineweight": "number{unit:mm}?=0.25"
+    },
+    "outputs": {
+      "rows": "integer",
+      "cols": "integer",
+      "width": "number",
+      "height": "number",
+      "bbox": "number[]",
+      "entities": "integer",
+      "cleared": "integer",
+      "space": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "dump_label_styles",
+    "name": "Dump label styles",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "contains": "string?",
+      "max_styles": "integer?=800",
+      "debug_props": "boolean?=false"
+    },
+    "outputs": {
+      "styles_scanned": "integer",
+      "styles_matched": "integer",
+      "styles": "object[]"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "erase_alignments",
+    "name": "Erase alignments",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "names": "string[]?",
+      "handles": "string[]?"
+    },
+    "outputs": {
+      "erased": "object[]",
+      "missing": "string[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "list_feature_lines",
+    "name": "List feature lines",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "layer": "list:dwg.layer?"
+    },
+    "outputs": {
+      "count": "integer",
+      "by_layer": "object",
+      "feature_lines": "object[]",
+      "gradings": "object[]"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "list_site_parcels",
+    "name": "List site parcels",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "site": "string?"
+    },
+    "outputs": {
+      "sites": "object[]",
+      "parcels": "integer",
+      "area_sum": "number"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "list_styles",
+    "name": "List styles",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "contains": "string?"
+    },
+    "outputs": {
+      "collections": "integer",
+      "styles_total": "integer",
+      "styles": "object"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "make_parcels",
+    "name": "Make parcels",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "boundary_layer": "list:dwg.layer?",
+      "boundary_handles": "string[]?",
+      "centerline_layer": "list:dwg.layer?",
+      "centerline_handles": "string[]?",
+      "half_width": "number?=15",
+      "widths_from_offsets": "boolean?=true",
+      "fillet_r": "number?=20",
+      "min_defl_deg": "number?=8",
+      "min_area": "number?=500",
+      "out_layer": "list:dwg.layer?=TerraceBoundary",
+      "channel_layer": "list:dwg.layer?=C3DF-CHANNEL-EXTENT",
+      "clear_previous": "boolean?=true"
+    },
+    "outputs": {
+      "parcels": "integer",
+      "per_outer": "object[]",
+      "channel_area_total": "number",
+      "small_parcels": "object[]",
+      "warnings": "string[]",
+      "cleared_previous": "integer"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "purge_dead_sections",
+    "name": "Purge dead sections",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "alignment": "civil.alignment?",
+      "dry_run": "boolean?=true"
+    },
+    "outputs": {
+      "dead_total": "integer",
+      "erased_total": "integer",
+      "dead_by_source_type": "object",
+      "groups": "object[]",
+      "dry_run": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "rebuild_fillet_network",
+    "name": "Rebuild fillet network",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "corners": "object[]",
+      "radius": "number?=20",
+      "leg": "number?=0.1",
+      "erase": "string[]?"
+    },
+    "outputs": {
+      "corners_input": "integer",
+      "rebuilt": "integer",
+      "created": "integer",
+      "failed": "object[]",
+      "worst_gap_mm": "number",
+      "worst_gap_at": "string",
+      "details": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "relink_ground_profiles",
+    "name": "Relink ground profiles",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "surface": "civil.surface",
+      "alignments": "string[]?",
+      "style": "list:civil.style.profile?",
+      "label_set": "list:civil.labelset.profile?",
+      "force": "boolean?=false",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "relinked": "integer",
+      "skipped": "integer",
+      "profiles": "object[]",
+      "profile_views": "integer",
+      "dry_run": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "rename_surfaces",
+    "name": "Rename surfaces",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "items": "object[]",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "count": "integer",
+      "renamed": "object[]",
+      "dry_run": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "restyle_profile_view_bands",
+    "name": "Restyle profile view bands",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "bottom": "string[]?",
+      "top": "string[]?",
+      "views": "string[]?",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "views_scanned": "integer",
+      "views_changed": "integer",
+      "views_mismatched": "object[]",
+      "views_not_found": "string[]",
+      "bands_changed": "integer",
+      "per_view": "object[]",
+      "dry_run": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "set_label_style",
+    "name": "Set label style",
+    "version": "0.2",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "style": "string",
+      "components": "object[]",
+      "dragged_state": "object?"
+    },
+    "outputs": {
+      "styles_found": "integer",
+      "edits_applied": "integer",
+      "applied": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "set_section_view_axes",
+    "name": "Set section view axes",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "style": "string?",
+      "dry_run": "boolean?=true",
+      "axes": "object?"
+    },
+    "outputs": {
+      "dry_run": "boolean",
+      "styles": "object[]",
+      "applied": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "set_profile_view_axes",
+    "name": "Set profile view axes",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "style": "string?",
+      "dry_run": "boolean?=true",
+      "axes": "object?",
+      "title": "object?"
+    },
+    "outputs": {
+      "dry_run": "boolean",
+      "styles": "object[]",
+      "applied": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "set_profile_view_hatch",
+    "name": "Set profile view hatch",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "views": "string[]?",
+      "cut_style": "string?",
+      "fill_style": "string?",
+      "clear": "boolean?=true",
+      "dry_run": "boolean?=true"
+    },
+    "outputs": {
+      "dry_run": "boolean",
+      "views": "object[]",
+      "areas_added": "integer",
+      "areas_cleared": "integer",
+      "members": "object"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "set_offset_width",
+    "name": "Set offset width",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "alignment": "civil.alignment",
+      "width": "number?=15"
+    },
+    "outputs": {
+      "alignment": "string",
+      "offsets": "object[]",
+      "set_to": "number",
+      "read_back": "number",
+      "persisted": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "set_offset_widening",
+    "name": "Set offset widening",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "alignment": "civil.alignment?",
+      "handle": "string?",
+      "action": "string?=list",
+      "regions": "object[]?",
+      "dry_run": "boolean?=false",
+      "update": "boolean?=true",
+      "update_parent": "boolean?=true"
+    },
+    "outputs": {
+      "alignment": "string",
+      "handle": "string",
+      "action": "string",
+      "nominal_offset": "number",
+      "before": "object",
+      "after": "object",
+      "added": "object[]",
+      "dry_run": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "surface_add_breaklines",
+    "name": "Surface add breaklines",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "surface": "civil.surface",
+      "feature_lines": "boolean?=false",
+      "layers": "list:dwg.layer[]?",
+      "handles": "string[]?",
+      "within_surface": "civil.surface?",
+      "min_inside_ratio": "number{0..1}?=0.5",
+      "index": "integer?",
+      "clear_existing": "boolean?=false",
+      "mid_ordinate": "number?=0.01",
+      "max_distance": "number?=0",
+      "weed_distance": "number?=0",
+      "weed_angle": "number?=0",
+      "description": "string?=Breakline set1",
+      "style": "list:civil.style.surface?",
+      "layer": "list:dwg.layer?",
+      "rebuild": "boolean?=true",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "surface": "string",
+      "created": "boolean",
+      "candidates": "integer",
+      "breaklines_added": "integer",
+      "outside_dropped": "integer",
+      "cleared_breakline_ops": "integer",
+      "rebuilt": "boolean",
+      "points": "integer",
+      "triangles": "integer"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "surface_paste_ops",
+    "name": "Surface paste ops",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "items": "object[]",
+      "rebuild": "boolean?=true",
+      "list_only": "boolean?=false"
+    },
+    "outputs": {
+      "items": "object[]",
+      "list_only": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "swap_surface_identity",
+    "name": "Swap surface identity",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "old": "civil.surface",
+      "new": "civil.surface",
+      "erase_old": "boolean?=false",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "before": "object",
+      "after": "object",
+      "ground_profiles_now_on_new_object": "integer",
+      "erased_old_object": "boolean",
+      "dry_run": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "trim_offsets_to_corners",
+    "name": "Trim offsets to corners",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "corners": "object[]",
+      "margin": "number?=0.05"
+    },
+    "outputs": {
+      "corners_input": "integer",
+      "ends_trimmed": "integer",
+      "skipped": "object[]",
+      "details": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "add_profile_view_labels",
+    "name": "Add profile view labels",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "items": "object[]",
+      "layer": "list:dwg.layer?"
+    },
+    "outputs": {
+      "created": "integer",
+      "items": "object[]",
+      "note": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_mleaders",
+    "name": "Create mleaders",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "items": "object[]",
+      "style": "string?",
+      "style_from_dwg": "path?",
+      "space": "list:dwg.layout?=Model",
+      "layer": "list:dwg.layer?",
+      "text_height": "number?=0",
+      "width": "number?",
+      "unannotative": "boolean?=true",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "created": "integer",
+      "style_method": "string",
+      "items": "object[]",
+      "note": "string",
+      "dry_run": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "mleader_text_replace",
+    "name": "Mleader text replace",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "find": "string",
+      "replace": "string?",
+      "handles": "pick.entities?",
+      "where": "enum[model|layouts|blocks|all]?=model",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "dry_run": "boolean",
+      "replaced": "integer",
+      "items": "object[]",
+      "note": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "move_entities",
+    "name": "Move entities",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "handles": "pick.entities?",
+      "items": "object[]?",
+      "dx": "number?=0",
+      "dy": "number?=0",
+      "text_only": "boolean?=false"
+    },
+    "outputs": {
+      "moved": "integer",
+      "dx": "number",
+      "dy": "number",
+      "missing": "string[]",
+      "note": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "entities_locate",
+    "name": "Entities locate",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "layer": "list:dwg.layer?",
+      "type": "string?",
+      "where": "enum[model|layouts|blocks|all]?=model",
+      "max": "integer?=5000",
+      "geometry": "boolean?=false"
+    },
+    "outputs": {
+      "scanned": "integer",
+      "matched": "integer",
+      "items": "object[]"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "texts_locate",
+    "name": "Texts locate",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "contains": "string?",
+      "regex": "string?",
+      "where": "enum[model|layouts|blocks|all]?=all",
+      "max": "integer?=5000"
+    },
+    "outputs": {
+      "scanned": "integer",
+      "matched": "integer",
+      "items": "object[]"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "paste_window_to_layout",
+    "name": "Paste window to layout",
+    "version": "0.2",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "dwg": "path",
+      "layout": "list:dwg.layout?=Layout1",
+      "keep_block_contains": "string?=TITLE",
+      "exclude_layers": "string[]?",
+      "pick": "enum[inside|center|crossing]?",
+      "clear_pick": "enum[center|inside|crossing]?=center",
+      "keep_enclosing": "boolean?=true",
+      "items": "object[]"
+    },
+    "outputs": {
+      "dwg": "path",
+      "layout": "string",
+      "items": "object[]",
+      "total_cloned": "integer",
+      "total_erased": "integer",
+      "erase_failed": "integer",
+      "transform_failed": "integer",
+      "first_error": "string",
+      "note": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "viewport_layer_overrides",
+    "name": "Viewport layer overrides",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "items": "object[]",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "dry_run": "boolean",
+      "items": "object[]",
+      "note": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "layers_edit",
+    "name": "Layers edit",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "create": "object[]?",
+      "rename": "object[]?",
+      "set": "object[]?",
+      "delete": "list:dwg.layer[]?",
+      "sync_styles": "boolean?=true",
+      "skip_cats": "string[]?=[\"AssemblyStyles\"]",
+      "dry_run": "boolean?=true"
+    },
+    "outputs": {
+      "dry_run": "boolean",
+      "created": "string[]",
+      "renamed": "string[]",
+      "deleted": "string[]",
+      "modified": "object[]",
+      "style_refs_patched": "integer",
+      "failed": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "import_entities",
+    "name": "Import entities",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "dwg": "path",
+      "handles": "string[]?",
+      "layers": "string[]?",
+      "types": "string[]?",
+      "to_layer": "list:dwg.layer?",
+      "anno_scale": "number?=1",
+      "unannotative": "boolean?=false",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "picked": "integer",
+      "imported": "integer",
+      "anno_scale": "number",
+      "items": "object[]",
+      "note": "string",
+      "dry_run": "boolean"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "set_profile_view_range",
+    "name": "Set profile view range",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {
+      "alignment": "civil.alignment?"
+    },
+    "parameters": {
+      "name": "string?",
+      "contains": "string?",
+      "last_only": "boolean?=false",
+      "station_start": "number?",
+      "station_end": "number?",
+      "end_to_alignment": "boolean?=false",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "dry_run": "boolean",
+      "views": "object[]",
+      "count": "integer"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "draw_section_volume_tables",
+    "name": "Draw section volume tables",
+    "version": "0.2",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {
+      "alignment": "civil.alignment"
+    },
+    "parameters": {
+      "group": "list:civil.sample_line_group?",
+      "scale": "number?=500",
+      "text_mm": "number{unit:mm}?=2.5",
+      "row_mm": "number{unit:mm}?=5",
+      "col1_mm": "number{unit:mm}?=16",
+      "col2_mm": "number{unit:mm}?=30",
+      "col3_mm": "number{unit:mm}?=26",
+      "offset_x_mm": "number{unit:mm}?=2",
+      "offset_y_mm": "number{unit:mm}?=0",
+      "clear": "boolean?=true",
+      "clear_scope": "enum[tag|all]?=tag",
+      "tag": "string?",
+      "layer": "list:dwg.layer?=C-XSEC-QNTY",
+      "target_dwg": "path?",
+      "text_style": "list:dwg.textstyle?",
+      "station_prefix": "string?",
+      "header_item": "string?=Item",
+      "header_area": "string?=Section area (m²)",
+      "header_volume": "string?=Cut volume (m³)",
+      "row_label": "string?=Cut",
+      "limit": "integer?=0",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "alignment": "string",
+      "tables_drawn": "integer",
+      "tables_found": "integer",
+      "cleared": "integer",
+      "views_without_data": "integer",
+      "area_from_api": "boolean",
+      "layer": "string",
+      "written_to": "string",
+      "first": "object[]",
+      "note": "string",
+      "mode": "string",
+      "section_views": "integer",
+      "tables_planned": "integer",
+      "table_w": "number",
+      "table_h": "number",
+      "cleared_legacy": "integer",
+      "clear_scope": "string",
+      "tag": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_layout_sheet",
+    "name": "Create layout sheet",
+    "version": "0.2",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "layout": "list:dwg.layout?=C3DF-A3",
+      "block": "list:dwg.blockname",
+      "from_dwg": "path?",
+      "paper": "enum[A0|A1|A2|A3|A4]?=A3",
+      "model_window": "object?",
+      "boundary_handle": "pick.entity<polyline>?",
+      "boundary_layer": "list:dwg.layer?",
+      "viewport": "object?",
+      "extra_viewports": "object[]?",
+      "frame_x": "number?=-9.372",
+      "frame_y": "number?=-10.01",
+      "frame_scale": "number?=1",
+      "frame_layer": "list:dwg.layer?=0",
+      "attributes": "object?",
+      "width_factors": "object?",
+      "clear": "boolean?=true",
+      "ctb": "list:dwg.ctb?=monochrome.ctb"
+    },
+    "outputs": {
+      "layout": "cad.layout",
+      "created": "boolean",
+      "paper": "string",
+      "ctb": "string",
+      "frame_space": "string",
+      "frame_block": "string",
+      "attributes_filled": "integer",
+      "viewport": "object",
+      "extra_viewports": "object[]",
+      "model_window": "object"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "import_styles",
+    "name": "Import styles",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "from": "path",
+      "filter": "string?=@",
+      "items": "object[]?",
+      "cats": "string[]?",
+      "mode": "enum[ignore|replace]?=ignore",
+      "dry_run": "boolean?=true"
+    },
+    "outputs": {
+      "dry_run": "boolean",
+      "from": "path",
+      "mode": "string",
+      "planned_count": "integer",
+      "imported_count": "integer",
+      "planned": "string[]",
+      "imported": "string[]",
+      "skipped": "object[]",
+      "failed": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "plot_pdf",
+    "name": "Plot pdf",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "out": "path",
+      "dwg": "path?",
+      "layout": "list:dwg.layout?=Model",
+      "window": "object?",
+      "paper": "string?=A3",
+      "ctb": "list:dwg.ctb?=monochrome.ctb",
+      "lineweights": "boolean?=true",
+      "overwrite": "boolean?=false",
+      "fit": "boolean?=false"
+    },
+    "outputs": {
+      "pdf": "file.pdf",
+      "bytes": "integer",
+      "source": "path",
+      "layout": "string",
+      "paper": "string",
+      "ctb": "string",
+      "window": "object",
+      "plot_window_dcs": "object"
+    },
+    "effect": "persist"
+  },
+  {
+    "id": "set_scale",
+    "name": "Set scale",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "scale": "number?",
+      "name": "string?",
+      "drawing_scale": "number?"
+    },
+    "outputs": {
+      "scale": "string",
+      "paper_units": "number",
+      "drawing_units": "number",
+      "created": "boolean",
+      "civil_drawing_scale_before": "number",
+      "civil_drawing_scale_after": "number",
+      "civil_note": "string",
+      "available": "string[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "create_surface_profile",
+    "name": "Create surface profile",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {
+      "alignment": "civil.alignment",
+      "surface": "civil.surface"
+    },
+    "parameters": {
+      "name": "string?",
+      "style": "list:civil.style.profile?",
+      "label_set": "list:civil.labelset.profile?",
+      "layer": "list:dwg.layer?",
+      "replace": "boolean?=true",
+      "min_length": "number?=1",
+      "drop_empty": "boolean?=true"
+    },
+    "outputs": {
+      "alignment": "string",
+      "surface": "string",
+      "profile": "civil.profile",
+      "created": "boolean",
+      "replaced": "integer",
+      "empty": "boolean",
+      "start_station": "number",
+      "end_station": "number",
+      "elev_min": "number",
+      "elev_max": "number",
+      "views_draw_set": "integer",
+      "view_errors": "string[]",
+      "reason": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "list_layers",
+    "name": "List layers",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "used_only": "boolean?=false",
+      "max": "integer?=2000"
+    },
+    "outputs": {
+      "count": "integer",
+      "layers": "object[]"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "delete_styles",
+    "name": "Delete styles",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "items": "object[]",
+      "dry_run": "boolean?=true",
+      "passes": "integer?=3"
+    },
+    "outputs": {
+      "dry_run": "boolean",
+      "requested": "integer",
+      "deleted": "integer",
+      "failed_count": "integer",
+      "notfound_count": "integer",
+      "failed": "object[]",
+      "notfound": "object[]",
+      "done": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "corridor_targets",
+    "name": "Corridor targets",
+    "version": "0.1",
+    "kind": "inspection",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "name": "list:civil.corridor?",
+      "sample_step": "number?=10",
+      "max_samples": "integer?=300"
+    },
+    "outputs": {
+      "data": "object[]"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "add_volume_tables",
+    "name": "Add volume tables",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {
+      "alignment": "civil.alignment"
+    },
+    "parameters": {
+      "group": "list:civil.sample_line_group?",
+      "table_type": "enum[total|material]?=total",
+      "clear_all": "boolean?=false",
+      "create": "boolean?=true",
+      "offset_x": "number?=5",
+      "offset_y": "number?=0"
+    },
+    "outputs": {
+      "alignment": "string",
+      "table_type": "string",
+      "tables_created": "integer",
+      "section_views": "integer",
+      "cleared_old_tables": "integer",
+      "note": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "label_place",
+    "name": "Label place",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "labels": "object[]",
+      "space": "list:dwg.layout?=Model",
+      "mode": "enum[normal|boundary]?=normal",
+      "scale": "number?=1",
+      "text_height": "number{unit:mm}?=3.5",
+      "text_style": "list:dwg.textstyle?=txt1",
+      "layer": "list:dwg.layer?=C-ANNO-TEXT",
+      "window": "object?",
+      "frame_margin": "number{unit:mm}?=3",
+      "major_layers": "string?",
+      "minor_layers": "string?",
+      "ignore_layers": "string?",
+      "text_layers": "string?",
+      "region_layers": "string?",
+      "region_min_area": "number?=0",
+      "lengths": "number[]?",
+      "directions": "string[]?",
+      "anchor_exempt": "number{unit:mm}?=1.5",
+      "clearance": "number{unit:mm}?=0",
+      "block_obstacles": "boolean?=true",
+      "weights": "object?",
+      "column_x": "number?",
+      "side": "enum[right|left]?=right",
+      "y_min": "number?",
+      "y_max": "number?",
+      "tag": "string?=label_place",
+      "clear": "boolean?=true",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "mode": "string",
+      "space": "string",
+      "dry_run": "boolean",
+      "placed": "integer",
+      "withdrawn": "object[]",
+      "items": "object[]",
+      "crossings": "integer",
+      "cleared": "integer",
+      "entities": "integer",
+      "weights": "object",
+      "note": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "annotate_cross_cut",
+    "name": "Annotate cross cut",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "layout": "list:dwg.layout",
+      "items": "object[]",
+      "layer_template": "string?=C-CHNL-{code}-{kind}",
+      "other_layers": "string?=C-CHNL-*",
+      "ignore_layers": "string?",
+      "labels": "string[]?",
+      "text_height": "number{unit:mm}?=3.5",
+      "pitch": "number{unit:mm}?=5.5",
+      "dot_radius": "number{unit:mm}?=0.6",
+      "underline": "boolean?=true",
+      "extensions": "number[]?",
+      "offsets": "number[]?",
+      "step": "number{unit:mm}?=5",
+      "max_half_width": "number{unit:mm}?=25",
+      "block_obstacles": "boolean?=true",
+      "weights": "object?",
+      "text_style": "list:dwg.textstyle?=txt1",
+      "layer": "list:dwg.layer?=C-ANNO-TEXT",
+      "tag": "string?=annotate_cross_cut",
+      "clear": "boolean?=true",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "layout": "string",
+      "dry_run": "boolean",
+      "placed": "integer",
+      "withdrawn": "object[]",
+      "items": "object[]",
+      "cleared": "integer",
+      "entities": "integer",
+      "weights": "object",
+      "note": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "annotate_coords",
+    "name": "Annotate coords",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "boundary_layer": "list:dwg.layer?",
+      "handles": "pick.entities<polyline>?",
+      "points": "pick.points?",
+      "space": "list:dwg.layout?=Model",
+      "scale": "number?=1",
+      "text_height": "number{unit:mm}?=2.5",
+      "decimals": "integer?=3",
+      "prefix_x": "string?=X=",
+      "prefix_y": "string?=Y=",
+      "min_gap": "number{unit:mm}?=15",
+      "region_layers": "string?",
+      "region_min_area": "number?=0",
+      "major_layers": "string?=C-CHNL-TOP,C-CHNL-*-TOP",
+      "minor_layers": "string?=V-WATR-*",
+      "ignore_layers": "string?",
+      "text_layers": "string?",
+      "window": "object?",
+      "lengths": "number[]?",
+      "directions": "string[]?",
+      "anchor_exempt": "number{unit:mm}?=1.7",
+      "clearance": "number{unit:mm}?=0.67",
+      "shrink_mtext": "boolean?=false",
+      "block_obstacles": "boolean?=true",
+      "weights": "object?",
+      "text_style": "list:dwg.textstyle?=txt1",
+      "layer": "list:dwg.layer?=C-ANNO-LABL-CORD",
+      "tag": "string?=annotate_coords",
+      "clear": "boolean?=true",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "space": "string",
+      "dry_run": "boolean",
+      "anchors": "integer",
+      "dropped_by_gap": "object[]",
+      "placed": "integer",
+      "withdrawn": "object[]",
+      "items": "object[]",
+      "cleared": "integer",
+      "entities": "integer",
+      "weights": "object",
+      "note": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "profile_intx_brace",
+    "name": "Profile intx brace",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {
+      "alignment": "civil.alignment"
+    },
+    "parameters": {
+      "boundary_layer": "list:dwg.layer?=C-CHNL-INTX-BNDY",
+      "from_dwg": "path?",
+      "names": "object?",
+      "name_layer": "list:dwg.layer?",
+      "profile_views": "string[]?",
+      "scale": "number?",
+      "level": "number?",
+      "level_step": "number?=1.5",
+      "axis_step": "number?=2",
+      "max_dist": "number?=90",
+      "near_band": "number?=15",
+      "min_span": "number?=20",
+      "min_visible": "number?=30",
+      "extend": "number?=80",
+      "text_height": "number{unit:mm}?=3.5",
+      "label_format": "string?={name} intersection ({side}, {s0}~{s1})",
+      "point_format": "string?={name} intersection",
+      "text_style": "list:dwg.textstyle?=txt1",
+      "layer": "list:dwg.layer?=C-PROF-LABL",
+      "tag": "string?",
+      "clear": "boolean?=true",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "alignment": "string",
+      "dry_run": "boolean",
+      "scale": "number",
+      "intersections": "object[]",
+      "views": "object[]",
+      "items": "object[]",
+      "cleared": "integer",
+      "entities": "integer",
+      "note": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "plan_index",
+    "name": "Plan index",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "layouts": "list:dwg.layout[]",
+      "viewports": "string[]?",
+      "items": "object[]?",
+      "layer_template": "string?=C-CHNL-{code}-{kind}",
+      "boundary_layer": "list:dwg.layer?",
+      "boundary_points": "pick.points?",
+      "skeleton_layers": "string?=C-CHNL-TOP,C-CHNL-*-TOP",
+      "width": "number{unit:mm}?=84",
+      "height": "number{unit:mm}?=60",
+      "margin": "number{unit:mm}?=6",
+      "title_band": "number{unit:mm}?=8",
+      "text_height": "number{unit:mm}?=3.5",
+      "title": "string?=Plan index (schematic)",
+      "caption": "string?=This sheet: {name}",
+      "mask": "boolean?=true",
+      "avoid_tag": "string?=annotate_cross_cut",
+      "text_style": "list:dwg.textstyle?=txt1",
+      "layer": "list:dwg.layer?=C-ANNO-INDX",
+      "tag": "string?=plan_index",
+      "clear": "boolean?=true",
+      "dry_run": "boolean?=false"
+    },
+    "outputs": {
+      "dry_run": "boolean",
+      "indexes": "integer",
+      "items": "object[]",
+      "cleared": "integer",
+      "entities": "integer",
+      "note": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "code_set_edit",
+    "name": "Code set edit",
+    "version": "0.2",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "name": "list:civil.codeset",
+      "items": "object[]",
+      "dry_run": "boolean?=true"
+    },
+    "outputs": {
+      "dry_run": "boolean",
+      "code_set": "string",
+      "done": "string[]",
+      "failed": "object[]"
+    },
+    "effect": "modify"
   },
   {
     "id": "create_block_definition",

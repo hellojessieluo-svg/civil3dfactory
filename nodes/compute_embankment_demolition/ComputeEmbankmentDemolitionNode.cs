@@ -13,12 +13,7 @@ namespace Civil3DFactory
     public static partial class Ops
     {
         /// <summary>
-        /// Embankment demolition quantities (average end area method): measure stripping and subsoil excavation area per section, then tabulate volumes between adjacent stations of each survey line.
-        /// Ported from C3DF-CalcVolume of the demolition plugin V1.
         ///
-        /// Key property (do not change): areas are computed from the **actual** C3DF-STRIP-LINE / C3DF-CUT-LINE in the drawing,
-        /// not from the in-memory result of generate_demolition_design_lines; after special sections (slopes etc.) are edited by hand,
-        /// rerunning this node uses the edited lines. So this node must run after the design lines are drawn (and edited).
         /// </summary>
         static JsonNode RunNodeComputeEmbankmentDemolition(JsonObject a, Document doc)
             => ComputeEmbankmentDemolition(a, doc);
@@ -38,13 +33,13 @@ namespace Civil3DFactory
 
             Regex filter = Sections.CompileFilter(GetString(a, "line_filter", null));
 
-            string layStrip = GetString(a, "strip_line_layer", "C3DF-STRIP-LINE");
-            string layExc = GetString(a, "excavation_line_layer", "C3DF-CUT-LINE");
+            string layStrip = GetString(a, "strip_line_layer", "C-DIKE-STRP");
+            string layExc = GetString(a, "excavation_line_layer", "C-DIKE-CUT");
             double ownMargin = GetDouble(a, "own_margin", 30.0);
             if (ownMargin <= 0) throw new InvalidOperationException("own_margin must be greater than 0 (drawing units).");
 
             bool annotate = GetBool(a, "annotate_sections", true);
-            string layNote = GetString(a, "annotation_layer", "C3DF-QTY-LABEL");
+            string layNote = GetString(a, "annotation_layer", "C-QNTY-TEXT");
             double textHeight = GetDouble(a, "text_height", 2.5);
             string textStyle = GetString(a, "text_style", null);
             bool clearExisting = GetBool(a, "clear_existing", true);
@@ -78,7 +73,7 @@ namespace Civil3DFactory
                 }
                 if (stripPls.Count == 0 && excPls.Count == 0)
                     throw new InvalidOperationException(
-                        "No design lines on layer '" + layStrip + "' / '" + layExc + "'; " +
+                        "Layer '" + layStrip + "' / '" + layExc + "'; " +
                         "run generate_demolition_design_lines first, or check the layer names.");
 
                 List<MeasuredSection> all = Sections.Read(db, tr, opt);
@@ -130,7 +125,7 @@ namespace Civil3DFactory
                     if (annotate)
                     {
                         var txt = new DBText();
-                        txt.TextString = "Strip " + Sections.F(aStrip, 2) + " m2  Subsoil " + Sections.F(aExc, 2) + " m2";
+                        txt.TextString = "Strip " + Sections.F(aStrip, 2) + " m2  Subsoil " + Sections.F(aExc, 2) + " m²";
                         txt.Position = s.ToPaper3(new Point2d(s.Ground[0].X, s.Ground.Max(p => p.Y) + 1.2));
                         txt.Height = textHeight;
                         txt.LayerId = idNote;
@@ -144,13 +139,12 @@ namespace Civil3DFactory
                 unassignedStrip = stripPls.Count(p => !usedStrip.Contains(p.Handle.ToString()));
                 unassignedExc = excPls.Count(p => !usedExc.Contains(p.Handle.ToString()));
                 if (unassignedStrip + unassignedExc > 0)
-                    warnings.Add(unassignedStrip + " strip line(s) and " + unassignedExc +
+                    warnings.Add("Found " + unassignedStrip + " clearing lines and " + unassignedExc +
                                  " excavation line(s) were not assigned to any section (excluded from volumes); own_margin may be too small, or the lines lie outside the section extents");
 
                 tr.Commit();
             }
 
-            // ---- Average end area: adjacent stations on the same survey line, volume = mean area x spacing; the first section yields no volume ----
             var perSection = new JsonArray();
             var perLine = new JsonArray();
             var tableRows = new List<object[]>();
@@ -166,7 +160,6 @@ namespace Civil3DFactory
                 for (int i = 0; i < ord.Count; i++)
                 {
                     DikeQtyRow r = ord[i];
-                    // Sections whose title yields no station have no spacing: report area only, no volume
                     double d = (i == 0 || !r.Parsed || !ord[i - 1].Parsed) ? 0 : r.StakeM - ord[i - 1].StakeM;
                     double vS = d <= 0 ? 0 : (ord[i - 1].StripArea + r.StripArea) / 2 * d;
                     double vE = d <= 0 ? 0 : (ord[i - 1].ExcArea + r.ExcArea) / 2 * d;
@@ -224,7 +217,6 @@ namespace Civil3DFactory
                     "Survey line", "Station", "Strip area (m2)", "Subsoil area (m2)",
                     "Spacing (m)", "Strip volume (m3)", "Subsoil volume (m3)", "Subtotal (m3)"
                 };
-                // Read outdir explicitly once: what the contract declares must appear in the node implementation for the contract audit to match
                 string outdirParam = GetString(a, "outdir", null);
                 string outdir = string.IsNullOrWhiteSpace(outdirParam)
                     ? ResolveOutDir(a, doc)

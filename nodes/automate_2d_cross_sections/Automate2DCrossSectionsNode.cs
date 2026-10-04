@@ -39,11 +39,10 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 var btr = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
-                ObjectId lyCut = GridEnsureLayer(tr, db, "C3DF-HATCH-CUT", 1);
-                ObjectId lyFill = GridEnsureLayer(tr, db, "C3DF-HATCH-FILL", 2);
-                ObjectId lyTable = GridEnsureLayer(tr, db, "C3DF-SECTION-TABLE", 7);
+                ObjectId lyCut = GridEnsureLayer(tr, db, "C-XSEC-HTCH-CUT", 1);
+                ObjectId lyFill = GridEnsureLayer(tr, db, "C-XSEC-HTCH-FILL", 2);
+                ObjectId lyTable = GridEnsureLayer(tr, db, "C-XSEC-TABL", 7);
 
-                // Iterate closed polyline outlines in model space as cross-section closed regions
                 List<Polyline> closedPolys = new List<Polyline>();
                 foreach (ObjectId id in ModelSpace(db, tr))
                 {
@@ -60,7 +59,6 @@ namespace Civil3DFactory
                     double area = Math.Round(pl.Area, 3);
                     Extents3d ext = pl.GeometricExtents;
 
-                    // Distinguish excavation/fill/structure layers by layer name or geometry
                     string regionType = "cut";
                     string patternName = cutPattern;
                     ObjectId hatchLayer = lyCut;
@@ -78,7 +76,6 @@ namespace Civil3DFactory
                         hatchLayer = lyCut;
                     }
 
-                    // Create Hatch fill
                     try
                     {
                         Hatch hatch = new Hatch();
@@ -95,10 +92,8 @@ namespace Civil3DFactory
                     }
                     catch
                     {
-                        // If hatching fails, keep the main geometry and do not abort
                     }
 
-                    // Draw the cross-section bottom table
                     if (drawBottomTable)
                     {
                         Point3d tablePos = new Point3d(ext.MinPoint.X, ext.MinPoint.Y - 15.0, 0);

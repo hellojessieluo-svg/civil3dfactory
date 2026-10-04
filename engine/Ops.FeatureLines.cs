@@ -14,11 +14,6 @@ using CivDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// Feature-line workflow (settled in the Project B L4 refactor, 2026-08-24; memory feedback-design-input-draggable-lines):
-    /// design truth = feature lines carrying classification properties (drawn by people); automation = chain into a ring + distance-field grading + build TIN (consume the lines).
-    /// create_feature_lines upgrades curves to FeatureLines (three elevation modes); dredge_from_feature_lines
-    /// chains a classified set of lines into a ring and produces the design surface directly, reusing the surface-building code of create_dredge_grading with zero algorithm duplication.
-    /// v1 rule: arcs are densified into polylines by densify_step when lines are created (an R459 arc with 10 m chords has 2.7 cm sagitta, geometrically negligible).
     /// </summary>
     public static partial class Ops
     {
@@ -190,7 +185,6 @@ namespace Civil3DFactory
             catch { return double.NaN; }
         }
 
-        /// <summary>Resamples the feature-line polyline (AllPoints, linear interpolation) at the given step, keeping z linear.</summary>
         static List<Point3d> DredgeResample(List<Point3d> src, double step)
         {
             var outp = new List<Point3d> { src[0] };
@@ -221,9 +215,9 @@ namespace Civil3DFactory
             double chainTol = GetDouble(a, "chain_tol", 0.1);
             bool drawToe = GetBool(a, "draw_toe", true);
             bool drawCrest = GetBool(a, "draw_crest", false);   // the crest line is the feature line itself; not drawn separately by default
-            string surfLayer = GetString(a, "surface_layer", "C3DF-DREDGE-SURFACE");
-            string crestLayer = GetString(a, "crest_layer", "C3DF-DREDGE-TOP");
-            string toeLayer = GetString(a, "toe_layer", "C3DF-DREDGE-TOE");
+            string surfLayer = GetString(a, "surface_layer", "C-DRDG-SURF");
+            string crestLayer = GetString(a, "crest_layer", "C-DRDG-TOP");
+            string toeLayer = GetString(a, "toe_layer", "C-DRDG-TOE");
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
@@ -231,7 +225,6 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // ---- Collect lines (handle whitelist, or scan by the Region classification) ----
                 var fls = new List<CivFeatureLine>();
                 if (lineHandles != null && lineHandles.Count > 0)
                 {
@@ -256,7 +249,6 @@ namespace Civil3DFactory
                 if (fls.Count < 2)
                     throw new InvalidOperationException("Cannot form a ring: only " + fls.Count + " feature line(s) found.");
 
-                // Terrain: when the parameter is absent, read the <TerrainSurface> field from the lines (only follow-terrain lines need it)
                 if (string.IsNullOrEmpty(terrName))
                     foreach (var fl in fls)
                     {
@@ -267,21 +259,19 @@ namespace Civil3DFactory
                 if (!string.IsNullOrEmpty(terrName))
                 {
                     ObjectId sfId = FindSurfaceId(tr, civ, terrName);
-                    if (sfId.IsNull) throw new InvalidOperationException("Surface '" + terrName + "' not found.");
+                    if (sfId.IsNull) throw new InvalidOperationException("Surface '" + terrName + "'.");
                     terr = (CivSurface)tr.GetObject(sfId, OpenMode.ForRead);
                 }
 
-                // ---- Read classification and sample each line ----
                 var segs = new List<(CivFeatureLine Fl, string Role, string Mode, double M, List<Point3d> Pts)>();
                 var lineRows = new JsonArray();
                 foreach (var fl in fls)
                 {
                     string role = FlPsText(tr, db, fl, setName, "Role") ?? "";
-                    string mode = FlPsText(tr, db, fl, setName, "ZMode") ?? "Fixed";
-                    double m = FlPsReal(tr, db, fl, setName, "SlopeM");
+                    string mode = FlPsText(tr, db, fl, setName, "Elevation mode") ?? "Fixed";
+                    double m = FlPsReal(tr, db, fl, setName, "Slope ratio m");
                     if (double.IsNaN(m) || m < 0.5 || m > 50)
                         throw new InvalidOperationException("Feature line '" + fl.Name + "': <SlopeM> missing or out of range (0.5~50).");
-                    // Follow-terrain / cap lines: refresh the stored elevation snapshot on rebuild so the displayed z, breakline z and engine-sampled z all agree
                     if ((mode.Contains("Follow") || mode.StartsWith("Cap")) && terr != null)
                     {
                         try
@@ -290,7 +280,7 @@ namespace Civil3DFactory
                             flW.AssignElevationsFromSurface(terr.ObjectId, true);
                             double capv;
                             if (mode.StartsWith("Cap") &&
-                                double.TryParse(mode.Substring(3).Trim(), out capv))
+                                double.TryParse(mode.Substring(2).Trim(), out capv))
                             {
                                 var ap = flW.GetPoints(CivFlPointType.AllPoints);
                                 for (int i = 0; i < ap.Count; i++)
@@ -307,14 +297,12 @@ namespace Civil3DFactory
                     segs.Add((fl, role, mode, m, DredgeResample(raw, sampleStep)));
                     lineRows.Add(new JsonObject
                     {
-                        ["name"] = fl.Name, ["role"] = role, ["z_mode"] = mode, ["slope_m"] = m,
+                        ["name"] = fl.Name, ["Role"] = role, ["Elevation mode"] = mode, ["Slope ratio m"] = m,
                         ["points"] = raw.Count, ["z_min"] = Math.Round(fl.MinElevation, 3),
                         ["z_max"] = Math.Round(fl.MaxElevation, 3)
                     });
                 }
 
-                // ---- Chain into a ring (nearest endpoints, reversing where needed). Distances are always planar:
-                //      an elevation jump at a joint is by design (crest line at 5.0 meeting a follow-terrain line), not a gap ----
                 double D2(Point3d p, Point3d q)
                 {
                     double dx = p.X - q.X, dy = p.Y - q.Y;
@@ -355,7 +343,6 @@ namespace Civil3DFactory
                     gaps.Add(dClose);
                 }
 
-                // ---- Bottom elevation: parameter > <BottomElev> field on the lines (error if they disagree) > lowest point of the Mouth line ----
                 double bottom;
                 if (a["bottom_elev"] != null) bottom = GetDouble(a, "bottom_elev", 0.0);
                 else
@@ -384,7 +371,6 @@ namespace Civil3DFactory
                     }
                 }
 
-                // ---- Assemble the ring (Z: sampled live from terrain; M: per line) ----
                 var ring = new DredgeRing();
                 int followed = 0;
                 foreach (var (idx, rev) in order)
@@ -393,11 +379,10 @@ namespace Civil3DFactory
                     var ptsSeg = new List<Point3d>(s.Pts);
                     if (rev) ptsSeg.Reverse();
                     bool follow = s.Mode.Contains("Follow");
-                    // "CapX": terrace-meeting rule, top = min(terrain, X), sampled and clamped live on rebuild
                     double cap = double.NaN;
                     if (s.Mode.StartsWith("Cap"))
                     {
-                        if (!double.TryParse(s.Mode.Substring(3).Trim(), out cap))
+                        if (!double.TryParse(s.Mode.Substring(2).Trim(), out cap))
                             throw new InvalidOperationException(
                                 "Feature line '" + s.Fl.Name + "': elevation mode '" + s.Mode + "' cannot be parsed (expected form: Cap5.0).");
                         follow = true;
@@ -433,7 +418,6 @@ namespace Civil3DFactory
                 }
                 ring.TotalLen = perim;
 
-                // Clear this region's old crest/toe lines (C3DF_DREDGE tag + first vertex inside the ring) so rebuilds do not pile up
                 int erasedOld = 0;
                 foreach (ObjectId id in ModelSpace(db, tr))
                 {
@@ -457,8 +441,6 @@ namespace Civil3DFactory
                 DredgeSurfaceOut so = DredgeBuildSurface(tr, db, civ, btr, ring, bottom, sName,
                     lyS, lyC, lyT, drawCrest, drawToe, slopeStep, flatStep);
 
-                // Attach the feature lines to the surface definition (Definition -> Breaklines): self-describing definition + edges forced to fit.
-                // Note: interior slope points are Edits; do not run native REBUILD by hand in the GUI (it pairs new lines with old points). Always rebuild through the linkage/op.
                 int breaklines = 0;
                 try
                 {

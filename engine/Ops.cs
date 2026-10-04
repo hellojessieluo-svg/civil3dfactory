@@ -25,15 +25,22 @@ namespace Civil3DFactory
     }
 
     /// <summary>
-    /// Operation registry: adding an operation = adding one entry here; it stays available forever (this is how know-how "settles").
-    /// Note: never touch CivilApplication.ActiveDocument (unavailable in accoreconsole);
-    ///       Civil 3D objects are always obtained by iterating the database ModelSpace.
     /// </summary>
     public static partial class Ops
     {
         public static readonly Dictionary<string, OpDef> Registry =
             new Dictionary<string, OpDef>(StringComparer.OrdinalIgnoreCase)
         {
+            ["create_block_definition"] = new OpDef
+            {
+                Description = "Define or redefine a block from JSON geometry plus attribute definitions, and insert references with attribute values (build a title block without opening the UI)",
+                Parameters = "name(required) entities?{lines,polylines,circles,arcs,texts}(same shapes as create_dwg) "
+                           + "attributes?[{tag,prompt?,default?,x,y,height?(2.5),rotation?,width_factor?,justify?(left|center|right|middle-left),style?,mtext?(false),width?(mtext width),layer?}] "
+                           + "inserts?[{x,y,scale?,rotation?,space?(Model or a layout name),layer?,attributes?{TAG:value}}] "
+                           + "layers?[{name,color}] layer?(default 0) base_x? base_y? replace?(default true)",
+                WritesDrawing = true,
+                Run = RunNodeCreateBlockDefinition
+            },
             ["drawing_info"] = new OpDef
             {
                 Description = "Drawing overview: alignment/surface/layer counts, units, file path",
@@ -170,10 +177,17 @@ namespace Civil3DFactory
                 WritesDrawing = false,  // only produces a PDF, drawing untouched
                 Run = PlotPdf
             },
-            ["normalize_textstyles"] = new OpDef
+            ["extract_dwg_text"] = new OpDef
             {
                 Description = "Host external node: normalise the -SimHei/txt1 text styles to standard fonts (mandatory node before plotting), saves a copy without changing the original",
                 Parameters = "out(required, save-as path) overwrite? visible? timeout_sec?; actual entry point nodes/normalize_textstyles/run.ps1",
+                WritesDrawing = false,
+                Run = RunNodeExtractDwgText
+            },
+            ["normalize_textstyles"] = new OpDef
+            {
+                Description = "External host operation: normalize text styles to standard fonts and save a copy.",
+                Parameters = "out(required,output path) overwrite? visible? timeout_sec?; entry point nodes/normalize_textstyles/run.ps1",
                 WritesDrawing = false,
                 Run = RunNodeNormalizeTextStyles
             },
@@ -183,26 +197,6 @@ namespace Civil3DFactory
                 Parameters = "output_directory(required); actual entry point nodes/plot_attribute_titleblocks/run.ps1",
                 WritesDrawing = false,
                 Run = RunNodePlotAttributeTitleblocks
-            },
-            // ── The whole chain from a single line to quantities (implementation in Ops.Chain.cs) ────────────
-            // All of these only change the in-memory drawing; an explicit save_dwg is required to persist.
-            ["create_assembly"] = new OpDef
-            {
-                Description = "Import a LEFT/RIGHT pair of Subassembly Composer .pkt files as a new assembly and embed the PKT projects in the drawing (the assembly then survives the files moving). Existing assembly of the same name is replaced",
-                Parameters = "name(required) left_pkt right_pkt(absolute .pkt paths; the LEFT/RIGHT pair form) items?[{name?,pkt|stock,params?,attach?{to,point_code|point_index}}](ordered pieces: a .pkt or a stock class such as Subassembly.MarkPoint / Subassembly.LinkToMarkedPoint, hooked to the baseline or to a point of an earlier piece) params?{ParamName:value}(applied to every piece, e.g. Slope1H) "
-                           + "embed?(default true) replace?(default true) x? y?(assembly origin, default 0,0)",
-                WritesDrawing = true,
-                Run = RunNodeCreateAssembly
-            },
-            ["create_block_definition"] = new OpDef
-            {
-                Description = "Define or redefine a block from JSON geometry plus attribute definitions, and insert references with attribute values (build a title block without opening the UI)",
-                Parameters = "name(required) entities?{lines,polylines,circles,arcs,texts}(same shapes as create_dwg) "
-                           + "attributes?[{tag,prompt?,default?,x,y,height?(2.5),rotation?,width_factor?,justify?(left|center|right|middle-left),style?,mtext?(false),width?(mtext width),layer?}] "
-                           + "inserts?[{x,y,scale?,rotation?,space?(Model or a layout name),layer?,attributes?{TAG:value}}] "
-                           + "layers?[{name,color}] layer?(default 0) base_x? base_y? replace?(default true)",
-                WritesDrawing = true,
-                Run = RunNodeCreateBlockDefinition
             },
             ["check_sac_paths"] = new OpDef
             {
@@ -299,7 +293,8 @@ namespace Civil3DFactory
             },
             ["create_corridor_regions"] = new OpDef
             {
-                Description = "S04: build a multi-region corridor, each region with its own assembly (the existing create_corridor is single-region only); stations are clipped to the alignment's actual range",
+                Description = "Create a multi-region corridor with a separate assembly per region; clip stations to the alignment range. "
+                            + "Surface slots target the ground surface; optional Adj_* slots remain empty for explicit region assignments via set_corridor_targets.",
                 Parameters = "alignment(required) surface(required, existing ground) regions(required, [{assembly,start,end,name?}]) "
                            + "name?(default \"{alignment}_Corridor\") baseline?(default \"{alignment}_Baseline\")",
                 WritesDrawing = true,
@@ -429,10 +424,24 @@ namespace Civil3DFactory
                 WritesDrawing = false,
                 Run = RunNodeListOffsetWidths
             },
-            ["erase_alignments"] = new OpDef
+            ["reflect_members"] = new OpDef
             {
                 Description = "Batch-delete alignments by name or by handle (handles are immune to name-encoding issues); missing ones are reported, not thrown",
                 Parameters = "names?([] alignment names) handles?([] handles), give at least one",
+                WritesDrawing = false,
+                Run = RunNodeReflectMembers
+            },
+            ["set_offset_widening"] = new OpDef
+            {
+                Description = "Read or add widening regions on an offset alignment, including entry and exit transition lengths. Returns before/after regions. Memory only; save_dwg and rebuild_corridor as needed.",
+                Parameters = "alignment(offset alignment name) or handle action?(list|add,default list) regions?(required for add,[{start_station,end_station,offset,entry_length?,exit_length?}]) dry_run?(false)",
+                WritesDrawing = true,
+                Run = RunNodeSetOffsetWidening
+            },
+            ["erase_alignments"] = new OpDef
+            {
+                Description = "Delete alignments by name or handle; report missing objects without aborting.",
+                Parameters = "names?[] handles?[] (at least one required)",
                 WritesDrawing = true,
                 Run = RunNodeEraseAlignments
             },
@@ -467,8 +476,13 @@ namespace Civil3DFactory
             },
             ["import_surface"] = new OpDef
             {
-                Description = "WblockClone a TIN surface of the given name from an external DWG into the current drawing (skipped if the name already exists)",
-                Parameters = "dwg(required, absolute path of the source drawing) name(required, surface name)",
+                Description = "Import a named TIN surface from another DWG. mode=clone uses WblockClone; "
+                            + "snapshot creates an in-memory source snapshot before cloning; "
+                            + "rebuild recreates a TIN from vertices and ExtractBorder, retriangulating and reporting source/target counts and elevations. "
+                            + "Rebuild can shrink concave boundaries by deleting edge triangles after retriangulation. "
+                            + "Use data shortcuts for design surfaces; reserve rebuild for inspection or temporary geometry.",
+                Parameters = "dwg(required,absolute source path) name(required,source surface) mode?(clone|snapshot|rebuild,default clone) "
+                           + "as?(target name; rename numeric names to avoid folder collisions) layer?(source layer by default) replace?(false; references must be restored after replacing) probe?(false,inspect source definition only) boundaries?(true,rebuild outer/hide boundaries) copy_build_options?(true,copy maximum triangle edge length)",
                 WritesDrawing = true,
                 Run = RunNodeImportSurface
             },
@@ -506,7 +520,7 @@ namespace Civil3DFactory
                            + "strip_threshold_elev?(6.5, stripping threshold elevation; set above the crest to disable stripping) strip_thickness?(0.3, stripping thickness) "
                            + "bottom_elev?(5.0, design demolition bottom elevation) bottom_elev_by_section?({title or line name:elevation}, per-section override) "
                            + "slope_ratio_m?(3.0, m of slope 1:m) excavation_half_width?(8.0, excavation half width from centerline, sloped side only) "
-                           + "strip_line_layer?(C3DF-STRIP-LINE) excavation_line_layer?(C3DF-CUT-LINE) hatch_layer?(C3DF-HATCH) "
+                           + "strip_line_layer?(C-DIKE-STRP) excavation_line_layer?(C-DIKE-CUT) hatch_layer?(C-DIKE-HTCH) "
                            + "annotation_layer?(C3DF-LABEL) centerline_layer?(C3DF-CL) hatch_scale?(15) text_height?(2.5, paper units) "
                            + "text_style?(label text style, default the drawing's current style; if the default style uses txt.shx Chinese renders as ????, so give a CJK-capable style or run normalize_textstyles first) "
                            + "draw_hatch?(true) draw_labels?(true) clear_existing?(true, clear lines/hatches/texts on these 5 layers before re-running)",
@@ -548,7 +562,6 @@ namespace Civil3DFactory
                            + "style? code_set? section_style?(ground-line section style, e.g. @C3DF-GroundLine) elev_min? elev_max?(automatic if min>=max) "
                            + "offset_left?(50) offset_right?(50) x? y? rows?(2) cols?(2) col_spacing?(130) row_spacing?(45) group_spacing?(0) "
                            + "placement?(draft|production, default draft) template?(production: .dwt/.dwg whose layout holds the sheet viewport) "
-                           + "layout?(production: layout name in the template, default the first) group_plot_style?(GroupPlotStyles name, production) "
                            + "material_style?(shape or section style for cut/fill sections) volume_table?(default false) corridor?",
                 WritesDrawing = true,
                 Run = RunNodeCreateSectionViews
@@ -588,19 +601,54 @@ namespace Civil3DFactory
                             + "CodeSetStyles branch (same source as dump_label_styles). Used to turn off one branch of the 655 doubled labels in project B's preliminary-design sections "
                             + "(code set branch + marker branch each drew one)",
                 Parameters = "style(label style name, required) components(array, required): each {name(component name, * = all), "
-                           + "visible?, x_offset?, y_offset?, contents?, angle_deg?, length?, height?, start_x_offset?, start_y_offset?, end_x_offset?, end_y_offset?(line components, plotted units) "
+                           + "visible?, x_offset?, y_offset?, contents?, angle_deg?, length?, height?, "
                            + "attachment?(TopCenter/MiddleCenter/BottomCenter...), anchor_component?(component name or <Feature>), "
+                           + "anchor_location?(TopCenter/BottomCenter…)} "
                            + "anchor_location?(TopCenter/BottomCenter…)} "
                            + "dragged_state?({property:value}, keys as reported by dump_label_styles under dragged_state, e.g. DisplayType/TextHeight)",
                 WritesDrawing = true,
                 Run = RunNodeSetLabelStyle
             },
-            ["add_note_label"] = new OpDef
+            ["set_section_view_axes"] = new OpDef
             {
                 Description = "Batch-place General Note Labels: one label of the given style per point. Coordinate labelling automation goes here: "
                             + "put <[Northing]>/<[Easting]> fields in the style, the value is taken at the drop point and follows drags, no manual copying. "
                             + "Points may carry dx/dy to drop straight into the dragged state (for dragged layout or batch leaders)",
-                Parameters = "style(general note label style name, required, case-sensitive) points(required, [{x,y,dx?,dy?}] dx/dy = drag offset, drawing units) layer?(target layer, created if missing)",
+                Parameters = "style?(section view style,required for editing) dry_run?(true) "
+                           + "axes?({bottom|top|left|right|center: {title?:{offset_x?,offset_y?,text_height?}, "
+                           + "major?:{text_height?,interval?,offset_x?,offset_y?,size?}, minor?:{same as major}}}; paper units in meters, e.g. 0.0035",
+                WritesDrawing = true,
+                Run = RunNodeSetSectionViewAxes
+            },
+            ["set_profile_view_axes"] = new OpDef
+            {
+                Description = "Inspect/edit profile view style axes (bottom/top/left/right): titles, major/minor tick text, offsets and intervals. "
+                            + "Also edits GraphTitleStyle text, height and offsets. dry_run reports values and the number of referencing profile views. "
+                            + "Edit model styles so annotations survive drawing export.",
+                Parameters = "style?(profile view style,required for editing) dry_run?(true) "
+                           + "axes?({bottom|top|left|right: {title?:{text?,offset_x?,offset_y?,text_height?}, "
+                           + "major?:{text_height?,interval?,offset_x?,offset_y?,size?}, minor?:{same as major}}}; paper units in meters, e.g. 0.0035 "
+                           + "title?{text?(field syntax shown in title.text),text_height?,offset_x?,offset_y?}; supply axes or title",
+                WritesDrawing = true,
+                Run = RunNodeSetProfileViewAxes
+            },
+            ["set_profile_view_hatch"] = new OpDef
+            {
+                Description = "Add cut (EG above FG) and/or fill hatch areas to profile views. "
+                            + "Uses ShapeStyles and reflected ProfileView.HatchAreas AddCutArea/AddFillArea calls. "
+                            + "Result members lists available APIs; dry_run reports alignments, ground/design profiles and existing area counts.",
+                Parameters = "views?[](default all profile views) cut_style?(shape style) fill_style?(shape style; at least one required to edit) "
+                           + "clear?(true,remove existing hatch areas first) dry_run?(true)",
+                WritesDrawing = true,
+                Run = RunNodeSetProfileViewHatch
+            },
+            ["add_note_label"] = new OpDef
+            {
+                Description = "Place General Note Labels at specified points. "
+                            + "Styles can use <[Northing]>/<[Easting]> fields for live coordinates. "
+                            + "Optional dx/dy applies a dragged-state offset.",
+                Parameters = "style(required,case-sensitive label style) points(required,[{x,y,dx?,dy?}] or [{profile_view,station,elevation,text?,dx?,dy?}]; offsets in drawing units; text overrides label text) layer?(created if missing). "
+                           + "Returns handles[] in input order and labels[] with index,handle,x,y,profile_view?,station?,elevation?,text?,layer,dragged?.",
                 WritesDrawing = true,
                 Run = RunNodeAddNoteLabel
             },
@@ -653,6 +701,199 @@ namespace Civil3DFactory
                 Parameters = "alignment(required) interval?(default inferred from the existing line count) swath?(default inferred from the existing line lengths)",
                 WritesDrawing = true,
                 Run = RunNodeRefreshSampleLines
+            },
+            ["set_sample_line_sources"] = new OpDef
+            {
+                Description = "Toggle SectionSource.IsSampled in an existing sample line group without replacing groups, lines, views or volume tables. "
+                            + "Use this to add imported surfaces; create_sample_lines recreates groups and refresh_sample_lines does not change sources.",
+                Parameters = "alignment(required) sources[](surface/corridor names) or surface(single name) group?(unique group or <alignment>_SampleLines) "
+                           + "sampled?(true) section_style?(new section style) draw?(true,enable section Draw in existing views) probe_station?(return offsets/elevations for diagnostics). Headless toggling may produce empty sections; a GUI session may be required to compute geometry. Missing sources cause an error.",
+                WritesDrawing = true,
+                Run = RunNodeSetSampleLineSources
+            },
+            ["create_surface_profile"] = new OpDef
+            {
+                Description = "Create a surface profile without modifying design profiles or other profiles. Returns created=false if the surface does not intersect the alignment. Per-profile Draw toggling is unavailable in the .NET API (views_draw_set=-1); inspect exported views. Memory only; save_dwg to persist.",
+                Parameters = "alignment(required) surface(required) name?(<alignment>_<surface>) style? label_set? layer? replace?(true) min_length?(1) drop_empty?(true)",
+                WritesDrawing = true,
+                Run = CreateSurfaceProfile
+            },
+            ["set_profile_view_range"] = new OpDef
+            {
+                Description = "Edit existing profile view station ranges using UserSpecified mode; last_only and end_to_alignment trim the final view to the alignment end. Memory only; save_dwg to persist.",
+                Parameters = "alignment?(all) name?(exact view name) contains?(view name substring) last_only?(false) station_start? station_end? end_to_alignment?(false) dry_run?(false)",
+                WritesDrawing = true,
+                Run = SetProfileViewRange
+            },
+            ["texts_locate"] = new OpDef
+            {
+                Description = "Find TEXT/MTEXT by content and return insertion points and extents across model/layout spaces.",
+                Parameters = "contains?(plain-text substring) regex?(.NET regex) where?(model|layouts|blocks|all,default all; includes non-layout blocks) max?(5000)",
+                WritesDrawing = false,
+                Run = TextsLocate
+            },
+            ["import_entities"] = new OpDef
+            {
+                Description = "Clone model-space entities from an external DWG by handle/layer, optionally changing layers and annotation sizes.",
+                Parameters = "dwg(required) handles?[] layers?[] types?[](class substring) to_layer? unannotative?(false) anno_scale?(1,scale MText/DBText/MLeader text and arrows) dry_run?(false)",
+                WritesDrawing = true,
+                Run = ImportEntities
+            },
+            ["add_profile_view_labels"] = new OpDef
+            {
+                Description = "Place native station-elevation or depth labels on profile views using view name, station and elevation. text overrides components; dx/dy applies dragging. Memory only; save_dwg to persist.",
+                Parameters = "items(required,[{profile_view,type?(station_elevation|depth),style,station,elevation,station2?,elevation2?,text?,dx?,dy?}]) layer?",
+                WritesDrawing = true,
+                Run = AddProfileViewLabels
+            },
+            ["mleader_styles"] = new OpDef
+            {
+                Description = "List multileader styles in the current drawing and optionally another DWG.",
+                Parameters = "dwg?(optional other drawing)",
+                WritesDrawing = false,
+                Run = MLeaderStyles
+            },
+            ["create_mleaders"] = new OpDef
+            {
+                Description = "Create multileaders with MText, points from arrow to text, and named styles optionally cloned from style_from_dwg. Memory only; save_dwg to persist.",
+                Parameters = "items(required,[{points:[[x,y],...],text,text_at?[x,y],layer?,text_height?,width?}]) width? style? style_from_dwg? space?(Model|layout,default Model) layer?(existing only) text_height?(drawing units,0=style) unannotative?(true) dry_run?",
+                WritesDrawing = true,
+                Run = CreateMLeaders
+            },
+            ["mleader_text_replace"] = new OpDef
+            {
+                Description = "Replace substrings in multileader text; dry_run reports matches only.",
+                Parameters = "find(required,raw MText including format codes) replace?(empty) handles?[] where?(model|layouts|blocks|all,default model) dry_run?(false)",
+                WritesDrawing = true,
+                Run = MLeaderTextReplace
+            },
+            ["move_entities"] = new OpDef
+            {
+                Description = "Translate entities by handle.",
+                Parameters = "handles?[] or items?[{handle,dx?,dy?}] dx?(0) dy?(0) text_only?(false,move only multileader text in items mode)",
+                WritesDrawing = true,
+                Run = MoveEntities
+            },
+            ["layouts_rename"] = new OpDef
+            {
+                Description = "Rename layouts using rename:[{from,to}].",
+                Parameters = "rename:[{from,to}](required)",
+                WritesDrawing = true,
+                Run = LayoutsRename
+            },
+            ["entities_locate"] = new OpDef
+            {
+                Description = "List entities by layer/type with handles, extents, colors and text contents.",
+                Parameters = "layer?(exact) type?(class substring) where?(model|layouts|blocks|all,default model) max?(5000) geometry?(false,include polyline vertices; lines always report endpoints)",
+                WritesDrawing = false,
+                Run = EntitiesLocate
+            },
+            ["paste_window_to_layout"] = new OpDef
+            {
+                Description = "Clone windows of an external DWG model into a target layout at the specified scale and position. Optional clear rectangles remove old contents while preserving title blocks and viewports. "
+                            + "pick=inside requires full containment; center tests bounding-box centers; crossing accepts intersections. "
+                            + "clear_pick defaults to center; keep_enclosing preserves frames enclosing the entire clear rectangle. "
+                            + "Returns straddling and clear_straddling_kept counts and samples. Memory only; save_dwg to persist.",
+                Parameters = "dwg(required,source DWG) layout?(Layout1) keep_block_contains?(\"TITLE\") exclude_layers?[] pick?(inside|center|crossing) clear_pick?(center|inside|crossing,default center) keep_enclosing?(true) "
+                           + "items(required,[{window{minx,miny,maxx,maxy},pick?,crossing?(legacy,false),scale?(1),to{x,y},clear?{minx,miny,maxx,maxy},clear_pick?,keep_enclosing?,tag?}])",
+                WritesDrawing = true,
+                Run = PasteWindowToLayout
+            },
+            ["viewport_layer_overrides"] = new OpDef
+            {
+                Description = "Set viewport-specific layer colors, freeze/thaw states, or clear overrides without changing the base layer. Memory only; save_dwg to persist.",
+                Parameters = "items(required,[{viewport,color?[layer_name],color_index?(8),freeze?[layer_name],thaw?[layer_name],clear?[layer_name]}]) dry_run?(false)",
+                WritesDrawing = true,
+                Run = ViewportLayerOverrides
+            },
+            ["viewport_layer_state"] = new OpDef
+            {
+                Description = "Read layout viewport handles, paper positions, view centers, scales, layer color overrides and frozen layers.",
+                Parameters = "(none)",
+                WritesDrawing = false,
+                Run = ViewportLayerState
+            },
+            ["label_place"] = new OpDef
+            {
+                Description = "Place leader labels using weighted candidate scoring. Hard constraints prevent text overlap and out-of-frame text. "
+                            + "Line crossings, text/line intersections, leader/text intersections, direction and distance contribute costs; normal mode tries eight directions and multiple lengths. "
+                            + "boundary mode arranges labels in one side column with reduced crossings. "
+                            + "weights supports global and per-label overrides; default costs: major crossing 30, minor crossing 5, text on line 40, leader through text 100, length 0.5/mm. "
+                            + "Unplaced labels are returned in withdrawn with reasons and coordinates. "
+                            + "Outputs carry XData(C3DF_ANNO:tag); rerunning a tag clears its previous entities. Memory only; save_dwg to persist.",
+                Parameters = "labels(required,[{anchor:[x,y],text(use \\n for multiple lines)}]) space?(Model|layout) mode?(normal|boundary,default normal) "
+                           + "scale?(drawing units per paper mm,default 1; use 5 for metric 1:5000) text_height?(paper mm,3.5) text_style?(txt1,must exist) "
+                           + "layer?(C-ANNO-TEXT) window?{minx,miny,maxx,maxy}(drawing units) frame_margin?(3mm) "
+                           + "major_layers?/minor_layers?/ignore_layers?/text_layers?/region_layers?(comma-separated layer wildcards) region_min_area?(0,drawing units squared) "
+                           + "lengths?[](paper mm,default 2..18 times text height) directions?[](NE/E/SE/NW/W/SW/N/S) anchor_exempt?(1.5mm) "
+                           + "clearance?(0mm) block_obstacles?(true,blocks smaller than 100mm) "
+                           + "weights?{leader_mm,cross_major,cross_minor,text_on_line,leader_through_text,dogleg,center_mm,direction,near_same,region,max_cost,good_enough} "
+                           + "column_x? side?(right|left) y_min? y_max?(boundary,drawing units) tag?(label_place) clear?(true) dry_run?(false)",
+                WritesDrawing = true,
+                Run = RunNodeLabelPlace
+            },
+            ["annotate_cross_cut"] = new OpDef
+            {
+                Description = "Draw a cross-cut annotation per plan viewport, intersecting left top edge, centerline and right top edge with filled dots. "
+                            + "Three underlined text rows appear in paper space. layer_template resolves TOP/CNTR/SAMP; other_layers identifies neighboring channels. "
+                            + "Uses label_place scoring with hard text/frame constraints and weighted crossings. "
+                            + "Default costs include bends 10, distance from viewport center 0.3/mm and extension 0.5/mm. Memory only; save_dwg to persist.",
+                Parameters = "layout(required) items(required,[{viewport,code}]) layer_template?(C-CHNL-{code}-{kind},wildcards supported) "
+                           + "other_layers?(C-CHNL-*) ignore_layers? labels?[](Dredging top edge/Dredging centerline/Dredging top edge) "
+                           + "text_height?(3.5) pitch?(5.5) dot_radius?(0.6) underline?(true) extensions?[](8,14,20) offsets?[](0,+/-8,+/-14,+/-20) "
+                           + "step?(5) max_half_width?(25) block_obstacles?(true) weights?{label_place weights} text_style?(txt1) layer?(C-ANNO-TEXT) "
+                           + "tag?(annotate_cross_cut) clear?(true) dry_run?(false)",
+                WritesDrawing = true,
+                Run = RunNodeAnnotateCrossCut
+            },
+            ["annotate_coords"] = new OpDef
+            {
+                Description = "Place coordinate leaders at closed-polyline vertices or explicit points, thinning adjacent anchors by min_gap. "
+                            + "Each uses a sloping leader, baseline and two text rows: X=northing, Y=easting. Uses label_place scoring. "
+                            + "Default high-penalty crossings cost 1000 with a 500 limit; distance 0.3/mm, direction rank 0.15, existing-channel crossings 2. Unplaced labels report reasons and coordinates. "
+                            + "Uses DBText rather than blocks. Memory only; save_dwg to persist.",
+                Parameters = "boundary_layer? or handles?[] or points?[[x,y]] space?(Model) scale?(drawing units per paper mm; metric 1:15000=15) "
+                           + "text_height?(2.5mm) decimals?(3) prefix_x?(X=) prefix_y?(Y=) min_gap?(15mm for vertices,0 for explicit points) shrink_mtext?(false) region_layers?(boundary_layer) region_min_area?(0) "
+                           + "major_layers?(C-CHNL-TOP,C-CHNL-*-TOP) minor_layers?(V-WATR-*) ignore_layers? text_layers? window?{} "
+                           + "lengths?[](6..110mm) directions?[] anchor_exempt?(1.7mm) clearance?(0.67mm) block_obstacles?(true) "
+                           + "weights?{label_place weights} text_style?(txt1) layer?(C-ANNO-LABL-CORD) tag?(annotate_coords) clear?(true) dry_run?(false)",
+                WritesDrawing = true,
+                Run = RunNodeAnnotateCoords
+            },
+            ["profile_intx_brace"] = new OpDef
+            {
+                Description = "Annotate intersection locations on profile views by projecting boundary polygons to the alignment to derive station ranges and sides. "
+                            + "Ranges >= min_span receive brackets and station labels; shorter spans receive ticks. Multiple annotations are stacked. "
+                            + "Draws in model-space profile views via FindXYAtStationAndElevation and exports with export_to_autocad. "
+                            + "Memory only; save_dwg to persist.",
+                Parameters = "alignment(required) boundary_layer?(C-CHNL-INTX-BNDY) from_dwg? names?{handle:name} name_layer?(text inside polygon) "
+                           + "profile_views?[](all for alignment) scale?(drawing units per paper mm,current annotation scale) level?(view top elevation+0.6) "
+                           + "level_step?(1.5) axis_step?(2) max_dist?(90) near_band?(15) min_span?(20) min_visible?(30) extend?(80) text_height?(3.5) "
+                           + "label_format?({name} intersection ({side}, {s0}~{s1})) point_format?({name} intersection) text_style?(txt1) layer?(C-PROF-LABL) "
+                           + "tag?(profile_intx_brace:<alignment>) clear?(true) dry_run?(false)",
+                WritesDrawing = true,
+                Run = RunNodeProfileIntxBrace
+            },
+            ["plan_index"] = new OpDef
+            {
+                Description = "Create a plan index in the least occupied corner of each viewport in the specified layouts. "
+                            + "Draws a wipeout, frame, title, boundary skeleton and sheet windows, highlighting the current sheet. Optional caption identifies its segment. "
+                            + "Memory only; save_dwg to persist.",
+                Parameters = "layouts(required,[layout_name]) viewports?[](handles) items?[{viewport,code,name?}] layer_template?(C-CHNL-{code}-{kind}) "
+                           + "boundary_layer? boundary_points?[[x,y]] skeleton_layers?(C-CHNL-TOP,C-CHNL-*-TOP) width?(84) height?(60) margin?(6) "
+                           + "title_band?(8) text_height?(3.5) title?(Plan index (schematic)) caption?(This sheet: {name}; empty disables) mask?(true) "
+                           + "avoid_tag?(annotate_cross_cut) text_style?(txt1) layer?(C-ANNO-INDX) tag?(plan_index) clear?(true) dry_run?(false)",
+                WritesDrawing = true,
+                Run = RunNodePlanIndex
+            },
+            ["purge_dead_sections"] = new OpDef
+            {
+                Description = "Inspect/remove sections whose SourceId refers to an erased corridor or surface. "
+                            + "Stale sections may crash compute_quantities during ImportCriteria. "
+                            + "Unlike refresh_sample_lines, this removes only dead section objects and preserves sample lines, groups, sources and views.",
+                Parameters = "alignment?(all) dry_run?(true)",
+                WritesDrawing = true,
+                Run = RunNodePurgeDeadSections
             },
             ["restore_sample_line_labels"] = new OpDef
             {
@@ -724,7 +965,9 @@ namespace Civil3DFactory
                            + "Every new viewport first thaws all layers and then freezes freeze_layers, washing out the source drawing's 'frozen in new viewports' layer state "
                            + "(that state is invisible to DXF parsing and makes whole layers vanish from the finished sheet) "
                            + "clear?(default true = clear this layout before re-running; false = stack another sheet in the same layout, "
-                           + "shifting frame_x/viewport.x per sheet lines up several plan sheets in one layout)",
+                           + "Use frame_x/viewport.x to place multiple plan sheets side by side in one layout) "
+                           + "frame{block,from_dwg,x?,y?,scale?,attributes?{}}(required) "
+                           + "Use the plot style table appropriate for your template; an empty string disables it)",
                 WritesDrawing = true,
                 Run = CreateLayoutSheet
             },
@@ -761,10 +1004,12 @@ namespace Civil3DFactory
             {
                 Description = "Create an entity-based layout sheet: scale-copy model-space entities of the current/external DWG into paper space, then wrap them with a whole title-block DWG",
                 Parameters = "layout?(default C3DF-A3-Entities) paper?(default A3) clear?(default true) "
+                           + "sources?[{dwg?(current drawing),source_window?{minx,miny,maxx,maxy},crossing?(false),"
+                           + "exclude_layers?[],paper_scale?(model-to-paper scale),target?{x,y,width,height},rotation?}] "
                            + "sources?[{dwg?(default current drawing),source_window?{minx,miny,maxx,maxy},crossing?(default false),"
                            + "exclude_layers?[],paper_scale?(fixed model -> paper factor),target?{x,y,width,height},rotation?}] "
                            + "frame{block,from_dwg,x?,y?,scale?,attributes?{}}(required) "
-                           + "notes?[strings] notes_x? notes_y? notes_width? notes_height?",
+                           + "Use the plot style table appropriate for your template; an empty string disables it)",
                 WritesDrawing = true,
                 Run = ComposeLayoutSheet
             },
@@ -1042,8 +1287,10 @@ namespace Civil3DFactory
                 Description = "Self-drawn section volume tables (pure CAD lines + text, three rows: station spanning columns/header/cut data), attached at the top-right of each section view by sample line station. "
                             + "Area from QTOSectionalResult.AreaResult.CutArea (exact per section), volume = incremental cut; both raw values without factors. "
                             + "target_dwg draws the tables straight into an already exported pure-CAD product (the current Civil drawing only supplies data and coordinates, unchanged); "
+                            + "Entities carry XData(C3DF_SVT,tag:<alignment or tag>); clear affects only this tag, allowing multiple alignment tables. "
                             + "entities carry XData (C3DF_SVT) for identity, re-runs clear the old tables first. AEC QTO tables cannot be exported headless to pure CAD, the sheet chain always uses this node",
                 Parameters = "alignment(required) group?(default <alignment>_SampleLines) scale?(default 500, plot scale; mm size x scale/1000 = model metres) "
+                           + "text_mm?(2.5) row_mm?(5) col1_mm?(16) col2_mm?(30) col3_mm?(26) "
                            + "text_mm?(2.5) row_mm?(5) col1_mm?(item column 16) col2_mm?(area column 30) col3_mm?(cut column 26) "
                            + "offset_x_mm?(2) offset_y_mm?(0) clear?(default true) layer?(default C3DF-VolumeTable) "
                            + "target_dwg?(absolute path; tables are drawn into this product drawing and saved; if locked a -locked-pending-replace file is written) "
@@ -1108,17 +1355,10 @@ namespace Civil3DFactory
                 WritesDrawing = false,
                 Run = ExportAllDwgTables
             },
-            ["set_surface_style"] = new OpDef
+            ["surface_stats"] = new OpDef
             {
                 Description = "Assign a surface style to a surface by name (e.g. a triangles style for 3D shading, _No Display to hide the terrain)",
                 Parameters = "surface(required, surface name) style(required, SurfaceStyles name from list_styles)",
-                WritesDrawing = false,
-                Run = SetSurfaceStyle
-            },
-            ["surface_stats"] = new OpDef
-            {
-                Description = "Does the surface have geometry at all: vertex count, triangle count, elevation range (first stop when 'the result is 0')",
-                Parameters = "name?(default all surfaces)",
                 WritesDrawing = false,
                 Run = SurfaceStats
             },
@@ -1180,7 +1420,9 @@ namespace Civil3DFactory
             },
             ["list_styles"] = new OpDef
             {
-                Description = "List **all** styles in the drawing: reflection walks the whole CivilDocument.Styles tree, no hand-written category names",
+                Description = "List all styles by reflecting the CivilDocument.Styles tree. "
+                            + "Child label styles are read through ChildrenCount and the indexer, "
+                            + "and reported as Parent > Child up to four levels deep.",
                 Parameters = "filter?(name substring filter, e.g. \"@\") max?(max items per category, default 500) empty?(output empty categories, default false) depth?(max recursion depth, default 6)",
                 WritesDrawing = false,
                 Run = ListStyles
@@ -1227,10 +1469,31 @@ namespace Civil3DFactory
                 WritesDrawing = false,
                 Run = LayersEdit
             },
-            ["styles_normalize"] = new OpDef
+            ["viewport_annoscale"] = new OpDef
             {
                 Description = "Batch-normalise style display: all colours ByLayer, components on the given layer reassigned to the target layer",
                 Parameters = "filter?(style name substring) color_bylayer?(default false) layer_moves?[{style,from,to}] dry_run?(default true)",
+                WritesDrawing = true,
+                Run = ViewportAnnoScale
+            },
+            ["textstyle_edit"] = new OpDef
+            {
+                Description = "Create/edit text style records: font, bigfont, width, oblique angle, fixed height, annotation settings and optional current style. Memory only; save_dwg to persist. TTF typeface assignment may require COM SetFont; SHX settings are supported.",
+                Parameters = "items(required,[{name,font?,bigfont?,width?,oblique?(degrees),height?(0=variable),annotative?,paper_orientation?,create?(false)}]) set_current?(style name) dry_run?(true)",
+                WritesDrawing = true,
+                Run = TextStyleEdit
+            },
+            ["texts_edit"] = new OpDef
+            {
+                Description = "Batch-edit existing TEXT, MTEXT, attributes and attribute definitions by current style, layer, height or content. MTEXT ignores width_factor. Memory only; save_dwg to persist.",
+                Parameters = "set(required,{style?,height?,width_factor?,layer?,annotative?}) match?{styles?[],layers?[],types?[],height?,height_tol?(0.001),text_contains?} where?(model|layouts|blocks|all,default model) max?(100000) samples?(20) dry_run?(true)",
+                WritesDrawing = true,
+                Run = TextsEdit
+            },
+            ["styles_normalize"] = new OpDef
+            {
+                Description = "Normalize style display colors to ByLayer and remap component layers.",
+                Parameters = "filter?(style substring) color_bylayer?(false) layer_moves?[{style,from,to}] dry_run?(true)",
                 WritesDrawing = false,
                 Run = StylesNormalize
             },
@@ -1241,9 +1504,200 @@ namespace Civil3DFactory
                 WritesDrawing = false,
                 Run = RenameStyles
             },
-            ["import_styles"] = new OpDef
+            ["add_section_labels"] = new OpDef
+            {
+                Description = "Attach surface-name labels to section sources selected by prefix. grade_break uses style_template with {name} and a short range for one label. "
+                            + "major_offset creates finely spaced candidates and uses the shared label_place scorer. "
+                            + "Text must remain within endpoint margins and avoid existing text; line crossings contribute costs. Unplaceable labels are removed and reported. "
+                            + "Selected sublabels remain visible and others are hidden. obstacles_dwg gives the most reliable text extents; live label-group explosion is also attempted. "
+                            + "pick=best retains one label per surface per section. Legacy placement requires end_margin<0 and avoid:false. Empty sections are skipped. Memory only; save_dwg to persist.",
+                Parameters = "source_prefixes(required,[]) label_type?(grade_break|major_offset,default grade_break) style? increment?(20) style_template?(@C3DF-AdjacentSurface-{name}) fallback_style? range_len?(0.5,grade_break) clear?(true) alignments?[] "
+                           + "end_margin?(2mm,<0 disables) avoid?(true) pick?(all|best,default all) step_mm?(4) scale?(drawing units per paper mm,current annotation scale) "
+                           + "obstacles_dwg?(absolute path to matching exported drawing) live_obstacles?(true) ignore_text?(regex) "
+                           + "text_box?{surface_name:[width,height] in paper mm} text_height_mm?(3.5) weights?{text_on_line,center_mm,max_cost} dry_run?(false)",
+                WritesDrawing = true,
+                Run = RunNodeAddSectionLabels
+            },
+            ["dump_geometry"] = new OpDef
             {
                 Description = "Import styles from another DWG (style library) into the current drawing. Deep clone, dependent sub-styles come along",
+                Parameters = "surfaces?[] surface_prefix? layers?[] out?(absolute JSON path; result then contains counts only) arc_tol?(0.5)",
+                WritesDrawing = false,
+                Run = RunNodeDumpGeometry
+            },
+            ["create_flat_surface"] = new OpDef
+            {
+                Description = "Create constant-elevation TIN surfaces from outer polygons and holes with grid infill. Memory only; save_dwg to persist.",
+                Parameters = "items(required,[{name,elev,outer:[[x,y]..],holes?[[[x,y]..]],style?,layer?,replace?}]) step?(20)",
+                WritesDrawing = true,
+                Run = RunNodeCreateFlatSurface
+            },
+            ["add_surface_points"] = new OpDef
+            {
+                Description = "Add points to existing TIN surfaces and optionally replace outer boundaries and holes. Memory only; save_dwg to persist.",
+                Parameters = "items(required,[{surface,points:[[x,y,z]..]|points_file,elev?,outer?[[x,y]..],holes?[[[x,y]..]..]}]) rebuild?(true) non_destructive?(true) holes_non_destructive?(true) clear_boundaries?(defaults to whether holes supplied)",
+                WritesDrawing = true,
+                Run = RunNodeAddSurfacePoints
+            },
+            ["data_shortcuts"] = new OpDef
+            {
+                Description = "Data shortcuts: setup working folder/project; list publishable objects and shortcuts; publish saved source surfaces; "
+                            + "reference published surfaces without retriangulation. Use this for design surfaces across drawings. Memory only; save_dwg to persist. "
+                            + "Run setup with working_folder and project before publish/reference in each accoreconsole session; the current project may not carry over between sessions. "
+                            + "repair redirects broken surface references to a new source drawing without setup; any failed repair reports an error.",
+                Parameters = "action?(setup|list|publish|reference|repair,default list) working_folder? project? description? surfaces?[](required for reference/repair) source_dwg?(direct reference source) reflect? target?(required for repair,absolute path) auto_repair_other?(false)",
+                WritesDrawing = true,
+                Run = RunNodeDataShortcuts
+            },
+            ["relink_ground_profiles"] = new OpDef
+            {
+                Description = "Relink ground surface profiles by recreating them under their original names, styles and layers using the target surface. Leaves design profiles and views unchanged. Already-linked profiles are skipped unless force. Memory only; save_dwg to persist.",
+                Parameters = "surface(required) alignments?[] style? label_set? force?(false) dry_run?(false)",
+                WritesDrawing = true,
+                Run = RunNodeRelinkGroundProfiles
+            },
+            ["swap_surface_identity"] = new OpDef
+            {
+                Description = "Swap two surface object identities with DBObject.SwapIdWith, preserving links from profiles, paste operations, sample sources and corridor targets. Optionally erase the displaced object. Memory only; save_dwg to persist.",
+                Parameters = "old(required,surface name) new(required,surface name) erase_old?(false) dry_run?(false)",
+                WritesDrawing = true,
+                Run = RunNodeSwapSurfaceIdentity
+            },
+            ["clone_civil_set"] = new OpDef
+            {
+                Description = "Clone related modeling objects from another DWG: sites, feature lines, gradings, selected surfaces and optional layer entities. Preserves live relationships. Rename existing surfaces first to avoid automatic suffixes. Memory only; save_dwg to persist.",
+                Parameters = "dwg(required,absolute source path) surfaces?[] drop_cloned_entities?(false) all_surfaces?(false) feature_lines?(true) gradings?(true) sites?(true) layers?[] dry_run?(false)",
+                WritesDrawing = true,
+                Run = RunNodeCloneCivilSet
+            },
+            ["surface_paste_ops"] = new OpDef
+            {
+                Description = "Edit TIN operation lists in place: add/remove paste operations and reorder them while preserving surface identity. list_only inspects operation types.",
+                Parameters = "items(required,[{surface,paste?,index?(0),remove_paste?}]) rebuild?(true) list_only?(false)",
+                WritesDrawing = true,
+                Run = RunNodeSurfacePasteOps
+            },
+            ["surface_add_breaklines"] = new OpDef
+            {
+                Description = "Add standard breaklines from existing feature lines/polylines, creating the TIN if needed. Entity-backed definitions update on rebuild. Selection combines feature_lines, layers and handles. Memory only; save_dwg to persist.",
+                Parameters = "surface(required) feature_lines?(false) layers?[] handles?[] within_surface? min_inside_ratio?(0.5) index? clear_existing?(false) mid_ordinate?(0.01) max_distance?(0) weed_distance?(0) weed_angle?(0) description? style? layer? rebuild?(true) dry_run?(false)",
+                WritesDrawing = true,
+                Run = RunNodeSurfaceAddBreaklines
+            },
+            ["list_feature_lines"] = new OpDef
+            {
+                Description = "Inspect model-space feature lines: handles, layers, sites, closure, length, vertices, elevation range, bounds and styles.",
+                Parameters = "layer?(exact name)",
+                WritesDrawing = false,
+                Run = RunNodeListFeatureLines
+            },
+            ["rename_surfaces"] = new OpDef
+            {
+                Description = "Rename surfaces in place, preserving ObjectId references. Missing sources and existing target names cause errors. Memory only; save_dwg to persist.",
+                Parameters = "items(required,[{from,to}]) dry_run?(false)",
+                WritesDrawing = true,
+                Run = RunNodeRenameSurfaces
+            },
+            ["set_surface_style"] = new OpDef
+            {
+                Description = "Assign surface styles by name or prefix, optionally changing layers. Missing styles cause errors. Memory only; save_dwg to persist.",
+                Parameters = "style(required) surfaces?[] prefix? layer?",
+                WritesDrawing = true,
+                Run = RunNodeSetSurfaceStyle
+            },
+            ["shape_hatch"] = new OpDef
+            {
+                Description = "Inspect/edit shape-style hatch patterns, scale factors and angles for a specified view. Memory only; save_dwg to persist.",
+                Parameters = "name(required) view?(Section|Plan|Profile|Model,default Section) set?{property:value}",
+                WritesDrawing = true,
+                Run = RunNodeShapeHatch
+            },
+            ["add_stock_subassemblies"] = new OpDef
+            {
+                Description = "Add stock Civil subassemblies to an existing assembly and attach to coded points. Parameters use display names/resource IDs. Memory only; save_dwg and rebuild_corridor afterward.",
+                Parameters = "assembly(required) items(required,[{name,class?(Subassembly.MarkPoint),attach{subassembly,point_code},params_string?{},params_double?{},params_long?{}}])",
+                WritesDrawing = true,
+                Run = RunNodeAddStockSubassemblies
+            },
+            ["update_section_view_groups"] = new OpDef
+            {
+                Description = "Call UpdateLayout on section view groups and report before/after row and column fingerprints. Memory only; save_dwg to persist.",
+                Parameters = "alignments?[](default all)",
+                WritesDrawing = true,
+                Run = RunNodeUpdateSectionViewGroups
+            },
+            ["set_group_plot_style"] = new OpDef
+            {
+                Description = "Inspect/edit group plot array rows, columns and spacing. Use LayoutSectionViewGroup to rearrange groups after editing. Memory only; save_dwg to persist.",
+                Parameters = "name(required) rows? cols? space_row_mm? space_col_mm? gap_between_pages_mm? (omit all to inspect)",
+                WritesDrawing = true,
+                Run = RunNodeSetGroupPlotStyle
+            },
+            ["surface_folders"] = new OpDef
+            {
+                Description = "Organize surfaces into Prospector folders by name or prefix. Memory only; save_dwg to persist.",
+                Parameters = "folders(required,[{name,surfaces?[],prefix?}])",
+                WritesDrawing = true,
+                Run = RunNodeSurfaceFolders
+            },
+            ["paste_surfaces"] = new OpDef
+            {
+                Description = "Paste surfaces in order into a new TIN; later surfaces cover earlier ones. Use merge_post_dredge_surface for minimum-elevation merging. "
+                            + "Reports points, triangles and elevation range; zero triangles is failure. Memory only; save_dwg to persist.",
+                Parameters = "name(required) sources(required,[surface_name,...]) style?(first source style) layer? replace?(true)",
+                WritesDrawing = true,
+                Run = RunNodePasteSurfaces
+            },
+            ["set_corridor_targets"] = new OpDef
+            {
+                Description = "Assign or clear corridor targets per region using slot, subassembly and region filters. "
+                            + "Falls back to corridor-level targets only without region filters and with no region matches. Reports unmatched slots and missing regions. "
+                            + "Changes target mappings, not subassembly packages. Memory only; save_dwg to persist.",
+                Parameters = "corridor(required) targets(required,[{slot,subassembly_contains?,regions?[],surfaces?[],alignments?[],handles?[],clear?(false)}]) rebuild?(true)",
+                WritesDrawing = true,
+                Run = RunNodeSetCorridorTargets
+            },
+            ["set_region_assembly"] = new OpDef
+            {
+                Description = "Replace corridor region assemblies in place without recreating regions. "
+                            + "Rejects SAC assemblies that are not UpToDate. New target slots start empty; use set_corridor_targets to populate targets_after. "
+                            + "Old assemblies are retained. dry_run defaults to true. Memory only; save_dwg to persist.",
+                Parameters = "corridor(required) assembly(required) regions?[](exact names) baseline? dry_run?(true) rebuild?(true)",
+                WritesDrawing = true,
+                Run = RunNodeSetRegionAssembly
+            },
+            ["create_assembly"] = new OpDef
+            {
+                Description = "Import a LEFT/RIGHT pair of Subassembly Composer .pkt files as a new assembly and embed the PKT projects in the drawing (the assembly then survives the files moving). Existing assembly of the same name is replaced",
+                Parameters = "name(required) left_pkt right_pkt(absolute .pkt paths; the LEFT/RIGHT pair form) items?[{name?,pkt|stock,params?,attach?{to,point_code|point_index}}](ordered pieces: a .pkt or a stock class such as Subassembly.MarkPoint / Subassembly.LinkToMarkedPoint, hooked to the baseline or to a point of an earlier piece) params?{ParamName:value}(applied to every piece, e.g. Slope1H) "
+                           + "embed?(default true) replace?(default true) x? y?(assembly origin, default 0,0)",
+                WritesDrawing = true,
+                Run = RunNodeCreateAssembly
+            },
+            ["set_subassembly_params"] = new OpDef
+            {
+                Description = "Edit existing subassembly parameters by display name via reflection on "
+                            + "ParamsDouble/ParamsLong/ParamsString; report before/after values and available names on mismatch. "
+                            + "Preserves assembly identities and corridor region references. "
+                            + "Memory only; save_dwg, rebuild_corridor and compute_quantities afterward.",
+                Parameters = "assembly(required) subassembly?(name substring,default all) "
+                           + "params_double?{} params_long?{} params_string?{} (at least one required) dry_run?(false)",
+                WritesDrawing = true,
+                Run = RunNodeSetSubassemblyParams
+            },
+            ["copy_styles"] = new OpDef
+            {
+                Description = "Copy a style within its category using DeepClone and rename. "
+                            + "Falls back to Add and copying per-view display components. Result method identifies the path. Memory only; save_dwg to persist.",
+                Parameters = "items(required,[{cat,from,to}]; cat is a list_styles category path) dry_run?(true) method?(clone|add_copy_display,default automatic)",
+                WritesDrawing = true,
+                Run = RunNodeCopyStyles
+            },
+            ["import_styles"] = new OpDef
+            {
+                Description = "Import styles from another DWG using StyleBase.ExportTo, including referenced dependencies. "
+                            + "Child label styles are not automatically exported with their parent. "
+                            + "Select children explicitly as Parent > Child; they remain under the matching parent.",
                 Parameters = "from(required, absolute path of the library file) filter?(style name substring, default \"@\") items?[{cat,name}](only these if given) cats?[](only search these categories) mode?(ignore|replace, default ignore = same name not overwritten) dry_run?(default true)",
                 WritesDrawing = false,
                 Run = ImportStyles
@@ -1257,8 +1711,11 @@ namespace Civil3DFactory
             },
             ["code_set_edit"] = new OpDef
             {
-                Description = "Add/modify code set mappings: which style and label style a code gets. Use it to wire up links on sections that have no style or label",
-                Parameters = "name(required, code set name) items(required, [{code,style?,label_style?,style_type?(link|marker|shape),remove?(true drops the code)}]) dry_run?(default true)",
+                Description = "Edit code-set mappings to display and label styles. "
+                            + "Child label styles accept Parent > Child paths. "
+                            + "Short names must be unique across searched children; ambiguity reports candidates.",
+                Parameters = "name(required,code set) items(required,[{code,style?,label_style?(full child path or unique short name),"
+                           + "style_type?(link|marker|point|shape,default resolve by name)}]) dry_run?(true)",
                 WritesDrawing = false,
                 Run = CodeSetEdit
             },
@@ -1301,7 +1758,6 @@ namespace Civil3DFactory
             return def.Run(args ?? new JsonObject(), doc);
         }
 
-        // ===================== Operation implementations =====================
 
         static JsonNode DrawingInfo(JsonObject a, Document doc)
         {
@@ -1356,31 +1812,6 @@ namespace Civil3DFactory
                 tr.Commit();
             }
             return arr;
-        }
-
-        static JsonNode SetSurfaceStyle(JsonObject a, Document doc)
-        {
-            string surfName = Need(a, "surface");
-            string styleName = Need(a, "style");
-            Database db = doc.Database;
-            CivDoc civ = Civ(db);
-            using (Transaction tr = db.TransactionManager.StartTransaction())
-            {
-                ObjectId styleId = FindStyleIdStrict(tr, civ.Styles.SurfaceStyles, styleName);
-                if (styleId.IsNull) throw new InvalidOperationException("Surface style '" + styleName + "' not found in SurfaceStyles.");
-                foreach (ObjectId id in ModelSpace(db, tr))
-                {
-                    var s = tr.GetObject(id, OpenMode.ForRead) as CivSurface;
-                    if (s == null || s.Name != surfName) continue;
-                    string before = "";
-                    try { before = s.StyleName; } catch { }
-                    s.UpgradeOpen();
-                    s.StyleId = styleId;
-                    tr.Commit();
-                    return new JsonObject { ["surface"] = surfName, ["style_before"] = before, ["style"] = styleName, ["handle"] = s.Handle.ToString() };
-                }
-                throw new InvalidOperationException("Surface '" + surfName + "' not found.");
-            }
         }
 
         static JsonNode ListSurfaces(JsonObject a, Document doc)
@@ -1575,10 +2006,6 @@ namespace Civil3DFactory
             };
         }
 
-        // ---------- Civil 3D inventory probe ----------
-        // Key question: can CivilDocument be obtained inside accoreconsole?
-        // No -> objects can only be read (the v1 approach); yes -> the alignment/corridor/quantity chain becomes possible.
-        // Try both paths, keep whichever works, and report both results.
         static JsonNode CivilEnv(JsonObject a, Document doc)
         {
             int max = (int)GetDouble(a, "max", 40);
@@ -1608,7 +2035,6 @@ namespace Civil3DFactory
             res["civil_document"] = access;
             res["usable"] = civ != null;
 
-            // Civil objects in model space (independent of CivilDocument; v1 always used this path)
             var assemblies = new JsonArray();
             var corridors = new JsonArray();
             var alignments = new JsonArray();
@@ -1622,7 +2048,6 @@ namespace Civil3DFactory
                     if (o is Autodesk.Civil.DatabaseServices.Assembly)
                     {
                         var asm = (Autodesk.Civil.DatabaseServices.Assembly)o;
-                        // Assembly -> group (AssemblyGroup) -> GetSubassemblyIds()
                         var subs = new JsonArray();
                         try
                         {
@@ -1632,8 +2057,6 @@ namespace Civil3DFactory
                                     var sa = tr.GetObject(sid, OpenMode.ForRead)
                                              as Autodesk.Civil.DatabaseServices.Subassembly;
                                     if (sa == null) continue;
-                                    // Status is the key: Subassembly Composer parts reference .pkt by path;
-                                    // when the path is broken Status=FileNotFound, the corridor still builds but has **no geometry at all**
                                     subs.Add(new JsonObject
                                     {
                                         ["name"] = sa.Name,
@@ -1659,7 +2082,6 @@ namespace Civil3DFactory
 
             if (civ == null) return res;
 
-            // Styles and criteria: only readable once CivilDocument is available
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 var styles = new JsonObject();
@@ -1696,14 +2118,8 @@ namespace Civil3DFactory
             return res;
         }
 
-        // ---- list_styles: reflection walk of the whole Styles tree ----
         //
-        // Why not hand-write category names like civil_env: Civil 3D's CivilDocument.Styles is a nested tree
-        // (StylesRoot -> LabelStyles -> AlignmentLabelStyles -> StationLabelStyles -> ...);
-        // a hand-written list reads one level only and the missed categories are invisible in the result. Only a reflection walk guarantees "all".
         //
-        // Rule: if the property value is IEnumerable -> treat as a style collection and collect names; otherwise if the type is in the Autodesk.Civil namespace
-        // -> treat as a group and recurse. A reference set guards against cycles, depth is the fallback.
         static JsonNode ListStyles(JsonObject a, Document doc)
         {
             int max = (int)GetDouble(a, "max", 500);
@@ -1787,13 +2203,6 @@ namespace Civil3DFactory
                         }
                         else if (vt.FullName != null && vt.FullName.StartsWith("Autodesk.Civil"))
                         {
-                            // Only descend into "groups", never into "single style objects": LabelStyles.DefaultLabelStyle
-                            // is a concrete style; descending hits a pile of .Overridden properties which throw
-                            // TargetInvocationException("This property is not overridable") for non-override items,
-                            // flooding the output with 30+ bogus errors.
-                            // The rule uses the type-name suffix Root (StylesRoot / LabelStyleRoot / BandStyleRoot /
-                            // TableStyleRoot ... every group has this suffix); TryGetName was tried but
-                            // DefaultLabelStyle yields no name here, so it cannot filter.
                             if (!vt.Name.EndsWith("Root")) continue;
                             stack.Add(new KeyValuePair<string, object>(key, val));
                         }
@@ -1813,8 +2222,6 @@ namespace Civil3DFactory
             return res;
         }
 
-        // Walk the list_styles category path (e.g. "LabelStyles.ProfileLabelStyles.MajorStationLabelStyles")
-        // property by property to get the style collection object. Returns null if unreachable.
         static object ResolveStyleCollection(CivDoc civ, string path)
         {
             object node = civ.Styles;
@@ -1832,11 +2239,6 @@ namespace Civil3DFactory
 
         // ---- delete_styles ----
         //
-        // Delete only styles exactly matched by "category path + name". Two safety lines:
-        //   1. default dry_run=true: resolve and report only;
-        //   2. even a real delete only changes memory; disk needs save_dwg, which defaults to save-as.
-        // Styles referenced by other styles/objects cannot be deleted and Civil throws; record the error as is, never swallow, never force.
-        // Multiple passes: only after the parent (e.g. a label group) is deleted can the child styles it referenced be deleted.
         static JsonNode DeleteStyles(JsonObject a, Document doc)
         {
             var items = a["items"] as JsonArray;
@@ -1850,7 +2252,6 @@ namespace Civil3DFactory
             try { civ = CivDoc.GetCivilDocument(db); } catch { }
             if (civ == null) throw new InvalidOperationException("CivilDocument unavailable.");
 
-            // Target list -> (cat, name)
             var targets = new List<string[]>();
             foreach (JsonNode it in items)
             {
@@ -1960,8 +2361,6 @@ namespace Civil3DFactory
             };
         }
 
-        // Walk every display component of every style and hand it to the callback.
-        // skipCats contains AssemblyStyles by default: scanning it hard-crashes the process with AccessViolation (.NET cannot catch it).
         static void ForEachDisplay(Database db, Transaction tr, CivDoc civ,
                                    List<string> skipCats, string nameFilter,
                                    Action<string, string, object, DBObject> visit)
@@ -2058,6 +2457,7 @@ namespace Civil3DFactory
             var created = new JsonArray();
             var renamed = new JsonArray();
             var deleted = new JsonArray();
+            var modified = new JsonArray();
             var failed = new JsonArray();
             int styleRefsPatched = 0;
 
@@ -2066,7 +2466,6 @@ namespace Civil3DFactory
                 LayerTable lt = (LayerTable)tr.GetObject(db.LayerTableId,
                     dry ? OpenMode.ForRead : OpenMode.ForWrite);
 
-                // --- create ---
                 var arr = a["create"] as JsonArray;
                 if (arr != null)
                     foreach (JsonNode n in arr)
@@ -2082,7 +2481,6 @@ namespace Civil3DFactory
                         created.Add(nm);
                     }
 
-                // --- rename (with style string sync) ---
                 var ren = a["rename"] as JsonArray;
                 var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 if (ren != null)
@@ -2095,7 +2493,7 @@ namespace Civil3DFactory
                         if (lt.Has(to))
                         { failed.Add(new JsonObject { ["op"] = "rename", ["name"] = from, ["why"] = "target name " + to + " already exists" }); continue; }
                         map[from] = to;
-                        if (dry) { renamed.Add(from + " -> " + to + " (dry run)"); continue; }
+                        if (dry) { renamed.Add(from + " → " + to + " (dry run)"); continue; }
                         try
                         {
                             var ltr = (LayerTableRecord)tr.GetObject(lt[from], OpenMode.ForWrite);
@@ -2106,7 +2504,6 @@ namespace Civil3DFactory
                         { failed.Add(new JsonObject { ["op"] = "rename", ["name"] = from, ["why"] = ex.GetType().Name + ": " + Truncate(ex.Message, 90) }); }
                     }
 
-                // Layer strings inside styles follow the rename (skipping this step breaks the links)
                 if (sync && map.Count > 0 && civ != null)
                 {
                     ForEachDisplay(db, tr, civ, skip, null, delegate (string cat, string sname, object ds, DBObject so)
@@ -2124,7 +2521,6 @@ namespace Civil3DFactory
                     });
                 }
 
-                // --- delete ---
                 var del = a["delete"] as JsonArray;
                 if (del != null)
                     foreach (JsonNode n in del)
@@ -2144,6 +2540,37 @@ namespace Civil3DFactory
                         { failed.Add(new JsonObject { ["op"] = "delete", ["name"] = nm, ["why"] = ex.GetType().Name + ": " + Truncate(ex.Message, 90) }); }
                     }
 
+                var setArr = a["set"] as JsonArray;
+                if (setArr != null)
+                    foreach (JsonNode n in setArr)
+                    {
+                        var so = n as JsonObject; if (so == null) continue;
+                        string nm = GetString(so, "name", null);
+                        if (string.IsNullOrEmpty(nm) || !lt.Has(nm))
+                        { failed.Add(new JsonObject { ["op"] = "set", ["name"] = nm ?? "", ["why"] = "layer does not exist" }); continue; }
+                        var changes = new JsonObject();
+                        if (so["lineweight"] != null) changes["lineweight"] = (int)GetDouble(so, "lineweight", -3);
+                        if (so["color"] != null) changes["color"] = (int)GetDouble(so, "color", 7);
+                        if (so["linetype"] != null) changes["linetype"] = so["linetype"].ToString();
+                        if (dry) { modified.Add(new JsonObject { ["name"] = nm, ["changes"] = changes, ["dry_run"] = true }); continue; }
+                        try
+                        {
+                            var ltr = (LayerTableRecord)tr.GetObject(lt[nm], OpenMode.ForWrite);
+                            if (so["lineweight"] != null) ltr.LineWeight = (LineWeight)(int)GetDouble(so, "lineweight", -3);
+                            if (so["color"] != null) ltr.Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(Autodesk.AutoCAD.Colors.ColorMethod.ByAci, (short)GetDouble(so, "color", 7));
+                            if (so["linetype"] != null)
+                            {
+                                var ltt = (LinetypeTable)tr.GetObject(db.LinetypeTableId, OpenMode.ForRead);
+                                string ltn = so["linetype"].ToString();
+                                if (!ltt.Has(ltn)) throw new InvalidOperationException("Linetype not found: " + ltn);
+                                ltr.LinetypeObjectId = ltt[ltn];
+                            }
+                            modified.Add(new JsonObject { ["name"] = nm, ["changes"] = changes });
+                        }
+                        catch (System.Exception ex)
+                        { failed.Add(new JsonObject { ["op"] = "set", ["name"] = nm, ["why"] = ex.GetType().Name + ": " + Truncate(ex.Message, 90) }); }
+                    }
+
                 tr.Commit();
             }
 
@@ -2153,6 +2580,7 @@ namespace Civil3DFactory
                 ["created"] = created,
                 ["renamed"] = renamed,
                 ["deleted"] = deleted,
+                ["modified"] = modified,
                 ["style_refs_patched"] = styleRefsPatched,
                 ["failed"] = failed
             };
@@ -2165,7 +2593,6 @@ namespace Civil3DFactory
             bool toByLayer = GetBool(a, "color_bylayer", false);
             var skip = SkipCats(a);
 
-            // {style,from,to}: reassign components with layer==from in a style to layer to
             var moves = new List<string[]>();
             var mv = a["layer_moves"] as JsonArray;
             if (mv != null)
@@ -2330,13 +2757,7 @@ namespace Civil3DFactory
             return new JsonObject { ["dry_run"] = dry, ["done"] = done, ["failed"] = failed };
         }
 
-        // ---- import_styles: bring styles over from a style library DWG ----
         //
-        // Approach: open the library file as a side database, find the source style's ObjectId by "category path + name",
-        // then WblockCloneObjects it into the **owner dictionary of the same category collection** in the target drawing.
-        // Deep clone because Civil styles reference each other (code set -> link/marker/shape styles, section view style -> band set...);
-        // moving just the shell would miss dependencies. The target dictionary comes from "the OwnerId of any existing style in that collection";
-        // every collection has at least a Standard entry, so this path is reliable.
         static JsonNode ImportStyles(JsonObject a, Document doc)
         {
             string from = GetString(a, "from", null);
@@ -2368,7 +2789,6 @@ namespace Civil3DFactory
                 if (srcCiv == null)
                     throw new InvalidOperationException("CivilDocument unavailable for the library file (is it a Civil drawing?)");
 
-                // Enumerate all style collections in the source library (reusing the Root-suffix rule)
                 var srcCollections = new List<KeyValuePair<string, object>>();
                 {
                     var stack = new List<KeyValuePair<string, object>>();
@@ -2401,7 +2821,6 @@ namespace Civil3DFactory
                     }
                 }
 
-                // Pick the styles to import per category
                 var perCat = new Dictionary<string, List<KeyValuePair<ObjectId, string>>>();
                 using (Transaction str = srcDb.TransactionManager.StartTransaction())
                 {
@@ -2417,14 +2836,10 @@ namespace Civil3DFactory
                         }
                         var en = kv.Value as System.Collections.IEnumerable;
                         if (en == null) continue;
-                        foreach (object item in en)
+                        foreach (var cand in FlattenStylesWithChildren(str, en))
                         {
-                            if (!(item is ObjectId)) continue;
-                            ObjectId oid = (ObjectId)item;
-                            if (oid.IsErased) continue;
-                            string nm;
-                            try { nm = TryGetName(str.GetObject(oid, OpenMode.ForRead)); } catch { continue; }
-                            if (nm == null) continue;
+                            ObjectId oid = cand.Key;
+                            string nm = cand.Value;
 
                             bool take;
                             if (wantItems != null)
@@ -2450,7 +2865,6 @@ namespace Civil3DFactory
                     str.Commit();
                 }
 
-                // Skip styles that already exist in the target drawing (same category, same name)
                 var existing = new Dictionary<string, List<string>>();
                 using (Transaction dtr = dstDb.TransactionManager.StartTransaction())
                 {
@@ -2459,15 +2873,8 @@ namespace Civil3DFactory
                         var lst = new List<string>();
                         var dcoll = ResolveStyleCollection(dstCiv, cat) as System.Collections.IEnumerable;
                         if (dcoll != null)
-                            foreach (object item in dcoll)
-                            {
-                                if (!(item is ObjectId)) continue;
-                                ObjectId oid = (ObjectId)item;
-                                if (oid.IsErased) continue;
-                                string nm;
-                                try { nm = TryGetName(dtr.GetObject(oid, OpenMode.ForRead)); } catch { continue; }
-                                if (nm != null) lst.Add(nm);
-                            }
+                            foreach (var pair in FlattenStylesWithChildren(dtr, dcoll))
+                                lst.Add(pair.Value);
                         existing[cat] = lst;
                     }
                     dtr.Commit();
@@ -2489,9 +2896,6 @@ namespace Civil3DFactory
                     foreach (string nm in names) planned.Add(cat + " :: " + nm);
                     if (dry) continue;
 
-                    // The proper way to import Civil styles across databases is StyleBase.ExportTo (brings dependent sub-styles automatically);
-                    // WblockCloneObjects always reports eInvalidOwnerObject for Civil styles (measured 2026-08-11).
-                    // In ignore mode same-named styles were skipped above, so the resolver here always uses Override.
                     using (Transaction str2 = srcDb.TransactionManager.StartTransaction())
                     {
                         for (int i2 = 0; i2 < ids.Count; i2++)
@@ -2537,9 +2941,6 @@ namespace Civil3DFactory
             };
         }
 
-        // A code set is a mapping table "code -> style / label style". When labels do not appear on section views,
-        // nine times out of ten the code set has no label for that code, or the code name does not match what the corridor actually produces.
-        // CodeSetStyleItem property names are not guessed: reflection lists them all, ObjectIds are always resolved to names.
         static JsonNode CodeSetDump(JsonObject a, Document doc)
         {
             string want = GetString(a, "name", null);
@@ -2560,7 +2961,6 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // Codes actually produced by the corridor
                 if (corName != null)
                 {
                     foreach (ObjectId id in ModelSpace(db, tr))
@@ -2693,7 +3093,6 @@ namespace Civil3DFactory
             return res;
         }
 
-        // Find an ObjectId by name across several style collections (a code set style may be link/marker/shape/feature line; labels likewise)
         static ObjectId FindStyleAnywhere(Transaction tr, CivDoc civ, string name, string[] cats)
         {
             foreach (string cat in cats)
@@ -2712,6 +3111,55 @@ namespace Civil3DFactory
                     if (nm == name) return oid;   // case-sensitive: @C3DF-centerline and @C3DF-CenterLine are two different things
                 }
             }
+            return ObjectId.Null;
+        }
+
+        static string NormalizeStylePath(string s)
+        {
+            var parts = s.Split('▸');
+            for (int i = 0; i < parts.Length; i++) parts[i] = parts[i].Trim();
+            return string.Join(" ▸ ", parts);
+        }
+
+        static ObjectId FindLabelStyleForCode(Transaction tr, CivDoc civ, string name, string[] cats,
+                                              out string resolved, out string why)
+        {
+            resolved = name; why = null;
+            ObjectId top = FindStyleAnywhere(tr, civ, name, cats);
+            if (!top.IsNull) return top;
+            string want = NormalizeStylePath(name);
+            bool isPath = want.Contains("▸");
+            var shortHits = new List<KeyValuePair<ObjectId, string>>();
+            foreach (string cat in cats)
+            {
+                object coll;
+                try { coll = ResolveStyleCollection(civ, cat); } catch { continue; }
+                var en = coll as System.Collections.IEnumerable;
+                if (en == null) continue;
+                foreach (var kv in FlattenStylesWithChildren(tr, en))
+                {
+                    string full = kv.Value;
+                    if (full.IndexOf('▸') < 0) continue;
+                    if (isPath)
+                    {
+                        if (NormalizeStylePath(full) == want) { resolved = full; return kv.Key; }
+                    }
+                    else
+                    {
+                        string leaf = full.Substring(full.LastIndexOf('▸') + 1).Trim();
+                        if (leaf == name.Trim()) shortHits.Add(kv);
+                    }
+                }
+            }
+            if (!isPath && shortHits.Count == 1) { resolved = shortHits[0].Value; return shortHits[0].Key; }
+            if (!isPath && shortHits.Count > 1)
+            {
+                var names = new List<string>();
+                foreach (var h in shortHits) names.Add(h.Value);
+                why = "Child style short name '" + name + "' is ambiguous; specify Parent > Child: " + string.Join("; ", names);
+                return ObjectId.Null;
+            }
+            why = "Label style not found: " + name + (isPath ? " (by Parent > Child path)" : " (not found in collection or child styles)");
             return ObjectId.Null;
         }
 
@@ -2764,33 +3212,8 @@ namespace Civil3DFactory
                     string styleType = o["style_type"] == null ? null : o["style_type"].ToString().ToLowerInvariant();
                     if (code == null) continue;
 
-                    // {code, remove:true, style_type?} drops the mapping (CodeSetStyle.Remove); the group is chosen by style_type like Add.
-                    if (GetBool(o, "remove", false))
-                    {
-                        if (dry) { done.Add(code + " -> removed (dry run)"); continue; }
-                        try
-                        {
-                            if (styleType != null)
-                            {
-                                var pSub = csObj.GetType().GetProperty("SubentityStyleType");
-                                if (pSub != null && pSub.CanWrite && pSub.PropertyType.IsEnum)
-                                    pSub.SetValue(csObj, Enum.Parse(pSub.PropertyType,
-                                        styleType == "link" ? "LinkType" : styleType == "shape" ? "ShapeType" : "MarkerType"), null);
-                            }
-                            var mRemove = csObj.GetType().GetMethod("Remove", new Type[] { typeof(string) });
-                            if (mRemove == null) throw new InvalidOperationException("CodeSetStyle.Remove(string) not available");
-                            mRemove.Invoke(csObj, new object[] { code });
-                            done.Add(code + " -> removed");
-                        }
-                        catch (System.Exception ex)
-                        {
-                            var inner = ex.InnerException ?? ex;
-                            failed.Add(new JsonObject { ["code"] = code, ["why"] = "remove failed: " + inner.GetType().Name + ": " + Truncate(inner.Message, 120) });
-                        }
-                        continue;
-                    }
-
                     ObjectId styleId = ObjectId.Null, labelId = ObjectId.Null;
+                    string labelResolved = labelName;
                     if (styleName != null)
                     {
                         string[] styleCats = styleType == "link" ? new string[] { "LinkStyles" }
@@ -2799,7 +3222,7 @@ namespace Civil3DFactory
                             : CodeStyleCats;
                         styleId = FindStyleAnywhere(tr, civ, styleName, styleCats);
                         if (styleId.IsNull)
-                        { failed.Add(new JsonObject { ["code"] = code, ["why"] = (styleType ?? "specified type") + " style not found: " + styleName }); continue; }
+                        { failed.Add(new JsonObject { ["code"] = code, ["why"] = "Not found" + (styleType ?? "specified type") + "Style " + styleName }); continue; }
                     }
                     if (labelName != null)
                     {
@@ -2810,22 +3233,21 @@ namespace Civil3DFactory
                                 : styleType == "shape"
                                     ? new string[] { "LabelStyles.GeneralShapeLabelStyles" }
                                     : CodeLabelCats;
-                        labelId = FindStyleAnywhere(tr, civ, labelName, labelCats);
+                        string why;
+                        labelId = FindLabelStyleForCode(tr, civ, labelName, labelCats, out labelResolved, out why);
                         if (labelId.IsNull)
-                        { failed.Add(new JsonObject { ["code"] = code, ["why"] = "label style not found: " + labelName }); continue; }
+                        { failed.Add(new JsonObject { ["code"] = code, ["why"] = why }); continue; }
                     }
 
                     if (dry)
                     {
                         done.Add(code + " -> style " + (styleName ?? "(unchanged)")
-                                 + " / label " + (labelName ?? "(unchanged)") + " (dry run)");
+                                 + " / label " + (labelResolved ?? "(unchanged)") + " (dry run)");
                         continue;
                     }
 
                     try
                     {
-                        // The enumerator, GetItemBy and Add of CodeSetStyle are all governed by the current
-                        // SubentityStyleType. Switch to the target group first, then look for the existing code.
                         if (styleType != null)
                         {
                             var pSubType = csObj.GetType().GetProperty("SubentityStyleType");
@@ -2836,7 +3258,6 @@ namespace Civil3DFactory
                             pSubType.SetValue(csObj, Enum.Parse(pSubType.PropertyType, enumName), null);
                         }
 
-                        // Existing code with the same name is fetched and modified, otherwise Add
                         object entry = null;
                         var mGet = csObj.GetType().GetMethod("GetItemBy");
                         var en2 = csObj as System.Collections.IEnumerable;
@@ -2852,9 +3273,6 @@ namespace Civil3DFactory
 
                         if (entry == null)
                         {
-                            // CodeSetStyle.Add(code, styleId) decides whether the new code goes into the Link/Point/Shape
-                            // group by the style set's current SubentityStyleType;
-                            // the default is MarkerType, it cannot be inferred from styleId alone.
                             if (styleType != null)
                             {
                                 var pSubType = csObj.GetType().GetProperty("SubentityStyleType");
@@ -2897,16 +3315,15 @@ namespace Civil3DFactory
                             }
                             catch
                             {
-                                // Civil 3D 2025 reports "Value does not fall within expected range" when writing the ObjectId
-                                // directly for some newly created Link Codes, but the same
-                                // CodeSetStyleItem can be resolved by the host by type via LabelStyleName.
                                 var pn = entry.GetType().GetProperty("LabelStyleName");
                                 if (pn == null || !pn.CanWrite) throw;
-                                pn.SetValue(entry, labelName, null);
+                                string leafName = labelResolved.IndexOf('▸') < 0 ? labelResolved
+                                    : labelResolved.Substring(labelResolved.LastIndexOf('▸') + 1).Trim();
+                                pn.SetValue(entry, leafName, null);
                             }
                         }
                         done.Add(code + " -> style " + (styleName ?? "(unchanged)")
-                                 + " / label " + (labelName ?? "(unchanged)"));
+                                 + " / label " + (labelResolved ?? "(unchanged)"));
                     }
                     catch (System.Exception ex)
                     {
@@ -2929,9 +3346,6 @@ namespace Civil3DFactory
             };
         }
 
-        // Label styles have no DisplayStyle; use LabelStyle's own component model:
-        // GetComponentsDrawOrder() gives component ObjectIds, then read the properties of each by reflection (visibility, text, layer, colour...).
-        // Common reasons a label does not show: 0 components, component Visible=false, empty text content, layer off.
         static JsonNode LabelStyleDump(JsonObject a, Document doc)
         {
             string want = GetString(a, "name", null);
@@ -2950,7 +3364,6 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // Without categories, scan the whole LabelStyles tree
                 var collections = new List<KeyValuePair<string, object>>();
                 if (cats.Count > 0)
                     foreach (string c in cats)
@@ -3006,7 +3419,6 @@ namespace Civil3DFactory
                         var entry = new JsonObject { ["cat"] = kv.Key, ["name"] = want,
                                                      ["type"] = so.GetType().Name };
 
-                        // Component count
                         try
                         {
                             var mCnt = so.GetType().GetMethod("GetComponentsCount", Type.EmptyTypes);
@@ -3015,7 +3427,6 @@ namespace Civil3DFactory
                         catch (System.Exception ex)
                         { entry["component_count_error"] = ex.GetType().Name; }
 
-                        // Each component
                         var comps = new JsonArray();
                         try
                         {
@@ -3034,7 +3445,6 @@ namespace Civil3DFactory
                         { entry["components_error"] = ex.GetType().Name + ": " + Truncate(ex.Message, 90); }
                         entry["components"] = comps;
 
-                        // The style's own properties (visibility, layer etc. live here)
                         try
                         {
                             var pProps = so.GetType().GetProperty("Properties");
@@ -3055,7 +3465,6 @@ namespace Civil3DFactory
             return new JsonObject { ["name"] = want, ["found"] = hits.Count, ["hits"] = hits };
         }
 
-        // Shallow reflection to JSON: scalars as is, ObjectIds resolved to names, nested objects recursed depth levels
         static JsonObject DumpShallow(Transaction tr, object o, int depth)
         {
             var row = new JsonObject();
@@ -3091,8 +3500,6 @@ namespace Civil3DFactory
             return row;
         }
 
-        // Take one section + section view per alignment and dump every property.
-        // Purpose: diff directly when "old sections made by Civil commands" and "new sections made by this tool" coexist in one drawing.
         static JsonNode DumpSections(JsonObject a, Document doc)
         {
             var names = new List<string>();
@@ -3117,9 +3524,6 @@ namespace Civil3DFactory
                     }
                     if (al == null) { entry["error"] = "alignment not found"; res[alName] = entry; continue; }
 
-                    // Sample line group -> sample line -> section. **All groups, all section views are needed**:
-                    // one alignment may carry both "mine" and "Civil-command-made" groups;
-                    // taking only the first never reveals the difference (earlier rounds failed exactly here).
                     var groups = new JsonArray();
                     try
                     {
@@ -3142,9 +3546,6 @@ namespace Civil3DFactory
                                 entry["sample_line"] = sl.Name;
                                 entry["sample_line_dump"] = DumpShallow(tr, sl, 1);
 
-                                // Section views come straight from the sample line. **One sample line may carry several**:
-                                // a sample line group may have several section view groups (one mine, one from the Civil command);
-                                // taking only the first never shows the other group.
                                 if (which != "section" && !gotView)
                                     try
                                     {
@@ -3155,9 +3556,6 @@ namespace Civil3DFactory
                                             var one = DumpShallow(tr, sv2, 1);
                                             one["_name"] = TryGetName(sv2);
 
-                                            // * View-level label group query: decides "were labels created at all".
-                                            // Non-empty collection but invisible on screen -> display optimisation/layer/visibility issue;
-                                            // empty collection -> the label set was never applied.
                                             var lg = new JsonObject();
                                             foreach (var mm in sv2.GetType().GetMethods(
                                                 System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
@@ -3176,8 +3574,6 @@ namespace Civil3DFactory
                                             }
                                             one["_label_groups"] = lg;
 
-                                            // * Each view's **overrides** for each section: both view groups share the same sections,
-                                            // so display differences can only hide here (corridor section overrides included).
                                             try
                                             {
                                                 var pOv = sv2.GetType().GetProperty("GraphOverrides");
@@ -3188,9 +3584,6 @@ namespace Civil3DFactory
                                                     foreach (object it in en3)
                                                     {
                                                         var row = DumpShallow(tr, it, 1);
-                                                        // * Does this section have a label group in this view at all:
-                                                        // the Autodesk support article says labels default to "corridor point style labels" rather than code set labels,
-                                                        // and the presence of a label group is the most direct evidence
                                                         try
                                                         {
                                                             var m2 = it.GetType().GetMethod("GetSectionLabelGroupIds", Type.EmptyTypes);
@@ -3216,8 +3609,6 @@ namespace Civil3DFactory
                                     catch (System.Exception ex)
                                     { entry["view_error"] = ex.GetType().Name + ": " + Truncate(ex.Message, 90); }
 
-                                // A sample line carries several sections (ground line, corridor...); take them all,
-                                // the first alone would be the ground-line section while point labels belong to the corridor section.
                                 if (which != "view" && !gotSection)
                                     try
                                     {
@@ -3249,9 +3640,6 @@ namespace Civil3DFactory
             return res;
         }
 
-        // Search here first when unsure which API to use.
-        // Note: AeccDbMgd lives in a custom ALC; AppDomain.CurrentDomain.GetAssemblies() cannot see it,
-        // typeof(Alignment).Assembly must be used as the seed (old trap, see reference-accoreconsole-civil3d).
         static JsonNode ApiSearch(JsonObject a, Document doc)
         {
             string q = GetString(a, "q", null);
@@ -3303,8 +3691,6 @@ namespace Civil3DFactory
                     foreach (var m in ms)
                     {
                         if (members.Count >= max) break;
-                        // Match on member names and also on **type names appearing in the signature**.
-                        // The latter is the key: to find "who uses the eXxx enum" the member name does not contain it at all.
                         var ps = new List<string>();
                         bool sigHit = hit(m.ReturnType.Name);
                         foreach (var p in m.GetParameters())
@@ -3339,7 +3725,6 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // Count entities per layer in model space first, to decide "is it used"
                 var used = new Dictionary<string, int>();
                 foreach (ObjectId id in ModelSpace(db, tr))
                 {
@@ -3387,8 +3772,6 @@ namespace Civil3DFactory
             catch { return "?"; }
         }
 
-        // Batch version of style_display: all (or filtered) styles x all views x all components.
-        // Get the full picture before normalising: which colours are not ByLayer, how many spellings of layer names, references to missing layers.
         static JsonNode StylesAudit(JsonObject a, Document doc)
         {
             string filter = GetString(a, "filter", null);
@@ -3400,7 +3783,6 @@ namespace Civil3DFactory
             try { civ = CivDoc.GetCivilDocument(db); } catch { }
             if (civ == null) throw new InvalidOperationException("CivilDocument unavailable.");
 
-            // Layer table: to decide whether the layers referenced by styles exist
             var layerSet = new List<string>();
             using (Transaction tr0 = db.TransactionManager.StartTransaction())
             {
@@ -3418,7 +3800,6 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // Reuse the list_styles walk: category path -> collection
                 var stack = new List<KeyValuePair<string, object>>();
                 stack.Add(new KeyValuePair<string, object>("", civ.Styles));
                 var seen = new List<object>();
@@ -3528,13 +3909,7 @@ namespace Civil3DFactory
             };
         }
 
-        // ---- style_display: read/write of the style dialog's Display page ----
         //
-        // Civil's way (verified with the api operations on 2026-07-28, not guessed):
-        //   the style class has GetDisplayStyle<View>(some enum component) -> returns DisplayStyle,
-        //   whose Color / Layer / Linetype / Lineweight / LinetypeScale / Visible are all writable.
-        // The enum type differs per style class (ProfileDataDisplayStyleType, AlignmentDisplayStyleType...),
-        // so nothing is hard-coded: reflection finds the GetDisplayStyle* methods and parses component names by their enum parameter.
         static JsonNode StyleDisplay(JsonObject a, Document doc)
         {
             string cat = GetString(a, "cat", null);
@@ -3573,7 +3948,6 @@ namespace Civil3DFactory
                     throw new InvalidOperationException("Collection " + cat + " has no style: " + name);
                 res["style_type"] = styleObj.GetType().Name;
 
-                // Find GetDisplayStyle<View>(enum)
                 System.Reflection.MethodInfo getter = null;
                 var candidates = new List<System.Reflection.MethodInfo>();
                 foreach (var m in styleObj.GetType().GetMethods(
@@ -3586,11 +3960,61 @@ namespace Civil3DFactory
                     if (m.Name.EndsWith(view, StringComparison.OrdinalIgnoreCase)) getter = m;
                 }
                 if (getter == null && candidates.Count == 1) getter = candidates[0];
+                if (getter == null && candidates.Count == 0)
+                {
+                    var plain = new List<System.Reflection.MethodInfo>();
+                    foreach (var m in styleObj.GetType().GetMethods(
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+                    {
+                        if (!m.Name.StartsWith("GetDisplayStyle") || m.GetParameters().Length != 0) continue;
+                        plain.Add(m);
+                        if (m.Name.EndsWith(view, StringComparison.OrdinalIgnoreCase)) getter = m;
+                    }
+                    if (getter == null && plain.Count == 1) getter = plain[0];
+                    if (getter != null)
+                    {
+                        res["getter"] = getter.Name;
+                        res["component"] = "(no components; whole style)";
+                        object disp0 = getter.Invoke(styleObj, null);
+                        var before0 = new JsonObject(); FillDisplay(disp0, before0);
+                        res["before"] = before0;
+                        if (set == null || set.Count == 0) { tr.Commit(); return res; }
+                        var changes0 = new JsonArray();
+                        if (!dry) { try { styleObj.UpgradeOpen(); } catch { } disp0 = getter.Invoke(styleObj, null); }
+                        foreach (var kv in set)
+                        {
+                            string k = kv.Key.ToLowerInvariant();
+                            string v = kv.Value == null ? null : kv.Value.ToString();
+                            try
+                            {
+                                if (dry) { changes0.Add(k + " → " + v + " (dry run, not written)"); continue; }
+                                ApplyDisplay(disp0, k, v);
+                                changes0.Add(k + " → " + v);
+                            }
+                            catch (System.Exception ex)
+                            {
+                                changes0.Add(k + " failed: " + ex.GetType().Name + ": " + Truncate(
+                                    ex.InnerException != null ? ex.InnerException.Message : ex.Message, 100));
+                            }
+                        }
+                        res["changes"] = changes0;
+                        var after0 = new JsonObject(); FillDisplay(getter.Invoke(styleObj, null), after0);
+                        res["after"] = after0;
+                        tr.Commit();
+                        return res;
+                    }
+                    var availP = new JsonArray();
+                    foreach (var m in plain) availP.Add(m.Name);
+                    res["error"] = "No GetDisplayStyle matching view=" + view + " (including parameterless overloads)";
+                    res["available_views"] = availP;
+                    tr.Commit();
+                    return res;
+                }
                 if (getter == null)
                 {
                     var avail = new JsonArray();
                     foreach (var m in candidates) avail.Add(m.Name);
-                    res["error"] = "no GetDisplayStyle method matching view=" + view;
+                    res["error"] = "No GetDisplayStyle matching view=" + view + " method";
                     res["available_views"] = avail;
                     tr.Commit();
                     return res;
@@ -3602,7 +4026,6 @@ namespace Civil3DFactory
                 Func<string, string> norm = s =>
                     s.Replace(" ", "").Replace("_", "").Replace("-", "").ToLowerInvariant();
 
-                // No component given: list all components with current values
                 if (comp == null)
                 {
                     var arr = new JsonArray();
@@ -3624,9 +4047,6 @@ namespace Civil3DFactory
                     return res;
                 }
 
-                // component given: parse the enum.
-                // Dialog wording and enum names often differ (dialog "Band Title Box Text" = enum TitleBoxText),
-                // so match exactly first, then fall back to "one contains the other", accepting only a unique hit.
                 string matched = null;
                 string want = norm(comp);
                 foreach (string en2 in Enum.GetNames(enumT))
@@ -3640,8 +4060,6 @@ namespace Civil3DFactory
                         if (want.EndsWith(e) || e.EndsWith(want) || want.Contains(e) || e.Contains(want))
                             loose.Add(en2);
                     }
-                    // With several hits take the **longest**: "Band Title Box Text" matches both TitleBox and
-                    // TitleBoxText, and the longer one is what the user meant. Only a tie for longest is a real ambiguity.
                     if (loose.Count > 0)
                     {
                         loose.Sort(delegate (string x, string y) { return y.Length.CompareTo(x.Length); });
@@ -3668,7 +4086,6 @@ namespace Civil3DFactory
                 var changes = new JsonArray();
                 if (!dry)
                 {
-                    // DisplayStyle is a wrapper; to modify it the style itself must be opened for write first
                     try { styleObj.UpgradeOpen(); } catch { }
                     disp = getter.Invoke(styleObj, new object[] { Enum.Parse(enumT, matched) });
                 }
@@ -3678,7 +4095,7 @@ namespace Civil3DFactory
                     string v = kv.Value == null ? null : kv.Value.ToString();
                     try
                     {
-                        if (dry) { changes.Add(k + " -> " + v + " (dry run, not written)"); continue; }
+                        if (dry) { changes.Add(k + " → " + v + " (dry run, not written)"); continue; }
                         ApplyDisplay(disp, k, v);
                         changes.Add(k + " → " + v);
                     }
@@ -3730,7 +4147,6 @@ namespace Civil3DFactory
             return string.Format("{0},{1},{2}", col.Red, col.Green, col.Blue);
         }
 
-        // Value syntax: color = ByLayer|ByBlock|<ACI 0-256>|"r,g,b"; visible = true/false; the rest as string/number
         static void ApplyDisplay(object ds, string key, string val)
         {
             Type t = ds.GetType();
@@ -3778,7 +4194,6 @@ namespace Civil3DFactory
             throw new InvalidOperationException("Unrecognised colour syntax: " + v);
         }
 
-        // The collection may hold ObjectIds or objects directly; collect names from both.
         static void CollectNames(Transaction tr, object collection, JsonArray outArr)
         {
             var en = collection as System.Collections.IEnumerable;
@@ -3812,7 +4227,6 @@ namespace Civil3DFactory
             }
         }
 
-        // Style collections are always enumerated as ObjectIds + Name by reflection (collection types differ; reflection is simplest and least error-prone)
         static JsonArray StyleNames(Transaction tr, object collection, int max)
         {
             var arr = new JsonArray();
@@ -3826,7 +4240,6 @@ namespace Civil3DFactory
                 {
                     DBObject o = tr.GetObject((ObjectId)item, OpenMode.ForRead);
                     string n = TryGetName(o);
-                    // When the name cannot be read, carry the reason; do not just drop a class name and leave people guessing
                     if (n == null)
                     {
                         string why;
@@ -3844,14 +4257,83 @@ namespace Civil3DFactory
                         n = o.GetType().Name + " " + why;
                     }
                     arr.Add(n);
+                    AppendChildStyles(tr, o, n, arr, max, 1);
                 }
                 catch (System.Exception ex) { arr.Add("(read failed: " + ex.GetType().Name + ")"); }
             }
             return arr;
         }
 
-        // Create a standalone Database and write it as a dwg file. new Database(true,false) starts an empty drawing,
-        // fully isolated from the host drawing passed with /i: the host is never modified and no template file is needed.
+        static List<KeyValuePair<ObjectId, string>> FlattenStylesWithChildren(
+            Transaction tr, System.Collections.IEnumerable coll)
+        {
+            var outList = new List<KeyValuePair<ObjectId, string>>();
+            if (coll == null) return outList;
+            foreach (object item in coll)
+            {
+                if (!(item is ObjectId)) continue;
+                ObjectId oid = (ObjectId)item;
+                if (oid.IsErased) continue;
+                DBObject o; string nm;
+                try { o = tr.GetObject(oid, OpenMode.ForRead); nm = TryGetName(o); }
+                catch { continue; }
+                if (nm == null) continue;
+                outList.Add(new KeyValuePair<ObjectId, string>(oid, nm));
+                CollectChildStyles(tr, o, nm, outList, 1);
+            }
+            return outList;
+        }
+
+        static void CollectChildStyles(Transaction tr, DBObject o, string parentName,
+                                       List<KeyValuePair<ObjectId, string>> outList, int depth)
+        {
+            if (o == null || depth > 4) return;
+            Type t = o.GetType();
+            var countProp = t.GetProperty("ChildrenCount");
+            if (countProp == null) return;
+            int n;
+            try { n = Convert.ToInt32(countProp.GetValue(o, null)); }
+            catch { return; }
+            if (n <= 0) return;
+
+            System.Reflection.PropertyInfo indexer = null;
+            foreach (var p in t.GetProperties())
+            {
+                var ps = p.GetIndexParameters();
+                if (ps.Length == 1 && ps[0].ParameterType == typeof(int) && p.PropertyType == typeof(ObjectId))
+                { indexer = p; break; }
+            }
+            if (indexer == null) return;
+
+            for (int i = 0; i < n; i++)
+            {
+                try
+                {
+                    ObjectId cid = (ObjectId)indexer.GetValue(o, new object[] { i });
+                    if (cid.IsNull || cid.IsErased) continue;
+                    DBObject co = tr.GetObject(cid, OpenMode.ForRead);
+                    string cn = TryGetName(co);
+                    if (cn == null) continue;
+                    string full = parentName + " ▸ " + cn;
+                    outList.Add(new KeyValuePair<ObjectId, string>(cid, full));
+                    CollectChildStyles(tr, co, full, outList, depth + 1);
+                }
+                catch { }
+            }
+        }
+
+        static void AppendChildStyles(Transaction tr, DBObject o, string parentName,
+                                      JsonArray arr, int max, int depth)
+        {
+            var kids = new List<KeyValuePair<ObjectId, string>>();
+            CollectChildStyles(tr, o, parentName, kids, depth);
+            foreach (var k in kids)
+            {
+                if (arr.Count >= max) { arr.Add("...(more)"); return; }
+                arr.Add(k.Value);
+            }
+        }
+
         static JsonNode CreateDwg(JsonObject a, Document doc)
         {
             string path = GetString(a, "path", null);
@@ -3871,8 +4353,6 @@ namespace Civil3DFactory
             string layer = GetString(a, "layer", "0");
             var drawn = new JsonArray();
 
-            // The second argument noDocument must be true: a side database not associated with a document.
-            // With false the drawing is generated fine, but accoreconsole never exits afterwards (hangs at QUIT, needs taskkill).
             using (Database db = new Database(true, true))
             {
                 using (Transaction tr = db.TransactionManager.StartTransaction())
@@ -3904,9 +4384,7 @@ namespace Civil3DFactory
             };
         }
 
-        // ---------- Drawing: layers + entity types ----------
 
-        // Create layers on demand (if it exists, only update the colour when color is given)
         static void EnsureLayers(Database db, Transaction tr, JsonArray layers)
         {
             if (layers == null) return;
@@ -3939,19 +4417,15 @@ namespace Civil3DFactory
             }
         }
 
-        // Draw all circles/lines/arcs/polylines/texts from a into ms
         static void AddEntities(Database db, Transaction tr, BlockTableRecord ms,
                                 JsonObject a, string defaultLayer, JsonArray drawn)
         {
             Action<Entity, JsonObject> place = (ent, spec) =>
             {
-                // Order matters: append to the database first, then set Layer. An un-appended entity cannot resolve the layer name
-                // (setting it first throws eKeyNotFound, stack pointing at Entity.set_Layer).
                 ms.AppendEntity(ent);
                 tr.AddNewlyCreatedDBObject(ent, true);
                 string lay = GetString(spec, "layer", defaultLayer);
                 if (!string.IsNullOrEmpty(lay) && lay != "0") ent.Layer = lay;
-                // color: ACI index, ByLayer if omitted (must be specifiable to match the colour of existing labels)
                 double ci = GetDouble(spec, "color", double.NaN);
                 if (!double.IsNaN(ci))
                     ent.Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(
@@ -3984,7 +4458,6 @@ namespace Civil3DFactory
                 double r = GetDouble(ar, "r", 0);
                 if (r <= 0) throw new InvalidOperationException("Arc radius must be greater than 0.");
                 double x = GetDouble(ar, "x", 0), y = GetDouble(ar, "y", 0);
-                // Input in degrees (engineering convention), the API needs radians
                 double sa = GetDouble(ar, "start_angle", 0) * Math.PI / 180.0;
                 double ea = GetDouble(ar, "end_angle", 90) * Math.PI / 180.0;
                 place(new Arc(new Point3d(x, y, 0), r, sa, ea), ar);
@@ -4003,7 +4476,7 @@ namespace Civil3DFactory
                 {
                     var pair = pn as JsonArray;
                     if (pair == null || pair.Count < 2)
-                        throw new InvalidOperationException("Each item in points must be [x, y].");
+                        throw new InvalidOperationException("Each points entry must be [x,y].");
                     pl.AddVertexAt(i++, new Point2d(
                         pair[0].GetValue<double>(), pair[1].GetValue<double>()), 0, width, width);
                 }
@@ -4032,13 +4505,12 @@ namespace Civil3DFactory
                     TextString = content,
                     Rotation = GetDouble(t, "rotation", 0) * Math.PI / 180.0
                 };
-                // Two things needed to match existing labels in the drawing: text style (CJK font) and width factor
                 string sty = GetString(t, "style", null);
                 if (!string.IsNullOrEmpty(sty))
                 {
                     var tst = (TextStyleTable)tr.GetObject(db.TextStyleTableId, OpenMode.ForRead);
                     if (!tst.Has(sty))
-                        throw new InvalidOperationException("The drawing has no text style '" + sty + "'.");
+                        throw new InvalidOperationException("Text style not found in drawing: '" + sty + "'.");
                     dbt.TextStyleId = tst[sty];
                 }
                 double wf = GetDouble(t, "width_factor", 0);
@@ -4053,7 +4525,6 @@ namespace Civil3DFactory
                 if (pts == null || pts.Count < 3)
                     throw new InvalidOperationException("A hatch needs points:[[x,y],...] with at least 3 vertices.");
                 var hatch = new Hatch();
-                // Hatch call order matters: append to the database, set the pattern, attach the boundary loop, then evaluate.
                 ms.AppendEntity(hatch);
                 tr.AddNewlyCreatedDBObject(hatch, true);
                 hatch.PatternScale = Math.Max(GetDouble(hz, "scale", 1.0), 1e-6);
@@ -4070,6 +4541,8 @@ namespace Civil3DFactory
                     ringPts.Add(new Point2d(pair[0].GetValue<double>(), pair[1].GetValue<double>()));
                     ringBulges.Add(0);
                 }
+                bool autoClosed = !ringPts[0].IsEqualTo(ringPts[ringPts.Count - 1]);
+                if (autoClosed) { ringPts.Add(ringPts[0]); ringBulges.Add(0); }
                 hatch.AppendLoop(HatchLoopTypes.Default, ringPts, ringBulges);
                 hatch.EvaluateHatch(true);
                 string hatchLayer = GetString(hz, "layer", defaultLayer);
@@ -4082,12 +4555,12 @@ namespace Civil3DFactory
                 {
                     ["type"] = "Hatch",
                     ["pattern"] = hatch.PatternName,
-                    ["vertices"] = ringPts.Count
+                    ["vertices"] = ringPts.Count,
+                    ["auto_closed"] = autoClosed
                 });
             }
         }
 
-        // Take the JsonObject items of the a[key] array (missing/empty returns an empty sequence)
         static IEnumerable<JsonObject> Items(JsonObject a, string key)
         {
             var arr = a[key] as JsonArray;
@@ -4099,7 +4572,6 @@ namespace Civil3DFactory
             }
         }
 
-        // ---------- Blocks ----------
 
         static JsonNode ListBlocks(JsonObject a, Document doc)
         {
@@ -4109,7 +4581,6 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // Count how many times each block definition is inserted first
                 var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 foreach (ObjectId id in ModelSpace(db, tr))
                 {
@@ -4149,8 +4620,6 @@ namespace Civil3DFactory
             return arr;
         }
 
-        // Title blocks are often inserted in **layouts**; scanning model space only would wrongly conclude "no title block in the drawing".
-        // So model space and every layout are each treated as a "space" and walked uniformly.
         static List<KeyValuePair<string, ObjectId>> Spaces(Database db, Transaction tr, string which)
         {
             var list = new List<KeyValuePair<string, ObjectId>>();
@@ -4173,7 +4642,6 @@ namespace Civil3DFactory
             return list;
         }
 
-        // List block references with bounding boxes (model space + every layout). This is how to find "where is each frame, where is its lower-left corner".
         static JsonNode BlockRefs(JsonObject a, Document doc)
         {
             string filter = GetString(a, "name", null);
@@ -4210,7 +4678,6 @@ namespace Civil3DFactory
                         ["scale_x"] = Math.Round(br.ScaleFactors.X, 6),
                         ["scale_y"] = Math.Round(br.ScaleFactors.Y, 6)
                     };
-                    // Empty/degenerate blocks throw eNullExtents on bounding box; record the reason and continue without failing the batch
                     try
                     {
                         Extents3d ex = br.GeometricExtents;
@@ -4231,15 +4698,12 @@ namespace Civil3DFactory
             return new JsonObject { ["count"] = total, ["returned"] = arr.Count, ["refs"] = arr };
         }
 
-        // JsonNode -> string. String nodes give the raw value, numbers/booleans their JSON text, null becomes empty string.
         static string NodeToStr(JsonNode n)
         {
             if (n == null) return "";
             try { return n.GetValue<string>(); } catch { return n.ToString(); }
         }
 
-        // Export block reference attributes (the single source of truth for title blocks). Read-only, no change to the drawing.
-        // JSON is produced so that people can edit it and set_block_attributes writes it back as is; the handle is the anchor on both sides.
         static JsonNode DumpBlockAttributes(JsonObject a, Document doc)
         {
             string filter = GetString(a, "name", null);
@@ -4321,8 +4785,6 @@ namespace Civil3DFactory
             return result;
         }
 
-        // Write block attributes back from JSON. Handle match takes precedence; without handles, batch-edit the same tags by block name + attributes.
-        // Equal values are skipped (recorded as unchanged); tags missing in the drawing go into missing: one missing tag should not kill the whole batch.
         static JsonNode SetBlockAttributes(JsonObject a, Document doc)
         {
             string fromPath = GetString(a, "from", null);
@@ -4362,8 +4824,6 @@ namespace Civil3DFactory
 
             var bulk = a["attributes"] as JsonObject;
 
-            // Width factors: per tag, same scope as the batch edit with attributes (name filter + per-handle hits).
-            // Can be given alone (squeeze text without changing values), so the "at least one" check below must include it.
             var widths = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
             var wfObj = a["width_factors"] as JsonObject;
             if (wfObj != null)
@@ -4412,7 +4872,6 @@ namespace Civil3DFactory
                             foreach (var kv in bulk) want[kv.Key] = NodeToStr(kv.Value);
                         }
                     }
-                    // With only width_factors, want is empty but we still go on: that pass only squeezes text, no value change
                     if (!inScope) continue;
                     if ((want == null || want.Count == 0) && widths.Count == 0) continue;
 
@@ -4433,7 +4892,6 @@ namespace Civil3DFactory
                             {
                                 att.UpgradeOpen();
                                 att.TextString = v;
-                                // The MText content of a multi-line attribute does not follow TextString automatically; refresh explicitly
                                 if (att.IsMTextAttribute) { try { att.UpdateMTextAttribute(); } catch { } }
                                 att.DowngradeOpen();
                                 attrsSet++; setHere++;
@@ -4443,7 +4901,6 @@ namespace Civil3DFactory
                         double wf;
                         if (widths.TryGetValue(tag, out wf))
                         {
-                            // Multi-line attributes use MText layout; WidthFactor has no effect even if written. Record them, do not succeed silently
                             if (att.IsMTextAttribute)
                                 mtextSkipped.Add(new JsonObject
                                 { ["handle"] = h, ["block"] = nm, ["tag"] = tag });
@@ -4495,7 +4952,6 @@ namespace Civil3DFactory
             };
         }
 
-        // Overall model-space bounding box. When inserting the whole drawing as a block the base point is the source INSBASE, so report it too.
         static JsonNode ModelExtents(JsonObject a, Document doc)
         {
             string layerFilter = GetString(a, "layer", null);
@@ -4900,7 +5356,6 @@ namespace Civil3DFactory
             catch { return "(unknown)"; }
         }
 
-        // Find a layout's block table record by name (when the title block lives in a layout, the block must be inserted into that layout)
         static ObjectId LayoutBtr(Database db, Transaction tr, string layoutName)
         {
             var dict = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
@@ -4917,7 +5372,6 @@ namespace Civil3DFactory
                 "The drawing has no layout named '" + layoutName + "'. Existing: " + string.Join(" / ", names));
         }
 
-        // Insert a block reference; if from_dwg is given, import that dwg as the block definition first (redefined if the name exists)
         static void InsertBlocks(Database db, Transaction tr, BlockTableRecord ms,
                                  JsonObject a, string defaultLayer, JsonArray drawn)
         {
@@ -4928,8 +5382,6 @@ namespace Civil3DFactory
                 if (string.IsNullOrEmpty(name))
                     throw new InvalidOperationException("Block insert is missing name.");
                 string fromDwg = GetString(b, "from_dwg", null);
-                // source_block: take one block definition by name from a block library file (the usual form of title-block libraries).
-                // If omitted, fall back to "import the whole dwg as one block".
                 string srcBlock = GetString(b, "source_block", null);
 
                 BlockTable bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
@@ -4946,13 +5398,12 @@ namespace Civil3DFactory
 
                         if (!string.IsNullOrEmpty(srcBlock))
                         {
-                            // Clone the given block definition (together with its attribute definitions)
                             using (Transaction stx = src.TransactionManager.StartTransaction())
                             {
                                 BlockTable sbt = (BlockTable)stx.GetObject(src.BlockTableId, OpenMode.ForRead);
                                 if (!sbt.Has(srcBlock))
                                     throw new InvalidOperationException(
-                                        "Block source file has no block definition '" + srcBlock + "': " + fromDwg +
+                                        "Block source file has no block definition '" + srcBlock + "':" + fromDwg +
                                         " (run list_blocks on that file first to check the names)");
                                 var ids = new ObjectIdCollection();
                                 ids.Add(sbt[srcBlock]);
@@ -4961,7 +5412,6 @@ namespace Civil3DFactory
                                                       DuplicateRecordCloning.Replace, false);
                                 stx.Commit();
                             }
-                            // After cloning the block keeps the source name; if name differs, look up by name (usually identical)
                             BlockTable bt2 = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
                             string lookup = bt2.Has(name) ? name : srcBlock;
                             if (!bt2.Has(lookup))
@@ -4990,7 +5440,6 @@ namespace Civil3DFactory
                     Rotation = rot
                 };
 
-                // space: model space by default; a layout name inserts into that layout (required when the title block lives in a layout)
                 string space = GetString(b, "space", defaultSpace);
                 BlockTableRecord dest = ms;
                 if (!string.IsNullOrEmpty(space) &&
@@ -5002,7 +5451,6 @@ namespace Civil3DFactory
                 string lay = GetString(b, "layer", defaultLayer);
                 if (!string.IsNullOrEmpty(lay) && lay != "0") br.Layer = lay;
 
-                // Fill block attributes (sheet number/title of the frame rely on this)
                 var wanted = b["attributes"] as JsonObject;
                 int filled = 0;
                 var btr = (BlockTableRecord)tr.GetObject(btrId, OpenMode.ForRead);
@@ -5038,7 +5486,6 @@ namespace Civil3DFactory
             }
         }
 
-        // ---------- Modify an existing drawing (preview copy by default) ----------
 
         static JsonNode ModifyDwg(JsonObject a, Document doc)
         {
@@ -5056,7 +5503,6 @@ namespace Civil3DFactory
             var drawn = new JsonArray();
             string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
 
-            // Preview output path
             string outPath;
             if (apply) outPath = target;
             else
@@ -5084,7 +5530,6 @@ namespace Civil3DFactory
                 db.ReadDwgFile(target, FileOpenMode.OpenForReadAndAllShare, true, null);
                 db.CloseInput(true);
 
-                // Attach xrefs first (AttachXref dislikes running inside an open transaction); skip existing names, re-runnable
                 foreach (JsonObject xr in Items(a, "xrefs"))
                 {
                     string xrPath = GetString(xr, "path", null);
@@ -5141,7 +5586,6 @@ namespace Civil3DFactory
                     BlockTableRecord ms = (BlockTableRecord)tr.GetObject(
                         bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
 
-                    // Global space: entities (lines/texts/hatches...) can also go into the given layout; blocks have their own per-item space.
                     string spaceName = GetString(a, "space", null);
                     BlockTableRecord entDest = ms;
                     if (!string.IsNullOrEmpty(spaceName) &&
@@ -5174,7 +5618,6 @@ namespace Civil3DFactory
             };
         }
 
-        // ---------- Model-space sheet frames ----------
         static JsonNode CreateSheetRegion(JsonObject a, Document doc)
         {
             double x = GetDouble(a, "x", double.NaN);
@@ -5192,7 +5635,7 @@ namespace Civil3DFactory
                 {
                     CivAlignment al = FindAlignment(anchorTr, anchorCiv, alignment);
                     if (al == null)
-                        throw new InvalidOperationException("Alignment '" + alignment + "' not found.");
+                        throw new InvalidOperationException("Alignment '" + alignment + "'.");
                     double e = 0, n = 0;
                     al.PointLocation(al.StartingStation, 0, ref e, ref n);
                     if (double.IsNaN(x)) x = e + GetDouble(a, "offset_x", -100);
@@ -5204,7 +5647,7 @@ namespace Civil3DFactory
             if (scale <= 0) throw new InvalidOperationException("scale must be greater than 0.");
             string paper = GetString(a, "paper", "A3");
             string name = GetString(a, "name", "SHEET-01");
-            string layerName = GetString(a, "layer", "C3DF-SHEET-REGION-NOPLOT");
+            string layerName = GetString(a, "layer", "G-ANNO-NPLT-RGON");
             int count = Math.Max(1, (int)GetDouble(a, "count", 1));
             double pitchX = GetDouble(a, "pitch_x", 0);
             double pitchY = GetDouble(a, "pitch_y", 0);
@@ -5331,11 +5774,24 @@ namespace Civil3DFactory
             return result;
         }
 
-        // ---------- Entity-based layout sheet: model-space content copied straight into paper space ----------
+        static string ApplyLayoutStyleSheet(Layout layout, PlotSettingsValidator psv, string ctb)
+        {
+            if (string.IsNullOrEmpty(ctb)) { layout.PlotPlotStyles = false; return "(colour)"; }
+            layout.PlotPlotStyles = true;
+            try { psv.SetCurrentStyleSheet(layout, ctb); }
+            catch (Autodesk.AutoCAD.Runtime.Exception ex)
+            {
+                throw new InvalidOperationException("Plot style table '" + ctb + "' could not be assigned (" + ex.ErrorStatus
+                    + "); check the local Plot Styles directory");
+            }
+            return ctb;
+        }
+
         static JsonNode ComposeLayoutSheet(JsonObject a, Document doc)
         {
             string layoutName = GetString(a, "layout", "C3DF-A3-Entities");
             string paper = GetString(a, "paper", "A3");
+            string ctb = GetString(a, "ctb", "monochrome.ctb"), ctbUsed = ctb;
             bool clear = GetBool(a, "clear", true);
             var frameArg = a["frame"] as JsonObject;
             if (frameArg == null)
@@ -5593,15 +6049,12 @@ namespace Civil3DFactory
                     drawn.Add(new JsonObject { ["type"] = "MText", ["space"] = layoutName });
                 }
 
-                // The frame file itself lives in model space; without source_block the whole DWG is imported as the block definition.
                 var frame = (JsonObject)JsonNode.Parse(frameArg.ToJsonString());
                 string frameName = Need(frame, "block");
                 string frameDwg = GetString(frame, "from_dwg", null);
                 string frameSourceBlock = GetString(frame, "source_block", null);
                 var bt2 = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
 
-                // Database.Insert runs at high CPU for a long time in hosts with many AEC dependencies.
-                // For the "whole DWG as frame" case, clone the source model-space entities straight into a new block definition.
                 if (!bt2.Has(frameName) && !string.IsNullOrEmpty(frameDwg) &&
                     string.IsNullOrEmpty(frameSourceBlock))
                 {
@@ -5641,7 +6094,6 @@ namespace Civil3DFactory
                     }
                     frame.Remove("from_dwg");
                 }
-                // compose_layout_sheet exposes frame.block; when reusing the generic block insert it maps to blocks[].name.
                 frame["name"] = frameName;
                 frame["space"] = layoutName;
                 if (frame["x"] == null) frame["x"] = 0;
@@ -5676,8 +6128,7 @@ namespace Civil3DFactory
                 psv.SetStdScaleType(layout, StdScaleType.StdScale1To1);
                 psv.SetPlotPaperUnits(layout, PlotPaperUnit.Millimeters);
                 psv.SetPlotRotation(layout, PlotRotation.Degrees090);
-                layout.PlotPlotStyles = true;
-                psv.SetCurrentStyleSheet(layout, "monochrome.ctb");
+                ctbUsed = ApplyLayoutStyleSheet(layout, psv, ctb);
                 layout.PrintLineweights = true;
                 tr.Commit();
             }
@@ -5688,6 +6139,7 @@ namespace Civil3DFactory
                 ["layout"] = layoutName,
                 ["created"] = created,
                 ["paper"] = paper + " " + paperW + "×" + paperH + " mm",
+                ["ctb"] = ctbUsed,
                 ["mode"] = "entities copied straight into paper space (no model viewport)",
                 ["entities_cloned"] = totalCloned,
                 ["sources"] = copied,
@@ -5695,13 +6147,13 @@ namespace Civil3DFactory
             };
         }
 
-        // ---------- Layout sheet: paper-space frame + model-space viewport ----------
         static JsonNode CreateLayoutSheet(JsonObject a, Document doc)
         {
             string layoutName = GetString(a, "layout", "C3DF-A3");
             string blockName = Need(a, "block");
             string fromDwg = GetString(a, "from_dwg", null);
             string paper = GetString(a, "paper", "A3");
+            string ctb = GetString(a, "ctb", "monochrome.ctb"), ctbUsed = ctb;
             var win = a["model_window"] as JsonObject;
             string boundaryHandle = GetString(a, "boundary_handle", null);
             string boundaryLayer = GetString(a, "boundary_layer", null);
@@ -5779,7 +6231,6 @@ namespace Civil3DFactory
             ObjectId layoutId = lm.GetLayoutId(layoutName);
             bool created = layoutId.IsNull;
             if (created) layoutId = lm.CreateLayout(layoutName);
-            // Viewport.On may only be set in the current paper-space layout; otherwise eNotInPaperspace.
             if (!string.Equals(lm.CurrentLayout, layoutName, StringComparison.Ordinal))
                 lm.CurrentLayout = layoutName;
 
@@ -5790,8 +6241,6 @@ namespace Civil3DFactory
                 var layout = (Layout)tr.GetObject(layoutId, OpenMode.ForWrite);
                 var paperSpace = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForWrite);
 
-                // On re-run clear the ordinary entities and user viewports in this layout; keep the system paper-space viewport 1.
-                // clear:false stacks instead: several frames + viewports side by side in one layout (for merged plan sheets).
                 if (clearLayout)
                 {
                     foreach (ObjectId id in paperSpace)
@@ -5809,7 +6258,7 @@ namespace Civil3DFactory
                 if (!bt.Has(blockName))
                 {
                     if (string.IsNullOrEmpty(fromDwg))
-                        throw new InvalidOperationException("The drawing has no block '" + blockName + "'; from_dwg is required.");
+                        throw new InvalidOperationException("Drawing contains no block '" + blockName + "'; from_dwg is required.");
                     if (!File.Exists(fromDwg)) throw new InvalidOperationException("Block library file not found: " + fromDwg);
                     using (var src = new Database(false, true))
                     {
@@ -5827,8 +6276,6 @@ namespace Civil3DFactory
                             }
                             else
                             {
-                                // The frame library may also be a "bare frame DWG" without a same-named block definition;
-                                // in that case import the whole DWG as blockName.
                                 db.Insert(blockName, src, false);
                             }
                             stx.Commit();
@@ -5837,7 +6284,6 @@ namespace Civil3DFactory
                     bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
                 }
 
-                // The frame stays in paper space; this project's TK block has its base point about 9.372/10.01 mm off the outer lower-left corner.
                 var frame = new BlockReference(new Point3d(frameX, frameY, 0), bt[blockName])
                 {
                     ScaleFactors = new Scale3d(frameScale),
@@ -5872,8 +6318,7 @@ namespace Civil3DFactory
                     }
                 }
 
-                // Viewport border goes to a non-plotting layer by default; viewport.layer may give another (a plottable one to plot the border).
-                const string vpLayerName = "C3DF-VPORT-NOPLOT";
+                const string vpLayerName = "G-ANNO-NPLT-VPRT";
                 var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
                 if (!lt.Has(vpLayerName))
                 {
@@ -5884,9 +6329,6 @@ namespace Civil3DFactory
                     lt.DowngradeOpen();
                 }
 
-                // Source drawing layers often carry the 'frozen in new viewports' state, which hides whole layers in new viewports
-                // (invisible to DXF parsing; the vanished existing-elevation layer on project B SY5 was exactly this).
-                // So every new viewport thaws all layers first, then freezes by parameter: behaviour independent of the source state.
                 Func<string, ObjectId> layerIdStrict = name =>
                 {
                     if (!lt.Has(name))
@@ -5937,8 +6379,6 @@ namespace Civil3DFactory
                 applyVpLayerState(vp, vpArg == null ? null : vpArg["freeze_layers"] as JsonArray, "viewport");
                 vp.Locked = vpLocked;
 
-                // Extra viewports: additional small windows in the same frame (e.g. the "key map" at the lower-left of a plan sheet).
-                // Each has its own paper position/size/scale/model centre; the centre defaults to the main window centre.
                 var extraVps = a["extra_viewports"] as JsonArray;
                 if (extraVps != null)
                 {
@@ -5971,7 +6411,6 @@ namespace Civil3DFactory
                         tr.AddNewlyCreatedDBObject(evp, true);
                         evp.On = true;
                         evp.CustomScale = 1000.0 / exScale;
-                        // Thaw all layers first (washing out the 'frozen in new viewports' hiding), then freeze the named ones; rule 13: every name must exist
                         applyVpLayerState(evp, ev["freeze_layers"] as JsonArray, "extra_viewports");
                         evp.Locked = GetBool(ev, "locked", true);
                         extraVpReport.Add(new JsonObject
@@ -5984,7 +6423,6 @@ namespace Civil3DFactory
                     }
                 }
 
-                // Configure the layout itself as A3 landscape 1:1; plotting can target this layout directly.
                 PlotSettingsValidator psv = PlotSettingsValidator.Current;
                 psv.SetPlotConfigurationName(layout, "DWG To PDF.pc3", null);
                 psv.RefreshLists(layout);
@@ -6004,8 +6442,7 @@ namespace Civil3DFactory
                 psv.SetStdScaleType(layout, StdScaleType.StdScale1To1);
                 psv.SetPlotPaperUnits(layout, PlotPaperUnit.Millimeters);
                 psv.SetPlotRotation(layout, PlotRotation.Degrees090);
-                layout.PlotPlotStyles = true;
-                psv.SetCurrentStyleSheet(layout, "monochrome.ctb");
+                ctbUsed = ApplyLayoutStyleSheet(layout, psv, ctb);
                 layout.PrintLineweights = true;
 
                 tr.Commit();
@@ -6017,6 +6454,7 @@ namespace Civil3DFactory
                 ["layout"] = layoutName,
                 ["created"] = created,
                 ["paper"] = paper + " " + paperW + "×" + paperH + " mm",
+                ["ctb"] = ctbUsed,
                 ["frame_space"] = "Layout",
                 ["frame_block"] = blockName,
                 ["attributes_filled"] = attributesFilled,
@@ -6037,10 +6475,6 @@ namespace Civil3DFactory
             };
         }
 
-        // ---------- Plot to PDF ----------
-        // Ported from the battle-tested CadPlotPlugin (81 PDFs with zero errors on 2026-07-23),
-        // bringing its three traps along: (1) side database set as WorkingDatabase (2) target layout must be current
-        // (3) MediaMatchingPolicy on the side database must be MatchEnabled.
         static JsonNode PlotPdf(JsonObject a, Document doc)
         {
             string outPdf = GetString(a, "out", null);
@@ -6061,8 +6495,16 @@ namespace Civil3DFactory
             string ctb = GetString(a, "ctb", "monochrome.ctb");
             bool lineweights = GetBool(a, "lineweights", true);
             bool fitLayout = GetBool(a, "fit", false);
-            string device = GetString(a, "device", "DWG To PDF.pc3");   // any installed plotter, e.g. "PublishToWeb PNG.pc3" for a PNG screenshot
-            long minBytes = (long)GetDouble(a, "min_bytes", 1024);
+
+            try { Autodesk.AutoCAD.ApplicationServices.Application.SetSystemVariable("BACKGROUNDPLOT", 0); } catch { }
+            try
+            {
+                var pf0 = Autodesk.AutoCAD.PlottingServices.PlotFactory.ProcessPlotState;
+                int waited = 0;
+                while (pf0 != Autodesk.AutoCAD.PlottingServices.ProcessPlotState.NotPlotting && waited < 120000)
+                { System.Threading.Thread.Sleep(500); waited += 500; pf0 = Autodesk.AutoCAD.PlottingServices.PlotFactory.ProcessPlotState; }
+            }
+            catch { }
 
             Database prevWorking = HostApplicationServices.WorkingDatabase;
             Database side = null;
@@ -6076,15 +6518,11 @@ namespace Civil3DFactory
                     side = new Database(false, true);
                     side.ReadDwgFile(extDwg, FileOpenMode.OpenForReadAndAllShare, true, null);
                     side.CloseInput(true);
-                    // Trap (1): the side database must be the current working database for PlotEngine to plot its layouts
                     HostApplicationServices.WorkingDatabase = side;
                     db = side;
                 }
                 else db = doc.Database;
 
-                // The model-space plot window is interpreted in the **current UCS**, not the world coordinate system.
-                // With a shifted UCS in the drawing, a world-coordinate window plots somewhere else (symptom: wrong content or blank page, no error).
-                // Reset the UCS before plotting so the window parameters equal world coordinates.
                 try { doc.Editor.CurrentUserCoordinateSystem = Matrix3d.Identity; } catch { }
 
                 ObjectId layoutId;
@@ -6095,8 +6533,7 @@ namespace Civil3DFactory
                     var lm = LayoutManager.Current;
                     layoutId = lm.GetLayoutId(layoutName);
                     if (layoutId.IsNull)
-                        throw new InvalidOperationException("Layout '" + layoutName + "' not found.");
-                    // Trap (2): PlotInfoValidator requires the target layout to be current, otherwise eLayoutNotCurrent
+                        throw new InvalidOperationException("Layout '" + layoutName + "'.");
                     try
                     {
                         if (!string.Equals(lm.CurrentLayout, layoutName, StringComparison.Ordinal))
@@ -6114,7 +6551,6 @@ namespace Civil3DFactory
                     }
                     else
                     {
-                        // Default to the drawing extents; for an empty drawing or uninitialised extents Extmin>Extmax, so fail clearly
                         db.UpdateExt(true);
                         if (db.Extmin.X > db.Extmax.X)
                             throw new InvalidOperationException("Drawing extents are empty, cannot determine the plot window automatically; pass the window parameter.");
@@ -6127,8 +6563,6 @@ namespace Civil3DFactory
                 if (side == null && string.Equals(layoutName, "Model",
                     StringComparison.OrdinalIgnoreCase))
                 {
-                    // SetPlotWindowArea takes the current view DCS, not the drawing WCS.
-                    // A model-space frame far from the origin passed as WCS produces a PDF fine, but blank.
                     using (ViewTableRecord view = doc.Editor.GetCurrentView())
                     {
                         Matrix3d wcsToDcs = Matrix3d.PlaneToWorld(view.ViewDirection);
@@ -6141,11 +6575,11 @@ namespace Civil3DFactory
                     }
                 }
 
-                PlotWindow(db, layoutId, plotWindow, outPdf, paper, ctb, lineweights, fitLayout, userWindow, device);
+                PlotWindow(db, layoutId, plotWindow, outPdf, paper, ctb, lineweights, fitLayout, userWindow);
 
                 long size = File.Exists(outPdf) ? new FileInfo(outPdf).Length : 0;
-                if (size < minBytes)
-                    throw new InvalidOperationException("Plot output missing or too small (" + size + " bytes): " + outPdf);
+                if (size < 1024)
+                    throw new InvalidOperationException("PDF missing or too small (" + size + " bytes).");
 
                 return new JsonObject
                 {
@@ -6194,7 +6628,6 @@ namespace Civil3DFactory
             return result;
         }
 
-        // Window plot core (ported from CadPlotPlugin.PlotWindow)
         static void PlotWindow(Database db, ObjectId layoutId, Extents3d window,
                                string outPdf, string paper, string ctb, bool printLineweights,
                                bool fitLayout = false, bool userWindow = false, string device = "DWG To PDF.pc3")
@@ -6313,7 +6746,6 @@ namespace Civil3DFactory
             }
         }
 
-        // Reflection dump: inspect an object's real API inside the acc process (AeccDbMgd is a mixed-mode assembly, cannot be reflected out of process)
         static JsonNode Snoop(JsonObject a, Document doc)
         {
             string typeFilter = GetString(a, "type", null);
@@ -6388,15 +6820,9 @@ namespace Civil3DFactory
             }
         }
 
-        // Read Name by reflection. Note: Civil style classes re-declare Name with new in derived classes,
-        // so GetProperty("Name") throws AmbiguousMatchException (seen as "name unavailable, degraded to class name");
-        // hence walk GetProperties() and take the first readable Name.
         static string TryGetName(object o)
         {
             if (o == null) return null;
-            // Civil style classes re-declare Name with new in derived classes, and the derived one **has no get**:
-            // GetProperty("Name") hits the derived one, CanRead says true, but GetValue reports
-            // "Property Get method was not found." So walk up the base classes to the first one with a real getter.
             var flags = System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic
                       | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly;
             for (Type t = o.GetType(); t != null; t = t.BaseType)
@@ -6421,7 +6847,6 @@ namespace Civil3DFactory
             return s.Length <= len ? s : s.Substring(0, len) + "…";
         }
 
-        // ===================== Shared helpers =====================
 
         static readonly string[] HeadersXY =
             { "No.", "Station", "X (Northing)", "Y (Easting)" };
@@ -6436,7 +6861,6 @@ namespace Civil3DFactory
             foreach (ObjectId id in ms) yield return id;
         }
 
-        // Start, every interval, and end are always taken
         static IEnumerable<double> Stations(double start, double end, double interval)
         {
             if (interval <= 0) interval = 50.0;
@@ -6544,7 +6968,7 @@ namespace Civil3DFactory
             double h2 = GetDouble(a, "h2", 3.0);
             double m2 = GetDouble(a, "m2", 1.75);
             double thickness = GetDouble(a, "lining_thickness", 0.15);
-            string layerName = GetString(a, "layer", "C3DF-CHANNEL-2TIER");
+            string layerName = GetString(a, "layer", "C-CHNL-CORR");
 
             double halfW = bottomWidth / 2.0;
 

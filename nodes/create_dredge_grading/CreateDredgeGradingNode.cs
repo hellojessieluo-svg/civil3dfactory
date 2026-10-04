@@ -13,32 +13,17 @@ using CivDoc = Autodesk.Civil.ApplicationServices.CivilDocument;
 namespace Civil3DFactory
 {
     /// <summary>
-    /// Dredge grading design surface node (closed boundary -> bottom elevation + 1:m side slope).
     ///
-    /// Model: the boundary polyline is the **top-of-slope line (crest)**, not the toe line.
-    /// Per region, the area enclosed by the boundary is cut to bottom_elev, sloping inward and downward from the boundary at 1:m:
     ///
-    ///     z(P) = max(bottom_elev, z_top(nearest boundary point) - dist(P, boundary) / m)
     ///
-    /// Using a "distance-to-boundary field" instead of per-point normal offsets means concave corners and narrow strips never self-intersect,
-    /// and the toe line is automatically the inward offset envelope of the boundary. Slope band width band = (z_top - bottom) x m;
-    /// dense sampling inside the band (slope_step), flat bottom with sparse sampling outside (flat_step).
     ///
-    /// Top-of-slope elevation z_top, one of three:
-    ///   start_elev given      -> fixed around the whole ring (e.g. adjoining an already-dredged area, start at 4.0)
-    ///   start_elev_cap given  -> min(existing ground, cap), only clamps the high side
-    ///   neither               -> existing ground surface (default, the crest meets the ground naturally)
     ///
-    /// Global parameters + per-region overrides in regions = parametric model; survey_dredge_regions produces the parameter skeleton,
-    /// and the regions batch mode of calculate_surface_volume computes the volumes.
     /// </summary>
     public static partial class Ops
     {
         const string DredgeAppName = "C3DF_DREDGE";
 
-        // ==================== Shared geometry helpers (also used by survey_dredge_regions) ====================
 
-        /// <summary>Boundary ring: equal-step sample points + top-of-slope elevation per point + segment spatial index.</summary>
         sealed class DredgeRing
         {
             public List<Point2d> P = new List<Point2d>();
@@ -66,7 +51,6 @@ namespace Civil3DFactory
                 }
             }
 
-            /// <summary>Build the segment index. cell must be >= the maximum slope band width, otherwise the 3x3 neighbourhood of Nearest misses segments.</summary>
             public void BuildIndex(double cell)
             {
                 _cell = Math.Max(cell, 1.0);
@@ -99,14 +83,12 @@ namespace Civil3DFactory
             int CX(double x) { int i = (int)Math.Floor((x - MinX) / _cell); return i < 0 ? 0 : (i >= _nx ? _nx - 1 : i); }
             int CY(double y) { int i = (int)Math.Floor((y - MinY) / _cell); return i < 0 ? 0 : (i >= _ny ? _ny - 1 : i); }
 
-            /// <summary>Nearest boundary distance and the top-of-slope elevation there. Returns false when no segment is in the 3x3 neighbourhood (= farther from the boundary than cell).</summary>
             public bool Nearest(double px, double py, out double dist, out double zTop)
             {
                 double m;
                 return NearestZM(px, py, out dist, out zTop, out m);
             }
 
-            /// <summary>Same as Nearest, also returning the slope m at the nearest point (0 when M is not filled).</summary>
             public bool NearestZM(double px, double py, out double dist, out double zTop, out double mLoc)
             {
                 dist = double.MaxValue; zTop = 0.0; mLoc = 0.0;
@@ -146,7 +128,6 @@ namespace Civil3DFactory
             }
         }
 
-        /// <summary>Sample a closed polyline (arcs included) into a point ring by step.</summary>
         static DredgeRing DredgeBuildRing(Polyline pl, double step)
         {
             var r = new DredgeRing();
@@ -170,7 +151,6 @@ namespace Civil3DFactory
             return r;
         }
 
-        /// <summary>Signed area: positive = counter-clockwise. CAD's Polyline.Area is absolute and cannot tell the winding.</summary>
         static double DredgeSignedArea(List<Point2d> p)
         {
             double s = 0.0;
@@ -181,12 +161,6 @@ namespace Civil3DFactory
         }
 
         /// <summary>
-        /// Top-of-slope elevation rules: not every segment of a boundary is the same.
-        ///   Bottom              design bottom elevation
-        ///   HasStart/Start      fixed top-of-slope elevation around the whole ring
-        ///   HasCap/Cap          top-of-slope cap min(ground, cap): for adjoining already-dredged areas (e.g. lotus dredging zones)
-        ///   Interfaces/Tol/Elev interface lines: boundary segments within Tol of these lines get their top elevation clamped to Elev (default = Bottom,
-        ///                       i.e. no slope on that segment): the segments where an intersection meets a channel, whose slope comes from the channel itself
         /// </summary>
         sealed class DredgeZSpec
         {
@@ -202,8 +176,6 @@ namespace Civil3DFactory
             public List<DredgeZSeg> Segs;            // per-segment top elevation mode (ring arc length); if given it is authoritative and overrides the interface rule
         }
 
-        /// <summary>Top elevation segment: within ring arc length [S0,S1] the top is taken by Mode.
-        /// Modes: ground = follow existing ground; cap = min(ground, Value); fixed = Value; bottom = bottom elevation, no slope.</summary>
         sealed class DredgeZSeg
         {
             public double S0, S1;
@@ -249,8 +221,6 @@ namespace Civil3DFactory
         }
 
         /// <summary>
-        /// Merge global parameters + per-region spec into the region's effective parameters. survey_dredge_regions and create_dredge_grading
-        /// share this single merge rule, so the parameters trialled during the survey are exactly the ones used to build the surface; no drift.
         /// </summary>
         static DredgeZSpec DredgeMergeZSpec(JsonObject a, JsonObject spec, double gBottom, double gSlope,
             CivSurface startSurface, List<Curve> interfaces)
@@ -291,9 +261,6 @@ namespace Civil3DFactory
         }
 
         /// <summary>
-        /// Fill ring.Z (top-of-slope elevation) per spec. Order of precedence:
-        /// fixed value -> start_surface -> existing ground -> bottom elevation if neither samples; then apply cap, then interface lines, finally never below bottom.
-        /// offSurface = number of points neither surface could sample; onInterface = number of points clamped by interface lines.
         /// </summary>
         static void DredgeFillRingZ(DredgeRing ring, CivSurface ground, DredgeZSpec spec,
             out int offSurface, out int onInterface)
@@ -307,7 +274,6 @@ namespace Civil3DFactory
                 var p3 = new Point3d(ring.P[i].X, ring.P[i].Y, 0);
                 double z;
 
-                // Per-segment top elevation mode (ring arc length): a hit is authoritative; global rule and interface lines are skipped
                 DredgeZSeg seg = null;
                 if (spec.Segs != null)
                 {
@@ -360,7 +326,6 @@ namespace Civil3DFactory
             }
         }
 
-        /// <summary>Sample the top-of-slope reference: start_surface first, fall back to existing ground.</summary>
         static bool GroundAt(CivSurface ground, DredgeZSpec spec, Point3d p3, out double z)
         {
             if (spec.StartSurface != null && GridTrySample(spec.StartSurface, p3, out z)) return true;
@@ -385,7 +350,6 @@ namespace Civil3DFactory
             return false;
         }
 
-        /// <summary>Collect interface lines: every curve on the given layers (polylines/lines/arcs).</summary>
         static List<Curve> DredgeCollectInterfaces(Transaction tr, Database db, JsonArray layers)
         {
             var list = new List<Curve>();
@@ -405,7 +369,15 @@ namespace Civil3DFactory
 
         struct DredgeText { public Point2d P; public string S; public string Layer; }
 
-        /// <summary>Collect single/multi-line texts in the drawing, to auto-name regions by "text inside boundary".</summary>
+        static readonly HashSet<string> FactoryProductTextLayers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "C-GRID-ELEV-DSGN", "V-GRID-ELEV", "C-GRID-ELEV-DIFF",   // annotate_grid_elevations
+            "C-ANNO-LABL-AREA",                                       // annotate_closed_polyline_areas
+            "C-GRID-TEXT",
+            "C-QNTY-TABL", "C-XSEC-QNTY", "C-XSEC-TABL",
+            "C-DIKE-TEXT", "C-QNTY-TEXT", "C-XSEC-TEXT"
+        };
+
         static List<DredgeText> DredgeCollectTexts(Transaction tr, Database db, string layerFilter)
         {
             var list = new List<DredgeText>();
@@ -428,8 +400,7 @@ namespace Civil3DFactory
 
                 if (all)
                 {
-                    // Default rule: C3DF-* layers are the output of this factory's annotation nodes (grid elevations etc.), not region names
-                    if (ent.Layer.StartsWith("C3DF-", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (ent.Layer.StartsWith("C3DF-", StringComparison.OrdinalIgnoreCase) || FactoryProductTextLayers.Contains(ent.Layer)) continue;
                 }
                 else if (!string.Equals(ent.Layer, layerFilter, StringComparison.OrdinalIgnoreCase)) continue;
 
@@ -438,7 +409,6 @@ namespace Civil3DFactory
             return list;
         }
 
-        /// <summary>Collect closed polylines (boundaries) by layer + optional handle whitelist.</summary>
         static List<ObjectId> DredgeCollectBoundaries(Transaction tr, Database db, string layer, JsonArray handleWhitelist)
         {
             HashSet<string> want = null;
@@ -470,7 +440,6 @@ namespace Civil3DFactory
                 new TypedValue((int)DxfCode.ExtendedDataAsciiString, kind));
         }
 
-        /// <summary>Required numeric parameter: report the name when missing instead of silently using 0.</summary>
         static double DredgeNeedDouble(JsonObject a, string key)
         {
             if (a[key] == null)
@@ -486,7 +455,6 @@ namespace Civil3DFactory
             return true;
         }
 
-        // ==================== Node body ====================
 
         static JsonNode RunNodeCreateDredgeGrading(JsonObject a, Document doc)
         {
@@ -494,7 +462,7 @@ namespace Civil3DFactory
             string surfName = Need(a, "surface");
             double gBottom = DredgeNeedDouble(a, "bottom_elev");
             double gSlope = DredgeNeedDouble(a, "slope_ratio_m");
-            if (gSlope <= 0) throw new InvalidOperationException("slope_ratio_m must be greater than 0 (the m of 1:m).");
+            if (gSlope <= 0) throw new InvalidOperationException("slope_ratio_m must be positive (m in 1:m).");
 
             string startSurfName = GetString(a, "start_surface", null);
 
@@ -506,9 +474,9 @@ namespace Civil3DFactory
             if (flatStep < slopeStep) flatStep = slopeStep;
 
             string prefix = GetString(a, "surface_prefix", "DredgeDesign-");
-            string surfLayer = GetString(a, "surface_layer", "C3DF-DREDGE-SURFACE");
-            string crestLayer = GetString(a, "crest_layer", "C3DF-DREDGE-TOP");
-            string toeLayer = GetString(a, "toe_layer", "C3DF-DREDGE-TOE");
+            string surfLayer = GetString(a, "surface_layer", "C-DRDG-SURF");
+            string crestLayer = GetString(a, "crest_layer", "C-DRDG-TOP");
+            string toeLayer = GetString(a, "toe_layer", "C-DRDG-TOE");
             bool drawCrest = GetBool(a, "draw_crest_line", true);
             bool drawToe = GetBool(a, "draw_toe_line", true);
             bool clearExisting = GetBool(a, "clear_existing", true);
@@ -528,27 +496,27 @@ namespace Civil3DFactory
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 ObjectId gsId = FindSurfaceId(tr, civ, surfName);
-                if (gsId.IsNull) throw new InvalidOperationException("Existing ground surface '" + surfName + "' not found.");
+                if (gsId.IsNull) throw new InvalidOperationException("Existing ground surface '" + surfName + "'.");
                 var ground = (CivSurface)tr.GetObject(gsId, OpenMode.ForRead);
 
                 CivSurface startSurface = null;
                 if (!string.IsNullOrEmpty(startSurfName))
                 {
                     ObjectId ssId = FindSurfaceId(tr, civ, startSurfName);
-                    if (ssId.IsNull) throw new InvalidOperationException("Top-of-slope surface '" + startSurfName + "' not found.");
+                    if (ssId.IsNull) throw new InvalidOperationException("Slope-origin elevation surface not found: '" + startSurfName + "'.");
                     startSurface = (CivSurface)tr.GetObject(ssId, OpenMode.ForRead);
                 }
 
                 List<ObjectId> bndIds = DredgeCollectBoundaries(tr, db, bndLayer, handles);
                 if (bndIds.Count == 0)
                     throw new InvalidOperationException(
-                        "No closed polyline on layer '" + bndLayer + "'" +
-                        (handles != null && handles.Count > 0 ? " (or none of the whitelisted handles matched)" : "") + ".");
+                        "Layer '" + bndLayer + "'" +
+                        (handles != null && handles.Count > 0 ? " (or no handles matched)" : "") + ".");
 
                 List<DredgeText> texts = DredgeCollectTexts(tr, db, labelLayer);
                 List<Curve> interfaces = DredgeCollectInterfaces(tr, db, interfaceLayers);
                 if (interfaceLayers != null && interfaceLayers.Count > 0 && interfaces.Count == 0)
-                    warnings.Add((JsonNode)"interface_layers given but those layers contain no curve; the interface rule had no effect.");
+                    warnings.Add((JsonNode)"interface_layers contains no curves; interface boundaries were not applied.");
 
                 if (clearExisting) cleared = DredgeClearOld(tr, db, civ, prefix);
 
@@ -571,16 +539,14 @@ namespace Civil3DFactory
                     DredgeRing ring = DredgeBuildRing(pl, sampleStep);
                     if (ring.Count < 3)
                     {
-                        warnings.Add((JsonNode)("Boundary " + handle + " has too few sample points, skipped."));
+                        warnings.Add((JsonNode)("Boundary " + handle + " has insufficient sample points; skipped."));
                         continue;
                     }
 
-                    // Region name: text inside the boundary first, else the index
                     string label = null;
                     foreach (DredgeText t in texts)
                         if (GridPointInPolygon(t.P, ring.P)) { label = t.S; break; }
 
-                    // Per-region parameters: match by handle first, then region name, else global
                     JsonObject spec = DredgeFindSpec(regionSpecs, handle, label);
                     string id = spec != null ? GetString(spec, "id", null) : null;
                     if (string.IsNullOrEmpty(id)) id = label;
@@ -592,7 +558,6 @@ namespace Civil3DFactory
                     if (m <= 0)
                         throw new InvalidOperationException("slope_ratio_m of region '" + id + "' must be greater than 0.");
 
-                    // ---- Top-of-slope elevation ----
                     int offSurface, onInterface;
                     DredgeFillRingZ(ring, ground, zspec, out offSurface, out onInterface);
 
@@ -661,7 +626,6 @@ namespace Civil3DFactory
                     }
                 }
 
-                // Regions named in regions but not found in the drawing are reported explicitly, never silently
                 if (regionSpecs != null)
                 {
                     foreach (JsonNode n in regionSpecs)
@@ -708,9 +672,6 @@ namespace Civil3DFactory
             public List<string> Notes = new List<string>();
         }
 
-        /// <summary>Shared surface-building stage (used by create_dredge_grading and dredge_from_feature_lines):
-        /// ring (Z/M filled) -> slope band index -> ring points + toe points + grid points -> TIN + outer boundary clip -> crest/toe lines.
-        /// An old surface with the same name is deleted and rebuilt in place.</summary>
         static DredgeSurfaceOut DredgeBuildSurface(Transaction tr, Database db, CivDoc civ, BlockTableRecord btr,
             DredgeRing ring, double bottom, string sName,
             ObjectId lySurf, ObjectId lyCrest, ObjectId lyToe, bool drawCrest, bool drawToe,
@@ -730,7 +691,6 @@ namespace Civil3DFactory
 
             ring.BuildIndex(Math.Max(bandMax * 1.05, Math.Max(flatStep, 5.0)));
 
-            // ---- Surface points: boundary ring + toe ring + dense slope band + sparse flat bottom ----
             var pts = new Point3dCollection();
             for (int i = 0; i < ring.Count; i++)
                 pts.Add(new Point3d(ring.P[i].X, ring.P[i].Y, ring.Z[i]));
@@ -744,8 +704,6 @@ namespace Civil3DFactory
                 if (band <= 1e-6) continue;
                 double px = ring.P[i].X + nx[i] * band;
                 double py = ring.P[i].Y + ny[i] * band;
-                // Check: a true toe point must be inside the region and its distance to the boundary must equal the local band width.
-                // At concave corners a normal offset runs outside or onto the opposite side; this step removes those.
                 if (!GridPointInPolygon(new Point2d(px, py), ring.P)) continue;
                 double d, zt;
                 if (!ring.Nearest(px, py, out d, out zt)) continue;
@@ -776,14 +734,12 @@ namespace Civil3DFactory
                         z = zTop - d / (mLoc > 0 ? mLoc : 5.0);
                         if (z < bottom) z = bottom;
                     }
-                    // keep only sparse grid points on the flat bottom, all points inside the slope band
                     if (z <= bottom + 1e-9 && (ix % coarse != 0 || iy % coarse != 0)) continue;
                     pts.Add(new Point3d(x, y, z));
                     gridPts++;
                 }
             }
 
-            // ---- Build TIN + clip by outer boundary ----
             ObjectId oldId = FindSurfaceId(tr, civ, sName);
             if (!oldId.IsNull)
             {
@@ -808,7 +764,6 @@ namespace Civil3DFactory
                 outp.Notes.Add("Outer boundary clip failed; surface triangulated by convex hull: " + ex.Message);
             }
 
-            // ---- Crest line (3D version of the boundary) and toe line ----
             if (drawCrest)
             {
                 var cp = new Polyline3d(Poly3dType.SimplePoly, bpts, true);
@@ -840,7 +795,6 @@ namespace Civil3DFactory
             return outp;
         }
 
-        /// <summary>Per-region parameter lookup: exact handle match first, then region name (text).</summary>
         static JsonObject DredgeFindSpec(JsonArray specs, string handle, string label)
         {
             if (specs == null) return null;
@@ -864,7 +818,6 @@ namespace Civil3DFactory
             return null;
         }
 
-        /// <summary>Inward normal (unit vector) per point; winding determined by signed area.</summary>
         static void DredgeInwardNormals(DredgeRing ring, out double[] nx, out double[] ny)
         {
             int n = ring.Count;
@@ -878,13 +831,11 @@ namespace Civil3DFactory
                 double len = Math.Sqrt(vx * vx + vy * vy);
                 if (len <= 1e-12) { nx[i] = 0; ny[i] = 0; continue; }
                 vx /= len; vy /= len;
-                // for a counter-clockwise ring the inside is the left normal (-vy, vx)
                 nx[i] = ccw ? -vy : vy;
                 ny[i] = ccw ? vx : -vx;
             }
         }
 
-        /// <summary>Clean previous output: surfaces with this node's prefix + lines carrying C3DF_DREDGE XData.</summary>
         static int DredgeClearOld(Transaction tr, Database db, CivDoc civ, string prefix)
         {
             int n = 0;

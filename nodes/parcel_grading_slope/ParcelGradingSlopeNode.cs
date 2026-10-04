@@ -37,7 +37,6 @@ namespace Civil3DFactory
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                // Find the boundary polyline
                 Polyline poly = null;
                 ObjectId polyId = ResolveHandle(db, bndStr);
                 if (!polyId.IsNull)
@@ -46,7 +45,6 @@ namespace Civil3DFactory
                 }
                 if (poly == null)
                 {
-                    // Find the first matching polyline by layer
                     foreach (ObjectId id in ModelSpace(db, tr))
                     {
                         var pl = tr.GetObject(id, OpenMode.ForRead) as Polyline;
@@ -58,9 +56,8 @@ namespace Civil3DFactory
                     }
                 }
                 if (poly == null)
-                    throw new InvalidOperationException("Parcel boundary polyline '" + bndStr + "' not found.");
+                    throw new InvalidOperationException("Parcel boundary polyline '" + bndStr + "'.");
 
-                // Find the target surface (if target_type == "surface")
                 CivSurface targetSurf = null;
                 if (targetType.Equals("surface", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(targetSurfName))
                 {
@@ -69,19 +66,16 @@ namespace Civil3DFactory
                         targetSurf = tr.GetObject(targetSurfId, OpenMode.ForRead) as CivSurface;
                 }
 
-                // Prepare the model space container and layers
                 var btr = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
-                ObjectId lyComb = GridEnsureLayer(tr, db, "C3DF-SLOPE-MARK", 2);
-                ObjectId lyDaylight = GridEnsureLayer(tr, db, "C3DF-TOP-TOE", 1);
+                ObjectId lyComb = GridEnsureLayer(tr, db, "C-BANK-SYMB", 2);
 
-                // Polyline area and winding (used to orient the normal)
                 double area = poly.Area;
                 bool isCcw = area >= 0; // CAD default CW/CCW
 
-                // Sample along the boundary and compute top/toe daylight points
                 List<Point3d> bndPts = new List<Point3d>();
                 List<Point3d> daylightPts = new List<Point3d>();
                 List<Line> combLinesList = new List<Line>();
+                double sumHDiff = 0;
 
                 double length = poly.Length;
                 int samples = Math.Max(10, (int)Math.Ceiling(length / Math.Max(0.5, combSpacing)));
@@ -95,7 +89,6 @@ namespace Civil3DFactory
                     Vector3d deriv = poly.GetFirstDerivative(poly.GetParameterAtDistance(dist));
                     Vector2d dir2d = new Vector2d(deriv.X, deriv.Y).GetNormal();
 
-                    // Normal vector: left normal (-y, x), right normal (y, -x)
                     Vector2d normal2d = isCcw ? new Vector2d(-dir2d.Y, dir2d.X) : new Vector2d(dir2d.Y, -dir2d.X);
                     if (direction.Equals("inward", StringComparison.OrdinalIgnoreCase))
                         normal2d = normal2d.Negate();
@@ -113,7 +106,6 @@ namespace Civil3DFactory
                         zTarget = zBase + targetValue;
                     else if (targetSurf != null)
                     {
-                        // Estimate the extended point and sample the surface elevation
                         Point3d estPt = ptOnPoly + new Vector3d(normal2d.X * 5.0, normal2d.Y * 5.0, 0);
                         double zSample;
                         if (GridTrySample(targetSurf, estPt, out zSample))
@@ -143,11 +135,11 @@ namespace Civil3DFactory
 
                     bndPts.Add(ptOnPoly);
                     daylightPts.Add(ptDaylight);
+                    sumHDiff += hDiff;
 
                     surfPts.Add(ptOnPoly);
                     surfPts.Add(ptDaylight);
 
-                    // Draw slope marks (comb lines: alternating long/short)
                     if (drawCombLines && i % 1 == 0 && i < samples)
                     {
                         bool isLong = (i % 2 == 0);
@@ -165,7 +157,7 @@ namespace Civil3DFactory
                     }
                 }
 
-                // Create the daylight polyline entity
+                ObjectId lyDaylight = GridEnsureLayer(tr, db, sumHDiff < 0 ? "C-BANK-TOE" : "C-BANK-TOP", 1);
                 Polyline daylightPoly = new Polyline();
                 daylightPoly.LayerId = lyDaylight;
                 for (int k = 0; k < daylightPts.Count; k++)
@@ -175,7 +167,6 @@ namespace Civil3DFactory
                 btr.AppendEntity(daylightPoly);
                 tr.AddNewlyCreatedDBObject(daylightPoly, true);
 
-                // Create the grading TIN surface
                 string gradingSurfName = "GradingSurface_" + poly.Handle.ToString();
                 ObjectId oldSurf = FindSurfaceId(tr, civ, gradingSurfName);
                 if (!oldSurf.IsNull)
