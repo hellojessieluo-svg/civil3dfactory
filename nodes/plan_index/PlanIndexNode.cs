@@ -32,6 +32,7 @@ namespace Civil3DFactory
             string tag = GetString(a, "tag", "plan_index");
             string crossTag = GetString(a, "avoid_tag", "annotate_cross_cut");
             bool clear = GetBool(a, "clear", true), dry = GetBool(a, "dry_run", false);
+            bool otherFrames = GetBool(a, "other_frames", true), ownFill = GetBool(a, "own_fill", true);
 
             Database db = doc.Database;
             var outItems = new JsonArray(); int cleared = 0, made = 0; var notes = new List<string>();
@@ -110,7 +111,14 @@ namespace Civil3DFactory
                         catch { }
                     }
                     LBox box; double dens;
-                    string corner = LabelPlacer.PickIndexCorner(frame, W, Hb, M, ownPts, sc.Texts, sc.All, blockers, out box, out dens);
+                    string corner;
+                    JsonArray atArr = (ci != null ? ci["at"] as JsonArray : null) ?? (a["at"] as JsonArray);
+                    if (atArr != null && atArr.Count >= 2)
+                    {
+                        double ax = atArr[0].GetValue<double>(), ay = atArr[1].GetValue<double>();
+                        box = new LBox(ax, ay, ax + W, ay + Hb); dens = 0; corner = "AT";
+                    }
+                    else corner = LabelPlacer.PickIndexCorner(frame, W, Hb, M, ownPts, sc.Texts, sc.All, blockers, out box, out dens);
                     string name = ci == null ? null : GetString(ci, "name", code);
                     string cap = string.IsNullOrEmpty(caption) || name == null ? null : caption.Replace("{name}", name).Replace("{code}", code ?? "");
                     outItems.Add(new JsonObject
@@ -142,8 +150,8 @@ namespace Civil3DFactory
                     {
                         double wx0, wy0, wx1, wy1; su.Value.ModelWindow(out wx0, out wy0, out wx1, out wy1);
                         var r4 = new[] { tp(wx0, wy0), tp(wx1, wy0), tp(wx1, wy1), tp(wx0, wy1) };
-                        if (su.Value.Id == v.Id) { pen.Solid(r4, null, 8); pen.Poly(r4, true, 7); }
-                        else pen.Poly(r4, true, 8);
+                        if (su.Value.Id == v.Id) { if (ownFill) pen.Solid(r4, null, 8); pen.Poly(r4, true, 7); }
+                        else if (otherFrames) pen.Poly(r4, true, 8);
                     }
                 }
                 foreach (var pn in pens.Values) { string nt = pn.MoveToTop(); if (nt != null) notes.Add(nt); made += pn.Count; }

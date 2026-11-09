@@ -1,0 +1,10 @@
+{
+  "description": "Demo plot style: every colour black, last digit of the colour number sets the lineweight",
+  "comment": "Neutral example spec for make_ctb.py. Real company specs live in the company baseline (config company_baseline_root).",
+  "end_digit_lineweight": {"0": 0.13, "1": 0.18, "2": 0.25, "3": 0.35, "4": 0.50, "5": 0.70, "6": 0.25, "7": 0.35, "8": 0.18, "9": 1.00},
+  "end_digit_screen": {"8": 50},
+  "palette": {"1": [0.18, 100], "2": [0.25, 100], "3": [0.35, 100], "4": [0.50, 100], "5": [0.25, 100],
+              "6": [0.35, 100], "7": [0.50, 100], "8": [0.18, 50], "9": [0.70, 100]},
+  "bands": [],
+  "default_rgb": [0, 0, 0]
+}

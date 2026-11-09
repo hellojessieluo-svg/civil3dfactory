@@ -1,0 +1,20 @@
+{
+  "drawings": "drawings",
+  "pdf_dir": "drawings/PDF",
+  "album": "out/sheet-set.pdf",
+  "catalog": "out/catalogue.xlsx",
+  "expect_sheets": 12,
+  "tags": {"number": "SHEET_NO", "title": "TITLE", "scale": "SCALE"},
+  "siblings": ["base-map.dwg", "*.png"],
+  "block_keywords": ["TITLE"],
+  "paper": "A3",
+  "page_size_pt": [1190.55, 841.89],
+  "plot": {
+    "default": {"ctb": "monochrome.ctb", "transparency": false, "lineweights": true, "lwdefault": 25},
+    "rules": [
+      {"match": "1101*", "ctb": "", "transparency": true}
+    ]
+  },
+  "catalog_title": "Sheet catalogue",
+  "catalog_headers": ["No.", "Sheet No.", "Title", "Scale"]
+}

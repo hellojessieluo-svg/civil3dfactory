@@ -1,0 +1,17 @@
+{
+  "node": "corridor_surface_link_codes",
+  "version": 1,
+  "fixture": null,
+  "prerequisites": [
+    "A corridor whose assembly has a LinkToMarkedPoint link with its own link code, ticked on a corridor surface"
+  ],
+  "assertions": [
+    "without remove: lists the link codes of every surface of every corridor and does not change the drawing",
+    "dry_run defaults to true: removed reports which codes would go; drawing unchanged, no rebuild",
+    "dry_run:false: RemoveLinkCode on the existing surface, surface name and object unchanged; link_codes_after no longer lists the removed codes; each changed corridor is rebuilt once",
+    "a code the surface does not have is not an error, it just does not appear in removed",
+    "memory only: save_dwg is required to keep the result"
+  ],
+  "status": "awaiting_public_fixture",
+  "notes": "Requires an appropriate drawing fixture. Private project runs are not public regression evidence."
+}

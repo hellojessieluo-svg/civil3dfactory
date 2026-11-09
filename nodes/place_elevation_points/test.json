@@ -1,0 +1,16 @@
+{
+  "node": "place_elevation_points",
+  "version": 1,
+  "fixture": null,
+  "prerequisites": [
+    "Any drawing; a spot-height block is optional"
+  ],
+  "assertions": [
+    "each point gets a block at (x,y,z) when the drawing has the block, otherwise a point object, plus an elevation label",
+    "clear:true makes reruns idempotent on the point and label layers",
+    "points_only:false writes labels only; label:false places points only",
+    "a missing text style falls back to the current style with a warning"
+  ],
+  "status": "awaiting_public_fixture",
+  "notes": "Requires an appropriate drawing fixture. Private project runs are not public regression evidence."
+}

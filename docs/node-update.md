@@ -1,6 +1,6 @@
 # Node update
 
-The source tree now contains 139 node contracts. It includes all 138 current workshop node IDs and retains
+The source tree now contains 143 node contracts. It includes all 142 current workshop node IDs and retains
 `create_block_definition`, the additional public node. The public `create_assembly` operation retains support
 for arbitrary stock/PKT items as well as LEFT/RIGHT pairs. Existing `help`, `view` and style-construction operations remain available.
 
@@ -49,3 +49,20 @@ that an external operation ran. Font normalization preserves its documented font
 These checks do not establish full drawing regression coverage for every node or every Civil 3D version.
 Version-dependent APIs fail explicitly when unavailable. Data-shortcut publish/reference/repair and visual annotation
 layout still need suitable drawing-specific verification.
+
+## 2026-11 update
+
+- New nodes: `create_surface_from_points` (existing-ground TIN from spot heights, points files or survey blocks),
+  `place_elevation_points` (spot heights with labels), `set_contour_interval` (surface style contour intervals),
+  `corridor_surface_link_codes` (read or remove link codes on corridor surfaces in place).
+- Changes: `create_mleaders` takes `dogleg:false` to keep vertices exactly as given; `plan_index` takes `at`,
+  `other_frames` and `own_fill`; `annotate_grid_elevations` always writes to model space; `restyle_section_views`
+  also styles material sections that are only reachable through a view's graph overrides.
+- Fix: `plot_pdf` takes `device` and `min_bytes` again (lost in the October sync), so `view mode:screenshot` plots
+  through `PublishToWeb PNG.pc3` instead of failing on the PDF device.
+- Known limit: headless plots do not render section view objects, so the section screenshots of the styles examples
+  come out blank; inspect section views in the Civil 3D UI or after `export_to_autocad`.
+- New tools: `tools/sheet-set` (re-plot changed sheets, album, catalogue, verify, compare with a reference set) and
+  `tools/make-ctb` (plot style table from a JSON spec). Recipes in `docs/recipes/`.
+- Validation: blacklist gate, secret scan and engine builds (`net8.0-windows`, `net472`). The new nodes have no public
+  fixture yet (`awaiting_public_fixture`). Release downloads stay at v1.1.1; build from source for the new operations.

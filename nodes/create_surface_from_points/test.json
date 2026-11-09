@@ -1,0 +1,16 @@
+{
+  "node": "create_surface_from_points",
+  "version": 1,
+  "fixture": null,
+  "prerequisites": [
+    "A drawing with spot-height blocks whose insertion point Z is the elevation, or a points file"
+  ],
+  "assertions": [
+    "points from points, points_file or block references; z==0 dropped when drop_zero; duplicates by xy removed",
+    "fewer than 3 usable points fails with a message naming the sources",
+    "max_triangle_length > 0 leaves survey gaps open; the created surface has a non-zero triangle count",
+    "replace:true deletes an existing surface with the same name first"
+  ],
+  "status": "awaiting_public_fixture",
+  "notes": "Requires an appropriate drawing fixture. Private project runs are not public regression evidence."
+}

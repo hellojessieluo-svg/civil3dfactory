@@ -64,3 +64,10 @@ Run the update on a copy of the drawing when the original must stay untouched.
 - `.dwg-attribute-backups\` created by the update step is a folder of drawings - move it out before plotting a folder, or the backups plot too.
 - Attribute tags are matched exactly (`SHEET_NO` not `SHEETNO`); `dump_block_attributes` shows the real tags.
 - PDF text is not searchable for SHX fonts: verify by looking at the page, not by text search.
+
+## Whole sheet sets
+
+For a set of sheets (re-plot only what changed, merge with bookmarks, catalogue, cross-check everything) use
+`python tools\sheet-set\sheet_set.py <config.json> plot|album|catalog|verify|compare` - see
+[tools/sheet-set/README.md](../../tools/sheet-set/README.md). How to reproduce a set a client already has, check
+someone's catalogue against the drawings or swap a whole title block: [docs/recipes/sheet-sets.md](../../docs/recipes/sheet-sets.md).

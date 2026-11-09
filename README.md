@@ -42,13 +42,13 @@ Four real Claude Code sessions, one instruction each, on the demo drawings: the 
 |---|---|
 | terrain surfaces, alignments, profiles | read / rewrite title block attributes |
 | subassemblies as .pkt (no Subassembly Composer UI), assemblies | one PDF per title block, batch |
-| corridors, corridor surfaces, sample lines | merge |
+| corridors, corridor surfaces, sample lines | merge, catalogue, verify a whole sheet set (`tools/sheet-set`) |
 | material-based quantities: cumulative / incremental cut and fill per station, xlsx | |
 | section views, profile views, styles | |
 
-The source tree includes 139 node contracts, including surface data shortcuts, corridor target and assembly edits,
+The source tree includes 143 node contracts, including surface data shortcuts, corridor target and assembly edits,
 section/profile annotations, label placement, layout viewports and sheet indexes. See the
-[node update and validation notes](docs/node-update.md).
+[node update and validation notes](docs/node-update.md) and the field-tested [recipes](docs/recipes/README.md).
 
 Plotting requires plain AutoCAD entities. Use the layout, viewport and export operations to prepare drawings,
 then inspect the exported sheets before plotting. Some host-dependent steps still require the Civil 3D UI.
@@ -106,7 +106,9 @@ SKILL.md             the agent manual; skills/ has the four specialised skills (
 engine/              C# engine source -> Civil3DFactory.dll / Civil3DFactory.bundle
 nodes/               op contracts (node.json) + implementations + factory test records
 examples/            channel-demo.dwg, title-block-demo.dwg, one task per skill, README with the conventions
-tools/               pkt-forge, dwg-attribute-editor, dwg-titleblock-plotter (source; exe files come with the release)
+tools/               pkt-forge, dwg-attribute-editor, dwg-titleblock-plotter (source; exe files come with the release),
+                     sheet-set (re-plot / merge / catalogue / verify a sheet set), make-ctb (plot style table from a JSON spec)
+docs/                recipes/ (field-tested checklists), node update notes, media
 scripts/             build.ps1, resident.ps1 + resident-lib.ps1, gate.ps1 (pre-commit blacklist), contract-audit.ps1
 ```
 

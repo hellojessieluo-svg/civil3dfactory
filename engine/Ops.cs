@@ -466,6 +466,16 @@ namespace Civil3DFactory
                 WritesDrawing = true,
                 Run = RunNodeCreateCorridorSurface
             },
+            ["corridor_surface_link_codes"] = new OpDef
+            {
+                Description = "Read or edit in place the link codes of corridor surfaces: lists the link codes ticked on every surface of every corridor; with remove, calls "
+                            + "RemoveLinkCode on the existing surface (the surface object stays, material lists and sample line groups keep working - create_corridor_surface deletes and rebuilds)."
+                            + " Use it after adding links to an assembly only for labelling, to take them out of the surface",
+                Parameters = "corridors?[](corridor names, default all) surfaces?[](corridor surface names, default all) remove?[](link codes to remove, default read-only) "
+                           + "dry_run?(default true) rebuild?(default true; rebuild a corridor whose surface changed)",
+                WritesDrawing = true,
+                Run = RunNodeCorridorSurfaceLinkCodes
+            },
             ["create_sample_lines"] = new OpDef
             {
                 Description = "Create a sample line group (clears all old groups on this alignment first) and mark existing ground/corridor/corridor surface as sampled; supports equal spacing or explicit endpoints",
@@ -562,7 +572,8 @@ namespace Civil3DFactory
                            + "style? code_set? section_style?(ground-line section style, e.g. @C3DF-GroundLine) elev_min? elev_max?(automatic if min>=max) "
                            + "offset_left?(50) offset_right?(50) x? y? rows?(2) cols?(2) col_spacing?(130) row_spacing?(45) group_spacing?(0) "
                            + "placement?(draft|production, default draft) template?(production: .dwt/.dwg whose layout holds the sheet viewport) "
-                           + "material_style?(shape or section style for cut/fill sections) volume_table?(default false) corridor?",
+                           + "material_style?(shape or section style for cut/fill sections) volume_table?(default false) corridor? "
+                           + "append_station?(only add the missing view at this sample station, keep existing views) template_view?(required with append_station: handle of an existing section view) dx?(0) dy?(-28)",
                 WritesDrawing = true,
                 Run = RunNodeCreateSectionViews
             },
@@ -756,7 +767,7 @@ namespace Civil3DFactory
             ["create_mleaders"] = new OpDef
             {
                 Description = "Create multileaders with MText, points from arrow to text, and named styles optionally cloned from style_from_dwg. Memory only; save_dwg to persist.",
-                Parameters = "items(required,[{points:[[x,y],...],text,text_at?[x,y],layer?,text_height?,width?}]) width? style? style_from_dwg? space?(Model|layout,default Model) layer?(existing only) text_height?(drawing units,0=style) unannotative?(true) dry_run?",
+                Parameters = "items(required,[{points:[[x,y],...],text,text_at?[x,y],dogleg?(default true; false turns the style landing off and keeps the vertices exactly as given),layer?,text_height?,width?}]) width? style? style_from_dwg? space?(Model|layout,default Model) layer?(existing only) text_height?(drawing units,0=style) unannotative?(true) dry_run?",
                 WritesDrawing = true,
                 Run = CreateMLeaders
             },
@@ -1538,6 +1549,31 @@ namespace Civil3DFactory
                 Parameters = "items(required,[{surface,points:[[x,y,z]..]|points_file,elev?,outer?[[x,y]..],holes?[[[x,y]..]..]}]) rebuild?(true) non_destructive?(true) holes_non_destructive?(true) clear_boundaries?(defaults to whether holes supplied)",
                 WritesDrawing = true,
                 Run = RunNodeAddSurfacePoints
+            },
+            ["create_surface_from_points"] = new OpDef
+            {
+                Description = "Existing-ground TIN from spot heights: points come from points / points_file (JSON, or x,y,z per line; survey .dat files use the last three columns) / model-space block references (block_layer, block_names; the insertion point Z is used - survey spot-height blocks carry the elevation there); "
+                            + "drop_zero drops z==0, z_min/z_max drop out-of-range points, duplicates by xy are removed; outer adds a non-destructive outer boundary; max_triangle_length>0 keeps gaps in the survey from becoming fake triangles. Memory only; call save_dwg to persist.",
+                Parameters = "name(required) points?([[x,y,z]..]) points_file?(absolute path) block_layer?(layer name) block_names?([] block names, e.g. GC200) drop_zero?(default true) z_min? z_max? "
+                           + "outer?([[x,y]..] outer boundary) max_triangle_length?(default 0 = no limit) style? layer? replace?(default true; delete a surface with the same name first)",
+                WritesDrawing = true,
+                Run = RunNodeCreateSurfaceFromPoints
+            },
+            ["place_elevation_points"] = new OpDef
+            {
+                Description = "Places spot heights with Z plus elevation labels (survey spot style): for points / points_file (JSON, or x,y,z per line) each point inserts a block at (x,y,z) (block, only if the drawing has it) or a DBPoint, with the elevation written beside it; "
+                            + "points_only:false writes labels only (for existing survey blocks), label:false places points only; clear removes earlier entities on the point and label layers first, so reruns are idempotent. Memory only; call save_dwg to persist.",
+                Parameters = "points?([[x,y,z]..]) points_file?(absolute path) layer?(default V-SPOT) label_layer?(default <layer>-TEXT) block?(block name, e.g. GC200) block_scale?(1) "
+                           + "label?(default true) points_only?(default true; false = labels only, no points) text_height?(1.0) decimals?(2) dx?(0.6 x text height) dy?(-0.5 x text height) text_style?(default txt1) color?(ACI, default ByLayer) clear?(default true)",
+                WritesDrawing = true,
+                Run = RunNodePlaceElevationPoints
+            },
+            ["set_contour_interval"] = new OpDef
+            {
+                Description = "Changes the contour intervals of surface styles in place (minor / major); the receipt lists before and after. Change them before exporting to plain CAD so exported contours use the new interval. Memory only; call save_dwg to persist.",
+                Parameters = "style? or styles?[] (surface style names, at least one) minor?(default 0.5) major?(default 2.5)",
+                WritesDrawing = true,
+                Run = RunNodeSetContourInterval
             },
             ["data_shortcuts"] = new OpDef
             {
@@ -6493,6 +6529,8 @@ namespace Civil3DFactory
             string layoutName = GetString(a, "layout", "Model");
             string paper = GetString(a, "paper", "A3");
             string ctb = GetString(a, "ctb", "monochrome.ctb");
+            string device = GetString(a, "device", "DWG To PDF.pc3");   // any installed plotter, e.g. "PublishToWeb PNG.pc3" for a PNG screenshot
+            long minBytes = (long)GetDouble(a, "min_bytes", 1024);
             bool lineweights = GetBool(a, "lineweights", true);
             bool fitLayout = GetBool(a, "fit", false);
 
@@ -6575,10 +6613,10 @@ namespace Civil3DFactory
                     }
                 }
 
-                PlotWindow(db, layoutId, plotWindow, outPdf, paper, ctb, lineweights, fitLayout, userWindow);
+                PlotWindow(db, layoutId, plotWindow, outPdf, paper, ctb, lineweights, fitLayout, userWindow, device);
 
                 long size = File.Exists(outPdf) ? new FileInfo(outPdf).Length : 0;
-                if (size < 1024)
+                if (size < minBytes)
                     throw new InvalidOperationException("PDF missing or too small (" + size + " bytes).");
 
                 return new JsonObject

@@ -85,7 +85,7 @@ namespace Civil3DFactory
                 ObjectId lyD = GridEnsureLayer(tr, db, lyDesignName, 2);
                 ObjectId lyE = GridEnsureLayer(tr, db, lyExistName, 3);
                 ObjectId lyF = GridEnsureLayer(tr, db, lyDiffName, 1);
-                var btr = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
+                var btr = (BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite);
 
                 var seen = new HashSet<string>();
 

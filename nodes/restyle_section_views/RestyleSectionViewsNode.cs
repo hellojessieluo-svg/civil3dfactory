@@ -45,8 +45,11 @@ namespace Civil3DFactory
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
-            int views = 0, groundStyled = 0, matStyled = 0, alignHit = 0, matShapeSet = 0, corSurfStyled = 0;
-            string matStyleResolved = null;
+            int views = 0, groundStyled = 0, matStyled = 0, alignHit = 0, matShapeSet = 0, corSurfStyled = 0, matStyleFail = 0;
+            string matStyleResolved = null, matStyleFailWhy = null;
+            // Material sections already drawn on a view (GraphOverrides.Draw=true) can be missing from both the group's
+            // section sources and the sample line's section list; the last pass below finds them through the views.
+            var matDone = new HashSet<ObjectId>();
             var perAlign = new JsonArray();
 
             using (Transaction tr = db.TransactionManager.StartTransaction())
@@ -127,7 +130,7 @@ namespace Civil3DFactory
                                             if (so.GetType().Name != "MaterialSection") continue;
                                             so.UpgradeOpen();
                                             ((Autodesk.Civil.DatabaseServices.Section)so).StyleId = matStyleId;
-                                            matStyled++;
+                                            if (matDone.Add(secId)) matStyled++;
                                         }
                                         catch { }
                                     }
@@ -189,11 +192,46 @@ namespace Civil3DFactory
                                     var sec = (Autodesk.Civil.DatabaseServices.Section)
                                         tr.GetObject(secId, OpenMode.ForWrite);
                                     sec.StyleId = want;
-                                    if (isMaterial) matStyled++;
+                                    if (isMaterial) { if (matDone.Add(secId)) matStyled++; }
                                     else if (isCorridorSurface && !corSurfId.IsNull) corSurfStyled++;
                                     else groundStyled++;
                                 }
                                 catch { }
+                            }
+                        }
+                        // Material sections found through no list above: take them from the views' graph overrides by SectionId.
+                        if (!matStyleId.IsNull)
+                        {
+                            foreach (ObjectId slId2 in g.GetSampleLineIds())
+                            {
+                                var sl2 = (CivSampleLine)tr.GetObject(slId2, OpenMode.ForRead);
+                                foreach (ObjectId svId2 in sl2.GetSectionViewIds())
+                                {
+                                    DBObject sv2;
+                                    try { sv2 = tr.GetObject(svId2, OpenMode.ForRead); }
+                                    catch { continue; }
+                                    var pi = sv2.GetType().GetProperty("GraphOverrides");
+                                    var coll = pi == null ? null : pi.GetValue(sv2) as System.Collections.IEnumerable;
+                                    if (coll == null) continue;
+                                    foreach (object ov in coll)
+                                    {
+                                        object sidv = null;
+                                        try { sidv = ov.GetType().GetProperty("SectionId")?.GetValue(ov); }
+                                        catch { continue; }
+                                        if (!(sidv is ObjectId secId2) || secId2.IsNull || !matDone.Add(secId2)) continue;
+                                        Autodesk.Civil.DatabaseServices.Section sec2;
+                                        try { sec2 = tr.GetObject(secId2, OpenMode.ForWrite) as Autodesk.Civil.DatabaseServices.Section; }
+                                        catch { continue; }
+                                        if (sec2 == null || sec2.GetType().Name != "MaterialSection") continue;
+                                        try { sec2.StyleId = matStyleId; matStyled++; }
+                                        catch (System.Exception ex)
+                                        {
+                                            matStyleFail++;
+                                            if (matStyleFailWhy == null)
+                                                matStyleFailWhy = ex.GetType().Name + ": " + Truncate(ex.Message, 160);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -219,6 +257,8 @@ namespace Civil3DFactory
                 ["view_style"] = style,
                 ["ground_sections_styled"] = groundStyled,
                 ["material_sections_styled"] = matStyled,
+                ["material_style_failed"] = matStyleFail,
+                ["material_style_fail_why"] = matStyleFailWhy,
                 ["corridor_surface_sections_styled"] = corSurfStyled,
                 ["material_shape_styles_set"] = matShapeSet,
                 ["material_shape_style"] = matShape,

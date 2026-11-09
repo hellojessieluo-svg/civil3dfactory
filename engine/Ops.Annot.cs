@@ -29,7 +29,7 @@ namespace Civil3DFactory
             string labelSet = GetString(a, "label_set", null);
             string layer = GetString(a, "layer", null);
             bool replace = GetBool(a, "replace", true);
-
+            
             Database db = doc.Database;
             CivDoc civ = Civ(db);
             using (Transaction tr = db.TransactionManager.StartTransaction())
@@ -449,6 +449,8 @@ namespace Civil3DFactory
                     string text = Need(io, "text"); string ly = GetString(io, "layer", layer); double h = GetDouble(io, "text_height", th);
                     var ml = new MLeader(); ml.SetDatabaseDefaults();
                     if (!styleId.IsNull) ml.MLeaderStyle = styleId;
+                    bool dogleg = GetBool(io, "dogleg", true);
+                    if (!dogleg) { try { ml.EnableDogleg = false; } catch { } }
                     ml.ContentType = ContentType.MTextContent;
                     var mt = new MText(); mt.SetDatabaseDefaults(); mt.Contents = text;
                     if (!styleId.IsNull)
@@ -469,6 +471,24 @@ namespace Civil3DFactory
                         ml.TextLocation = new Point3d((double)ta[0], (double)ta[1], 0);
                     }
                     else ml.TextLocation = new Point3d((double)last[0], (double)last[1], 0);
+                    if (!dogleg)
+                    {   // The style landing drags the last segment horizontal and adds a vertex; turn it off and write the points back.
+                        try { ml.EnableDogleg = false; } catch { }
+                        try
+                        {
+                            int want = ta != null ? pts.Count : pts.Count - 1;
+                            int nv = ml.VerticesCount(li);
+                            while (nv > want) { ml.RemoveLastVertex(li); nv--; }
+                            for (int k = 0; k < want; k++)
+                            {
+                                var q = pts[k] as JsonArray;
+                                var p = new Point3d((double)q[0], (double)q[1], 0);
+                                if (k < ml.VerticesCount(li)) ml.SetVertex(li, k, p);
+                                else ml.AddLastVertex(li, p);
+                            }
+                        }
+                        catch { }
+                    }
                     if (unanno) { try { ml.Annotative = AnnotativeStates.False; } catch { } }
                     if (h > 0) { try { ml.TextHeight = h; } catch { } }
                     if (!string.IsNullOrEmpty(ly) && lt.Has(ly)) ml.Layer = ly;

@@ -1,0 +1,15 @@
+{
+  "node": "set_contour_interval",
+  "version": 1,
+  "fixture": null,
+  "prerequisites": [
+    "A drawing with at least one surface style"
+  ],
+  "assertions": [
+    "style or styles is required; an unknown style name fails",
+    "0 < minor <= major is enforced",
+    "the receipt lists the intervals before and after for every style"
+  ],
+  "status": "awaiting_public_fixture",
+  "notes": "Requires an appropriate drawing fixture. Private project runs are not public regression evidence."
+}

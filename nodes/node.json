@@ -1520,6 +1520,80 @@
     "effect": "modify"
   },
   {
+    "id": "create_surface_from_points",
+    "name": "Existing-ground TIN from spot heights",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "name": "string",
+      "points": "object[]?",
+      "points_file": "path?",
+      "block_layer": "list:dwg.layer?",
+      "block_names": "list:dwg.blockname[]?",
+      "drop_zero": "boolean?=true",
+      "z_min": "number?",
+      "z_max": "number?",
+      "outer": "pick.points?",
+      "max_triangle_length": "number?=0",
+      "style": "list:civil.style.surface?",
+      "layer": "list:dwg.layer?",
+      "replace": "boolean?=true"
+    },
+    "outputs": {
+      "created": "object"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "place_elevation_points",
+    "name": "Place spot heights with labels",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "points": "object[]?",
+      "points_file": "path?",
+      "layer": "list:dwg.layer?=V-SPOT",
+      "label_layer": "list:dwg.layer?",
+      "block": "list:dwg.blockname?",
+      "block_scale": "number?=1",
+      "label": "boolean?=true",
+      "points_only": "boolean?=true",
+      "text_height": "number?=1",
+      "decimals": "integer?=2",
+      "dx": "number?",
+      "dy": "number?",
+      "text_style": "list:dwg.textstyle?=txt1",
+      "color": "integer?",
+      "clear": "boolean?=true"
+    },
+    "outputs": {
+      "placed": "object"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "set_contour_interval",
+    "name": "Set surface style contour intervals",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "style": "list:civil.style.surface?",
+      "styles": "list:civil.style.surface[]?",
+      "minor": "number?=0.5",
+      "major": "number?=2.5"
+    },
+    "outputs": {
+      "styles": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
     "id": "set_surface_style",
     "name": "Set surface style",
     "version": "0.1",
@@ -2642,6 +2716,28 @@
     "effect": "modify"
   },
   {
+    "id": "corridor_surface_link_codes",
+    "name": "Read or remove corridor surface link codes",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "corridors": "string[]?",
+      "surfaces": "string[]?",
+      "remove": "string[]?",
+      "dry_run": "boolean?=true",
+      "rebuild": "boolean?=true"
+    },
+    "outputs": {
+      "dry_run": "boolean",
+      "remove": "string[]",
+      "removed_total": "integer",
+      "corridors": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
     "id": "set_label_style",
     "name": "Set label style",
     "version": "0.2",
@@ -3263,9 +3359,11 @@
       "window": "object?",
       "paper": "string?=A3",
       "ctb": "list:dwg.ctb?=monochrome.ctb",
+      "device": "string?=DWG To PDF.pc3",
       "lineweights": "boolean?=true",
       "overwrite": "boolean?=false",
-      "fit": "boolean?=false"
+      "fit": "boolean?=false",
+      "min_bytes": "integer?=1024"
     },
     "outputs": {
       "pdf": "file.pdf",
@@ -3641,6 +3739,9 @@
       "title": "string?=Plan index (schematic)",
       "caption": "string?=This sheet: {name}",
       "mask": "boolean?=true",
+      "other_frames": "boolean?=true",
+      "own_fill": "boolean?=true",
+      "at": "number[]?",
       "avoid_tag": "string?=annotate_cross_cut",
       "text_style": "list:dwg.textstyle?=txt1",
       "layer": "list:dwg.layer?=C-ANNO-INDX",
