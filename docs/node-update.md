@@ -60,9 +60,12 @@ layout still need suitable drawing-specific verification.
   also styles material sections that are only reachable through a view's graph overrides.
 - Fix: `plot_pdf` takes `device` and `min_bytes` again (lost in the October sync), so `view mode:screenshot` plots
   through `PublishToWeb PNG.pc3` instead of failing on the PDF device.
-- Known limit: headless plots do not render section view objects, so the section screenshots of the styles examples
-  come out blank; inspect section views in the Civil 3D UI or after `export_to_autocad`.
+- Fix: with `placement: production`, headless `create_section_views` stacked every view on one spot (lost in the
+  October sync). When that happens the views are now laid out on the `rows` / `cols` grid and the receipt reports
+  `grid_fallback: true`; the sheet-by-sheet production layout itself still needs the Civil 3D UI.
 - New tools: `tools/sheet-set` (re-plot changed sheets, album, catalogue, verify, compare with a reference set) and
   `tools/make-ctb` (plot style table from a JSON spec). Recipes in `docs/recipes/`.
+- New example assets: `examples/pkt/RiverSlope_SlopeFromTop_v7.0_LEFT.pkt` / `_RIGHT.pkt`, a field-tested bank slope pair
+  (English display texts; parameters and logic unchanged).
 - Validation: blacklist gate, secret scan and engine builds (`net8.0-windows`, `net472`). The new nodes have no public
   fixture yet (`awaiting_public_fixture`). Release downloads stay at v1.1.1; build from source for the new operations.

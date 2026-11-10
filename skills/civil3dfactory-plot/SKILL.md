@@ -7,6 +7,8 @@ description: Batch title-block work on plain AutoCAD drawings without opening th
 
 Repository: `{{C3DF_ROOT}}`. Tools: `tools\dwg-attribute-editor\DWGAttributeEditor.exe`, `tools\dwg-titleblock-plotter\DWGTitleblockPlotter.exe`
 (installed by `install.ps1`; both are also plain Python scripts next to the exe with the same arguments).
+The exe files are windowed builds: in PowerShell run them with `Start-Process <exe> -ArgumentList ... -Wait -NoNewWindow`
+(or pipe to `Out-Null`), otherwise the call returns before the JSON or PDF is written.
 
 ## When to use
 
@@ -31,7 +33,7 @@ dump_block_attributes name:TITLE                              (engine op) see re
 DWGAttributeEditor.exe --headless-export <folder|dwg> <out.json>  export every title block's attributes to JSON
   edit "value" fields in the JSON (keep handles and original_value)
 DWGAttributeEditor.exe --headless-update <folder|dwg> <in.json>   write back (originals backed up under .dwg-attribute-backups)
-DWGTitleblockPlotter.exe <folder-or-dwg> <outdir> [--block X] [--color]   one A3 PDF per title block, named <sheet no>-<title>
+DWGTitleblockPlotter.exe <folder-or-dwg> <outdir> [--block X] [--color]   one A3 PDF per title block, named `<sheet no> <title>.pdf` (space; path characters become `_`)
 merge: pypdf or any PDF tool                                   optional
 ```
 

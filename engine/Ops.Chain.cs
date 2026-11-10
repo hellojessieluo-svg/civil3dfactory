@@ -2108,8 +2108,30 @@ namespace Civil3DFactory
                 tr.Commit();
             }
 
-            // Grid placement applies only to draft views; production uses the template.
-            if (placement != "production")
+            // Production placement lays the views out sheet by sheet only in a full Civil 3D session; headless, every view
+            // lands on the same spot. Then the grid below is applied as well, so views never overlap.
+            bool gridFallback = false;
+            if (placement == "production")
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    CivSampleLineGroup slg = FindSampleLineGroup(tr, civ, alName, groupName);
+                    var spots = new HashSet<string>();
+                    int n = 0;
+                    foreach (ObjectId slId in slg.GetSampleLineIds())
+                    {
+                        var sl = (CivSampleLine)tr.GetObject(slId, OpenMode.ForRead);
+                        foreach (ObjectId svId in sl.GetSectionViewIds())
+                        {
+                            var p = ((Autodesk.Civil.DatabaseServices.SectionView)tr.GetObject(svId, OpenMode.ForRead)).Location;
+                            spots.Add(Math.Round(p.X, 3) + "," + Math.Round(p.Y, 3));
+                            n++;
+                        }
+                    }
+                    gridFallback = n > 1 && spots.Count == 1;
+                    tr.Commit();
+                }
+
+            if (placement != "production" || gridFallback)
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 CivSampleLineGroup slg = FindSampleLineGroup(tr, civ, alName, groupName);
@@ -2245,6 +2267,7 @@ namespace Civil3DFactory
                 ["surface_sections_styled"] = surfStyled,
                 ["creation_mode"] = creationMode,
                 ["placement"] = placement,
+                ["grid_fallback"] = gridFallback,
                 ["material_shape_styles_set"] = materialShapeStylesSet,
                 ["material_sections_styled"] = materialSectionsStyled,
                 ["template"] = templateFile,

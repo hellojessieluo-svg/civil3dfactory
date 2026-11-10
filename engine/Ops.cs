@@ -571,7 +571,8 @@ namespace Civil3DFactory
                 Parameters = "alignment(required) group?(sample line group name, default <alignment>_SampleLines; if not found and there is exactly one group, that one is used) "
                            + "style? code_set? section_style?(ground-line section style, e.g. @C3DF-GroundLine) elev_min? elev_max?(automatic if min>=max) "
                            + "offset_left?(50) offset_right?(50) x? y? rows?(2) cols?(2) col_spacing?(130) row_spacing?(45) group_spacing?(0) "
-                           + "placement?(draft|production, default draft) template?(production: .dwt/.dwg whose layout holds the sheet viewport) "
+                           + "placement?(draft|production, default draft; headless production falls back to the rows/cols grid) template?(production: .dwt/.dwg whose layout holds the sheet viewport) "
+                           + "layout?(production: layout name in the template) group_plot_style? plot_rows? plot_cols? "
                            + "material_style?(shape or section style for cut/fill sections) volume_table?(default false) corridor? "
                            + "append_station?(only add the missing view at this sample station, keep existing views) template_view?(required with append_station: handle of an existing section view) dx?(0) dy?(-28)",
                 WritesDrawing = true,

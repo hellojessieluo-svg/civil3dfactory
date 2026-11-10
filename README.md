@@ -91,7 +91,7 @@ Open `tmp\corridor-views.dwg` in Civil 3D: corridor, 23 section views, a profile
 ## How it works
 
 - **L1 view** - `-View outline | stats | issues | screenshot`: read-only reconnaissance, never guess object or style names.
-- **L2 ops** - 140+ operations in the engine (`-Help`), composed in a task JSON `{ "ops": [ {"op": "...", ...}, ... ] }`.
+- **L2 ops** - about 200 operations in the engine (`-Help`), composed in a task JSON `{ "ops": [ {"op": "...", ...}, ... ] }`.
   Every op returns its own receipt; `ok: true` with empty results is treated as a failure, not a success.
 - **L3 exe** - `DWGAttributeEditor.exe` and `DWGTitleblockPlotter.exe` for batch work on plain drawings; `PktForge.exe` writes subassemblies offline.
 - Nothing is written to the drawing you opened: add `save_dwg` with an `out` path to keep a result.
