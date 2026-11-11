@@ -302,7 +302,8 @@
       "interval": "number",
       "swath": "number",
       "style": "list:civil.style.sample_line",
-      "clear_existing": "boolean"
+      "clear_existing": "boolean",
+      "extra_surfaces": "string[]?"
     },
     "outputs": {
       "sample_line_group": "civil.sample_line_group"
@@ -450,7 +451,9 @@
       "append_station": "number?",
       "template_view": "string?",
       "dx": "number?=0",
-      "dy": "number?=-28"
+      "dy": "number?=-28",
+      "surfaces_only": "boolean?=false",
+      "section_styles": "object?"
     },
     "outputs": {
       "section_views": "civil.section_view[]"
@@ -520,7 +523,8 @@
     "parameters": {
       "out": "path",
       "version": "enum[2018|2013|2010]",
-      "overwrite": "boolean"
+      "overwrite": "boolean",
+      "model_tab": "boolean?=true"
     },
     "outputs": {
       "drawing": "file.dwg",
@@ -1539,7 +1543,8 @@
       "max_triangle_length": "number?=0",
       "style": "list:civil.style.surface?",
       "layer": "list:dwg.layer?",
-      "replace": "boolean?=true"
+      "replace": "boolean?=true",
+      "erase_source_blocks": "boolean?=false"
     },
     "outputs": {
       "created": "object"
@@ -1833,7 +1838,7 @@
     "parameters": {
       "items": "object[]",
       "dry_run": "boolean?=true",
-      "method": "enum[clone|add_copy_display]?"
+      "method": "enum[sibling|clone|add_copy_display]?"
     },
     "outputs": {
       "dry_run": "boolean",
@@ -3776,6 +3781,99 @@
       "code_set": "string",
       "done": "string[]",
       "failed": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "set_station_equations",
+    "name": "Station equations on an alignment",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {
+      "alignment": "civil.alignment"
+    },
+    "parameters": {
+      "equations": "array<{ahead:number,raw_back?:number,x?:number,y?:number}>",
+      "clear": "boolean?=true",
+      "dry_run": "boolean?=false",
+      "skip_tolerance": "number?=0.001",
+      "lead": "number?=0.01"
+    },
+    "outputs": {
+      "added": "integer",
+      "readback": "object[]"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "section_view_style_edit",
+    "name": "Section view style graph settings",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "name": "list:civil.style.section_view",
+      "vertical_exaggeration": "number?",
+      "dry_run": "boolean?=true",
+      "title_text": "string?",
+      "title_replace": "array<{from:string,to:string}>?"
+    },
+    "outputs": {
+      "vertical_exaggeration_after": "number",
+      "title_text_after": "string"
+    },
+    "effect": "modify"
+  },
+  {
+    "id": "locate_sheet_stations",
+    "name": "Stations from a construction plan sheet",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "pattern": "string",
+      "centre_layer": "string",
+      "text_layer": "string?",
+      "text_color": "integer?",
+      "line_layer": "string?",
+      "line_color": "integer?",
+      "search": "number?=15",
+      "half_width": "number?",
+      "name_prefix": "string?",
+      "strict": "boolean?=true"
+    },
+    "outputs": {
+      "stations": "object[]",
+      "equations": "object[]",
+      "sample_lines": "object[]"
+    },
+    "effect": "read"
+  },
+  {
+    "id": "draw_station_marks",
+    "name": "Station ticks and labels (pure CAD)",
+    "version": "0.1",
+    "kind": "production",
+    "executor": "civil3dfactory",
+    "inputs": {},
+    "parameters": {
+      "stations": "array<{station:number,x:number,y:number,ux:number,uy:number}>?",
+      "points": "array<[number,number]>?",
+      "interval": "number?=50",
+      "start_station": "number?=0",
+      "prefix": "string?",
+      "layer": "string?=C-ANNO-STATION",
+      "text_style": "string?=txt1",
+      "text_height": "number?=3",
+      "width_factor": "number?=0.8",
+      "tick": "number?=6",
+      "gap": "number?=2"
+    },
+    "outputs": {
+      "marks": "integer"
     },
     "effect": "modify"
   },

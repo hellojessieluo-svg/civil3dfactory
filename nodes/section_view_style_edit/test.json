@@ -1,0 +1,14 @@
+{
+  "node": "section_view_style_edit",
+  "version": 1,
+  "fixture": "waterway.dwt copy (has @C3DF-NoGrid)",
+  "ops": [
+    { "op": "copy_styles", "dry_run": false, "items": [ { "cat": "SectionViewStyles", "from": "@C3DF-NoGrid", "to": "@C3DF-NoGrid-V2.5" } ] },
+    { "op": "section_view_style_edit", "name": "@C3DF-NoGrid-V2.5", "vertical_exaggeration": 2.5, "dry_run": false }
+  ],
+  "assertions": [
+    "data.vertical_exaggeration_before == 1",
+    "data.vertical_exaggeration_after == 2.5"
+  ],
+  "status": "verified on TMP-005 anxin 2026-11-11 (see run ledger)"
+}

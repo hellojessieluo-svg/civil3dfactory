@@ -66,6 +66,22 @@ namespace Civil3DFactory
                 if (dry)
                 { done.Add(new JsonObject { ["cat"] = cat, ["from"] = from, ["to"] = to, ["method"] = "dry run" }); continue; }
 
+                string err0 = null;
+                if (forceMethod == null || forceMethod == "sibling")
+                {
+                    try
+                    {
+                        CopyStyleBySibling(db, srcId, to);
+                        done.Add(new JsonObject { ["cat"] = cat, ["from"] = from, ["to"] = to, ["method"] = "sibling" });
+                        continue;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        err0 = ex.GetType().Name + ": " + Truncate(ex.InnerException != null ? ex.InnerException.Message : ex.Message, 120);
+                        if (forceMethod == "sibling")
+                        { failed.Add(new JsonObject { ["from"] = from, ["to"] = to, ["why"] = "sibling failed: " + err0 }); continue; }
+                    }
+                }
                 string err1 = null;
                 if (forceMethod != "add_copy_display")
                 {
@@ -87,6 +103,7 @@ namespace Civil3DFactory
                     var rep = CopyStyleByAddAndCopyDisplay(db, coll, srcId, to);
                     rep["cat"] = cat; rep["from"] = from; rep["to"] = to;
                     rep["method"] = "add_copy_display";
+                    if (err0 != null) rep["sibling_error"] = err0;
                     if (err1 != null) rep["clone_error"] = err1;
                     done.Add(rep);
                 }
@@ -101,6 +118,28 @@ namespace Civil3DFactory
                 }
             }
             return new JsonObject { ["dry_run"] = dry, ["done"] = done, ["failed"] = failed };
+        }
+
+        // Route 0: Civil's own StyleBase.CopyAsSibling(name) — the API equivalent of the UI "Copy";
+        // keeps every setting (section view style title template, axes, graph). Route 2 only
+        // copies display components, so a section view style copied that way loses its title
+        // and axis setup (2026-11-11).
+        static void CopyStyleBySibling(Database db, ObjectId srcId, string to)
+        {
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                var src = tr.GetObject(srcId, OpenMode.ForWrite);
+                var m = src.GetType().GetMethod("CopyAsSibling", new Type[] { typeof(string) });
+                if (m == null) throw new InvalidOperationException("no CopyAsSibling(string) on " + src.GetType().Name);
+                object ret = m.Invoke(src, new object[] { to });
+                ObjectId nid = ret is ObjectId oid ? oid : ObjectId.Null;
+                if (!nid.IsNull)
+                {
+                    string nm = TryGetName(tr.GetObject(nid, OpenMode.ForRead));
+                    if (nm != to) throw new InvalidOperationException("CopyAsSibling made '" + nm + "', not '" + to + "'");
+                }
+                tr.Commit();
+            }
         }
 
         static string CopyStyleByClone(Database db, ObjectId srcId, string to)

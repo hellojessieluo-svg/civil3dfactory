@@ -728,6 +728,12 @@ namespace Civil3DFactory
             string corridorName = GetString(a, "corridor", alName + "_Corridor");
             string roadSurf = GetString(a, "road_surface", alName + "_Design");
             bool clearExisting = GetBool(a, "clear_existing", true);
+            // Extra surfaces are marked sampled in the creating transaction: sources ticked
+            // afterwards in a headless session stay empty shells.
+            var extraSurfaces = new HashSet<string>(StringComparer.Ordinal);
+            if (a["extra_surfaces"] is JsonArray exArr)
+                foreach (JsonNode n in exArr)
+                    if (n != null) extraSurfaces.Add(n.ToString());
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
@@ -835,10 +841,19 @@ namespace Civil3DFactory
                                  || src.SourceNameOf().Contains(roadSurf);
                     bool keep = src.SourceNameOf() == sfName
                              || src.SourceNameOf() == corridorName
-                             || (isCorridorSurf && minesToo);
+                             || (isCorridorSurf && minesToo)
+                             || extraSurfaces.Contains(src.SourceNameOf());
                     src.IsSampled = keep;
                     string tag = src.SourceNameOf() + "  [" + st + "]";
                     if (keep) sampled.Add(tag); else notSampled.Add(tag);
+                }
+                foreach (string ex in extraSurfaces)
+                {
+                    bool seen = false;
+                    foreach (JsonNode s in sampled)
+                        if (s != null && s.ToString().StartsWith(ex + "  [", StringComparison.Ordinal)) { seen = true; break; }
+                    if (!seen)
+                        throw new InvalidOperationException("extra_surfaces: '" + ex + "' is not a section source of this group (no such surface?).");
                 }
 
                 res = new JsonObject
@@ -1603,6 +1618,14 @@ namespace Civil3DFactory
             string templateFile = GetString(a, "template", null);
             string layoutName = GetString(a, "layout", null);
             string groupPlotStyle = GetString(a, "group_plot_style", null);
+            // surfaces_only: sections of sampled surfaces only (no corridor, e.g. terrain-only
+            // reference sections); skips the corridor lookup and the corridor-body guard.
+            bool surfacesOnly = GetBool(a, "surfaces_only", false);
+            // section_styles: {source name: section style}; overrides section_style per surface.
+            var perSourceStyle = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (a["section_styles"] is JsonObject ssObj)
+                foreach (var kv in ssObj)
+                    if (kv.Value != null) perSourceStyle[kv.Key] = kv.Value.ToString();
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
@@ -1641,7 +1664,7 @@ namespace Civil3DFactory
                 // use the old convention <alignment>_Corridor if it exists; otherwise, if exactly one corridor has its baseline on this alignment, use it
                 // (GUI-built corridors have names like "Road[Z1](2)"); several must be named explicitly, none at all is an error --
                 // otherwise the guard only finds out after creation that the corridor body has zero sections, wasting a pile of views and blocking the layout.
-                if (a["corridor"] == null)
+                if (a["corridor"] == null && !surfacesOnly)
                 {
                     string convCorr = alName + "_Corridor";
                     bool convExists = false;
@@ -1905,6 +1928,17 @@ namespace Civil3DFactory
                     matStyleId = FindStyleIdStrict(tr, civ.Styles.ShapeStyles, matStyleName);
                     if (matStyleId.IsNull) matStyleId = FindStyleIdStrict(tr, civ.Styles.SectionStyles, matStyleName);
                     if (matStyleId.IsNull) throw new InvalidOperationException("material_style '" + matStyleName + "' not found in ShapeStyles or SectionStyles.");
+                }
+                var perSourceStyleId = new Dictionary<string, ObjectId>(StringComparer.Ordinal);
+                foreach (var kv in perSourceStyle)
+                {
+                    ObjectId sid = FindStyleId(tr, civ.Styles.SectionStyles, kv.Value);
+                    if (sid.IsNull)
+                        throw new InvalidOperationException("section_styles: section style '" + kv.Value + "' not found (for source '" + kv.Key + "').");
+                    perSourceStyleId[kv.Key] = sid;
+                }
+                if (!string.IsNullOrEmpty(matStyleName))
+                {
                     // A shape style also goes onto QTOMaterial.ShapeStyleId: that is what draws the material hatch in the views
                     // (the stock material list starts at "Basic" = solid fill); same as restyle_section_views material_shape_style.
                     ObjectId matShapeId = FindStyleIdStrict(tr, civ.Styles.ShapeStyles, matStyleName);
@@ -1971,6 +2005,7 @@ namespace Civil3DFactory
                     bool isMaterial = sourceType.IndexOf("Material", StringComparison.OrdinalIgnoreCase) >= 0;
                     int sourceSectionCount = 0;
                     ObjectId want = isCorridor ? codeSetId
+                                  : perSourceStyleId.TryGetValue(src.SourceNameOf(), out ObjectId ps) ? ps
                                   : isMaterial && !matStyleId.IsNull ? matStyleId
                                   : secStyleId;
                     foreach (ObjectId secId in src.GetSectionIds())
@@ -2022,7 +2057,9 @@ namespace Civil3DFactory
                 tr.Commit();
             }
             if (count == 0) throw new InvalidOperationException("No section views were generated.");
-            if (corridorBodySections == 0)
+            if (surfacesOnly && surfStyled == 0 && (perSourceStyle.Count > 0 || a["section_style"] != null))
+                throw new InvalidOperationException("surfaces_only: no surface section got a style; are the surfaces sampled in this group?");
+            if (corridorBodySections == 0 && !surfacesOnly)
                 throw new InvalidOperationException(
                     "The sample line group was created but no corridor body sections were generated; stopping, to avoid a false success that only draws the corridor surface.");
 
@@ -2428,6 +2465,23 @@ namespace Civil3DFactory
                 }
             }
 
+            // A drawing left on a layout tab exports headless without its Civil objects: section
+            // views, surface contours etc. silently vanish because model space was never
+            // regenerated. Switch to the model tab and regenerate first; model_tab:false keeps
+            // the old behaviour.
+            object tileBefore = null;
+            bool switched = false;
+            if (GetBool(a, "model_tab", true))
+            {
+                tileBefore = Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("TILEMODE");
+                if (Convert.ToInt32(tileBefore) != 1)
+                {
+                    Autodesk.AutoCAD.ApplicationServices.Core.Application.SetSystemVariable("TILEMODE", 1);
+                    switched = true;
+                }
+                ed.Regen();
+            }
+
             string cmdPath = outPath.Replace('\\', '/');
             if (string.Equals(version, "2018", StringComparison.OrdinalIgnoreCase))
                 ed.Command("_-EXPORTTOAUTOCAD", "", cmdPath);          // default format, Enter straight to the file name
@@ -2445,6 +2499,8 @@ namespace Civil3DFactory
                 ["version"] = version,
                 ["pre_exploded"] = exploded,
                 ["pre_explode_failed"] = explodeFailed,
+                ["tilemode_before"] = tileBefore == null ? null : JsonValue.Create(Convert.ToInt32(tileBefore)),
+                ["switched_to_model_tab"] = switched,
                 ["source"] = SafeFile(doc.Database)
             };
         }

@@ -32,6 +32,11 @@ namespace Civil3DFactory
             var blockNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (a["block_names"] is JsonArray bn) foreach (JsonNode n in bn) if (n != null) blockNames.Add(n.ToString());
 
+            // erase_source_blocks: the picked block references were only point carriers; erase them
+            // once the TIN holds the vertices (AddVertices copies, no link), e.g. so a sections-only
+            // export does not drag thousands of spot blocks along.
+            bool eraseBlocks = GetBool(a, "erase_source_blocks", false);
+            var blockIds = new List<ObjectId>();
             var raw = new List<Point3d>();
             int fromPoints = 0, fromFile = 0, fromBlocks = 0;
             if (a["points"] is JsonArray pa) foreach (JsonNode p in pa) { raw.Add(new Point3d(p[0].GetValue<double>(), p[1].GetValue<double>(), p[2].GetValue<double>())); fromPoints++; }
@@ -78,7 +83,7 @@ namespace Civil3DFactory
                             try { if (br.IsDynamicBlock) bname = ((BlockTableRecord)tr.GetObject(br.DynamicBlockTableRecord, OpenMode.ForRead)).Name; } catch { }
                             if (!blockNames.Contains(bname)) continue;
                         }
-                        raw.Add(br.Position); fromBlocks++;
+                        raw.Add(br.Position); fromBlocks++; blockIds.Add(id);
                     }
                 }
                 if (raw.Count < 3) throw new InvalidOperationException("fewer than 3 usable points (give at least one source: points / points_file / block_layer / block_names)");
@@ -136,6 +141,15 @@ namespace Civil3DFactory
                 rep["max_triangle_length"] = maxLen;
                 rep["triangles"] = tri;
                 rep["max_edge"] = maxEdge;
+                int erasedBlocks = 0;
+                if (eraseBlocks && tri > 0)
+                    foreach (ObjectId bid in blockIds)
+                    {
+                        var br = (Entity)tr.GetObject(bid, OpenMode.ForWrite);
+                        br.Erase(); erasedBlocks++;
+                    }
+                else if (eraseBlocks) warn.Add("erase_source_blocks skipped: surface has no triangles");
+                rep["erased_source_blocks"] = erasedBlocks;
                 rep["warnings"] = warn;
                 tr.Commit();
             }

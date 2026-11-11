@@ -149,6 +149,7 @@ namespace Civil3DFactory
 
             var pages = new JsonArray();
             var perAlign = new JsonArray();
+            var correctionLog = new JsonArray();
             var oversize = new JsonArray();
             int perPage = rows * cols;
             int globalSlot = 0, movedTotal = 0, labelsMade = 0;
@@ -184,6 +185,7 @@ namespace Civil3DFactory
 
                 int startPage = 0, moved = 0;
                 int sheetsUsed = (items.Count + perPage - 1) / perPage;
+                var targets = new List<(ObjectId svId, double cx, double cy)>();
 
                 if (layout == "sheets")
                 {
@@ -256,8 +258,35 @@ namespace Civil3DFactory
                             loc.Y + (cellCy - curCy),
                             loc.Z);
                         moved++;
+                        targets.Add((items[i].svId, cellCx, cellCy));
                         tr.Commit();
                     }
+                }
+
+                // Re-measure and correct. The extents read before the move do not always match
+                // Location (seen with a vertically exaggerated section view style, TMP-005
+                // 2026-11-11: views drifted further off their cells sheet by sheet).
+                for (int pass = 0; pass < 3 && targets.Count > 0; pass++)
+                {
+                    double worst = 0;
+                    foreach (var t in targets)
+                        using (Transaction tr = db.TransactionManager.StartTransaction())
+                        {
+                            var sv = (CivSectionView)tr.GetObject(t.svId, OpenMode.ForWrite);
+                            Extents3d ext;
+                            try { ext = sv.GeometricExtents; } catch { tr.Commit(); continue; }
+                            double dx = t.cx - (ext.MinPoint.X + ext.MaxPoint.X) / 2;
+                            double dy = t.cy - (ext.MinPoint.Y + ext.MaxPoint.Y) / 2;
+                            worst = Math.Max(worst, Math.Max(Math.Abs(dx), Math.Abs(dy)));
+                            if (Math.Abs(dx) > 0.01 || Math.Abs(dy) > 0.01)
+                            {
+                                Point3d loc = sv.Location;
+                                sv.Location = new Point3d(loc.X + dx, loc.Y + dy, loc.Z);
+                            }
+                            tr.Commit();
+                        }
+                    correctionLog.Add(new JsonObject { ["alignment"] = alName, ["pass"] = pass + 1, ["max_residual"] = Math.Round(worst, 3) });
+                    if (worst <= 0.01) break;
                 }
 
                 if (layout == "rows")
@@ -366,6 +395,7 @@ namespace Civil3DFactory
                 ["section_views_moved"] = movedTotal,
                 ["total_sheets"] = pages.Count,
                 ["oversize_count"] = oversize.Count,
+                ["position_correction"] = correctionLog,
                 ["oversize"] = oversize,
                 ["per_alignment"] = perAlign,
                 ["sheets"] = pages

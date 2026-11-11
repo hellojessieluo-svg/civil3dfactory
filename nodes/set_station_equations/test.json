@@ -1,0 +1,17 @@
+{
+  "node": "set_station_equations",
+  "version": 1,
+  "fixture": "any drawing with an alignment longer than 300 m",
+  "ops": [
+    { "op": "set_station_equations", "alignment": "<alignment>", "equations": [
+      { "raw_back": 100, "ahead": 120 },
+      { "raw_back": 200, "ahead": 250 }
+    ] }
+  ],
+  "assertions": [
+    "data.added == 2",
+    "data.readback[1].back == 220 (120 + 100 raw metres)",
+    "data.readback[1].ahead == 250"
+  ],
+  "status": "field-tested"
+}

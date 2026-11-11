@@ -480,7 +480,8 @@ namespace Civil3DFactory
             {
                 Description = "Create a sample line group (clears all old groups on this alignment first) and mark existing ground/corridor/corridor surface as sampled; supports equal spacing or explicit endpoints",
                 Parameters = "alignment(required) surface(required, existing ground) interval?(default 50) swath?(default 50) style? corridor? road_surface? "
-                           + "lines?([{name?,points:[[x,y],...]}], if given lines are built from explicit endpoints and interval/swath are ignored)",
+                           + "lines?([{name?,points:[[x,y],...]}], if given lines are built from explicit endpoints and interval/swath are ignored) "
+                           + "extra_surfaces?([] more surface names sampled when the group is created; ticking them later headless gives empty sections)",
                 WritesDrawing = true,
                 Run = RunNodeCreateSampleLines
             },
@@ -574,7 +575,9 @@ namespace Civil3DFactory
                            + "placement?(draft|production, default draft; headless production falls back to the rows/cols grid) template?(production: .dwt/.dwg whose layout holds the sheet viewport) "
                            + "layout?(production: layout name in the template) group_plot_style? plot_rows? plot_cols? "
                            + "material_style?(shape or section style for cut/fill sections) volume_table?(default false) corridor? "
-                           + "append_station?(only add the missing view at this sample station, keep existing views) template_view?(required with append_station: handle of an existing section view) dx?(0) dy?(-28)",
+                           + "append_station?(only add the missing view at this sample station, keep existing views) template_view?(required with append_station: handle of an existing section view) dx?(0) dy?(-28) "
+                           + "surfaces_only?(default false; true = surface sections only, no corridor needed, corridor guard off) "
+                           + "section_styles?({source name: section style}, per-surface override of section_style)",
                 WritesDrawing = true,
                 Run = RunNodeCreateSectionViews
             },
@@ -1047,13 +1050,50 @@ namespace Civil3DFactory
                 WritesDrawing = true,
                 Run = SetModelView
             },
+            ["set_station_equations"] = new OpDef
+            {
+                Description = "Station equations on an alignment so its stationing follows a given chainage (e.g. an old drawing's stations); "
+                            + "each equation is placed by raw station or by a point projected onto the alignment. Sample lines and section titles then show those stations. Memory only; save_dwg to persist",
+                Parameters = "alignment(required) equations(required,[{ahead, raw_back? | x?,y?}]) clear?(default true, remove existing equations first) "
+                           + "dry_run?(default false) skip_tolerance?(default 0.001; an equation at the start station with ahead = raw is skipped) "
+                           + "lead?(default 0.01 m; each equation goes this far before its point with ahead reduced alike, because an object exactly at an equation reports the back station)",
+                WritesDrawing = true,
+                Run = RunNodeSetStationEquations
+            },
+            ["section_view_style_edit"] = new OpDef
+            {
+                Description = "Read or change a section view style's graph settings: vertical exaggeration and the title template (read back always). Derive a project copy with copy_styles first instead of editing a standard style. Memory only; save_dwg to persist",
+                Parameters = "name(required, section view style) vertical_exaggeration?(>0) title_text?(whole template, field codes verbatim) "
+                           + "title_replace?([{from,to}] substring edits; a miss is an error) dry_run?(default true)",
+                WritesDrawing = true,
+                Run = RunNodeSectionViewStyleEdit
+            },
+            ["locate_sheet_stations"] = new OpDef
+            {
+                Description = "Read-only: recover a construction sheet's stations from the plan itself - each station text (regex with km/m groups) is paired with the nearest "
+                            + "section LINE within search that crosses a centreline; crossing = station point, line = cross direction (to the left). Optional half_width also returns sample lines and station equations ready to pass on",
+                Parameters = "pattern(required, regex with named groups km and m, e.g. K(?<km>\\d+)\\+(?<m>\\d+(?:\\.\\d+)?)) centre_layer(required) text_layer? text_color?(ACI) "
+                           + "line_layer? line_color?(ACI) search?(default 15) half_width?(sample line half length) name_prefix? strict?(default true: a text without a section line is an error)",
+                WritesDrawing = false,
+                Run = RunNodeLocateSheetStations
+            },
+            ["draw_station_marks"] = new OpDef
+            {
+                Description = "Pure-CAD station ticks and labels on a plan without a Civil alignment: from stations[{station,x,y,ux,uy}] (e.g. locate_sheet_stations) or along points[[x,y]..] every interval; "
+                            + "label on the left, flipped when it would read upside down. Memory only; save_dwg to persist",
+                Parameters = "stations? | points?+interval?(default 50)+start_station?(default 0) prefix? layer?(default C-ANNO-STATION) text_style?(default txt1) "
+                           + "text_height?(default 3) width_factor?(default 0.8) tick?(half length, default 6) gap?(default 2)",
+                WritesDrawing = true,
+                Run = RunNodeDrawStationMarks
+            },
             ["export_to_autocad"] = new OpDef
             {
                 Description = "Explode Civil 3D objects into pure CAD entities and save as a new file (-EXPORTTOAUTOCAD); the original is untouched",
                 Parameters = "out(required, absolute path) version?(default 2018) overwrite?(default false) "
                            + "explode_classes?([] DXF class names, exploded in place in memory into plain entities before export; "
                            + "the section QTO volume table AECC_SECTION_VIEW_QUANTITY_TAKEOFF_TABLE aborts the export with eLockViolation unless exploded; "
-                           + "save_dwg first and then export so the master keeps its live tables)",
+                           + "save_dwg first and then export so the master keeps its live tables) "
+                           + "model_tab?(default true: switch TILEMODE to 1 and regen before exporting; a drawing left on a layout tab exports without its Civil objects)",
                 WritesDrawing = false,
                 Run = RunNodeExportToAutocad
             },
@@ -1556,7 +1596,8 @@ namespace Civil3DFactory
                 Description = "Existing-ground TIN from spot heights: points come from points / points_file (JSON, or x,y,z per line; survey .dat files use the last three columns) / model-space block references (block_layer, block_names; the insertion point Z is used - survey spot-height blocks carry the elevation there); "
                             + "drop_zero drops z==0, z_min/z_max drop out-of-range points, duplicates by xy are removed; outer adds a non-destructive outer boundary; max_triangle_length>0 keeps gaps in the survey from becoming fake triangles. Memory only; call save_dwg to persist.",
                 Parameters = "name(required) points?([[x,y,z]..]) points_file?(absolute path) block_layer?(layer name) block_names?([] block names, e.g. GC200) drop_zero?(default true) z_min? z_max? "
-                           + "outer?([[x,y]..] outer boundary) max_triangle_length?(default 0 = no limit) style? layer? replace?(default true; delete a surface with the same name first)",
+                           + "outer?([[x,y]..] outer boundary) max_triangle_length?(default 0 = no limit) style? layer? replace?(default true; delete a surface with the same name first) "
+                           + "erase_source_blocks?(default false; erase the picked block references after the TIN is built - they were only point carriers)",
                 WritesDrawing = true,
                 Run = RunNodeCreateSurfaceFromPoints
             },
@@ -1724,9 +1765,9 @@ namespace Civil3DFactory
             },
             ["copy_styles"] = new OpDef
             {
-                Description = "Copy a style within its category using DeepClone and rename. "
-                            + "Falls back to Add and copying per-view display components. Result method identifies the path. Memory only; save_dwg to persist.",
-                Parameters = "items(required,[{cat,from,to}]; cat is a list_styles category path) dry_run?(true) method?(clone|add_copy_display,default automatic)",
+                Description = "Copy a style within its category: first Civil's own CopyAsSibling (keeps every setting), then DeepClone and rename, "
+                            + "last Add and copying per-view display components (display only: a section view style copied that way loses its title and axes). Result method identifies the path. Memory only; save_dwg to persist.",
+                Parameters = "items(required,[{cat,from,to}]; cat is a list_styles category path) dry_run?(true) method?(sibling|clone|add_copy_display, default sibling -> clone -> add_copy_display)",
                 WritesDrawing = true,
                 Run = RunNodeCopyStyles
             },

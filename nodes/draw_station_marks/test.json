@@ -1,0 +1,14 @@
+{
+  "node": "draw_station_marks",
+  "version": 1,
+  "fixture": "a pure-CAD plan sheet of the same channel (has text style txt1)",
+  "ops": [
+    { "op": "draw_station_marks", "stations": "<locate_sheet_stations data.stations>", "prefix": "B2", "layer": "C-ANNO-STATION-CHECK" },
+    { "op": "save_dwg", "out": "<sibling path>", "overwrite": true }
+  ],
+  "assertions": [
+    "data.marks == 73",
+    "ticks and labels match the ones drawn by the earlier script it replaced (position within 1 mm, same text and rotation)"
+  ],
+  "status": "verified 2026-11-11 (see run ledger)"
+}

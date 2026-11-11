@@ -1,0 +1,14 @@
+{
+  "node": "locate_sheet_stations",
+  "version": 1,
+  "fixture": "a dredging plan sheet with station texts and section lines",
+  "ops": [
+    { "op": "locate_sheet_stations", "pattern": "B2K(?<km>\\d+)\\+(?<m>\\d+(?:\\.\\d+)?)", "centre_layer": "CENTERLINE",
+      "text_color": 4, "line_color": 4, "half_width": 80, "name_prefix": "B2" }
+  ],
+  "assertions": [
+    "data.stations_found == 73, data.unmatched empty",
+    "station points equal the 2026-11-10 shapely result (stations.py NC) within 1 mm"
+  ],
+  "status": "verified 2026-11-11 (see run ledger)"
+}
