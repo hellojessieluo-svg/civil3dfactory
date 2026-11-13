@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.Json.Nodes;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
@@ -12,6 +13,13 @@ using CivTinSurface = Autodesk.Civil.DatabaseServices.TinSurface;
 namespace Civil3DFactory
 {
     /// <summary>
+    /// Vertex layout: 2D polyline vertices are [x, y, bulge] (the third value is the bulge, NOT z; z is the object's
+    /// "elevation"); 3D polylines (is3d: true) are [x, y, z]; surface rings are [x, y, z]; hatch loops are [x, y].
+    /// precision?(default "4"): decimals for x/y/z; an integer 0-15 or "full" for unrounded values. Bulge keeps
+    /// 6 decimals (max(6, precision) when an integer above 6 is given, unrounded with "full").
+    /// with_area?(default false): adds to every 2D polyline "area" (Polyline.Area, arcs included, 4 decimals; an open
+    /// polyline is measured as if closed by the chord, same as AutoCAD) and "closed_geom" (first and last vertex
+    /// within 1e-6), reported separately from "closed" (the Closed flag). Default output is unchanged.
     /// </summary>
     public static partial class Ops
     {
@@ -24,6 +32,12 @@ namespace Civil3DFactory
             if (lar != null) foreach (JsonNode n in lar) layers.Add(n.ToString());
             string outPath = GetString(a, "out", null);
             double arcTol = GetDouble(a, "arc_tol", 0.5);
+            string precText = (GetString(a, "precision", "4") ?? "4").Trim();
+            int xyd, bd;
+            if (precText.Equals("full", StringComparison.OrdinalIgnoreCase)) { xyd = -1; bd = -1; }
+            else if (int.TryParse(precText, NumberStyles.Integer, CultureInfo.InvariantCulture, out xyd) && xyd >= 0 && xyd <= 15) bd = Math.Max(6, xyd);
+            else throw new ArgumentException("precision must be an integer 0-15 or \"full\", got: " + precText);
+            bool withArea = GetBool(a, "with_area", false);
 
             Database db = doc.Database;
             CivDoc civ = Civ(db);
@@ -47,8 +61,8 @@ namespace Civil3DFactory
                             if (ent == null) continue;
                             var ring = new JsonArray();
                             var pl = ent as Polyline; var p3 = ent as Polyline3d;
-                            if (pl != null) for (int k = 0; k < pl.NumberOfVertices; k++) { var p = pl.GetPoint3dAt(k); ring.Add(new JsonArray(Math.Round(p.X, 4), Math.Round(p.Y, 4), Math.Round(p.Z, 4))); }
-                            else if (p3 != null) foreach (ObjectId vid in p3) { var v = tr.GetObject(vid, OpenMode.ForRead) as PolylineVertex3d; if (v != null) ring.Add(new JsonArray(Math.Round(v.Position.X, 4), Math.Round(v.Position.Y, 4), Math.Round(v.Position.Z, 4))); }
+                            if (pl != null) for (int k = 0; k < pl.NumberOfVertices; k++) { var p = pl.GetPoint3dAt(k); ring.Add(new JsonArray(GeoRound(p.X, xyd), GeoRound(p.Y, xyd), GeoRound(p.Z, xyd))); }
+                            else if (p3 != null) foreach (ObjectId vid in p3) { var v = tr.GetObject(vid, OpenMode.ForRead) as PolylineVertex3d; if (v != null) ring.Add(new JsonArray(GeoRound(v.Position.X, xyd), GeoRound(v.Position.Y, xyd), GeoRound(v.Position.Z, xyd))); }
                             ent.Erase();
                             if (ring.Count >= 3) rings.Add(ring);
                         }
@@ -69,13 +83,21 @@ namespace Civil3DFactory
                         if (pl != null)
                         {
                             var vs = new JsonArray();
-                            for (int k = 0; k < pl.NumberOfVertices; k++) { var p = pl.GetPoint2dAt(k); vs.Add(new JsonArray(Math.Round(p.X, 4), Math.Round(p.Y, 4), Math.Round(pl.GetBulgeAt(k), 6))); }
-                            plines.Add(new JsonObject { ["handle"] = pl.Handle.ToString(), ["layer"] = pl.Layer, ["closed"] = pl.Closed, ["elevation"] = pl.Elevation, ["vertices"] = vs });
+                            for (int k = 0; k < pl.NumberOfVertices; k++) { var p = pl.GetPoint2dAt(k); vs.Add(new JsonArray(GeoRound(p.X, xyd), GeoRound(p.Y, xyd), GeoRound(pl.GetBulgeAt(k), bd))); }
+                            var po = new JsonObject { ["handle"] = pl.Handle.ToString(), ["layer"] = pl.Layer, ["closed"] = pl.Closed, ["elevation"] = pl.Elevation, ["vertices"] = vs };
+                            if (withArea)
+                            {
+                                int nv = pl.NumberOfVertices;
+                                po["closed_geom"] = nv > 1 && pl.GetPoint2dAt(0).GetDistanceTo(pl.GetPoint2dAt(nv - 1)) < 1e-6;
+                                double area = 0; try { area = pl.Area; } catch { }
+                                po["area"] = Math.Round(area, 4);
+                            }
+                            plines.Add(po);
                         }
                         else if (p3 != null)
                         {
                             var vs = new JsonArray();
-                            foreach (ObjectId vid in p3) { var v = tr.GetObject(vid, OpenMode.ForRead) as PolylineVertex3d; if (v != null) vs.Add(new JsonArray(Math.Round(v.Position.X, 4), Math.Round(v.Position.Y, 4), Math.Round(v.Position.Z, 4))); }
+                            foreach (ObjectId vid in p3) { var v = tr.GetObject(vid, OpenMode.ForRead) as PolylineVertex3d; if (v != null) vs.Add(new JsonArray(GeoRound(v.Position.X, xyd), GeoRound(v.Position.Y, xyd), GeoRound(v.Position.Z, xyd))); }
                             plines.Add(new JsonObject { ["handle"] = p3.Handle.ToString(), ["layer"] = p3.Layer, ["closed"] = p3.Closed, ["is3d"] = true, ["vertices"] = vs });
                         }
                         else if (ent is Hatch h)
@@ -86,7 +108,7 @@ namespace Civil3DFactory
                                 HatchLoop loop;
                                 try { loop = h.GetLoopAt(li); } catch (System.Exception ex) { loops.Add(new JsonObject { ["error"] = ex.Message }); continue; }
                                 var vs = new JsonArray();
-                                foreach (var p in HatchLoopPoints(loop, arcTol)) vs.Add(new JsonArray(Math.Round(p.X, 4), Math.Round(p.Y, 4)));
+                                foreach (var p in HatchLoopPoints(loop, arcTol)) vs.Add(new JsonArray(GeoRound(p.X, xyd), GeoRound(p.Y, xyd)));
                                 loops.Add(new JsonObject { ["type"] = loop.LoopType.ToString(), ["is_polyline"] = loop.IsPolyline, ["vertices"] = vs });
                             }
                             double area = 0; try { area = h.Area; } catch { }
@@ -104,6 +126,8 @@ namespace Civil3DFactory
             }
             return rep;
         }
+
+        static double GeoRound(double v, int digits) { return digits < 0 ? v : Math.Round(v, digits); }
 
         static List<Point2d> HatchLoopPoints(HatchLoop loop, double arcTol)
         {

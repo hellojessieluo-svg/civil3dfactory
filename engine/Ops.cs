@@ -1572,8 +1572,11 @@ namespace Civil3DFactory
             },
             ["dump_geometry"] = new OpDef
             {
-                Description = "Import styles from another DWG (style library) into the current drawing. Deep clone, dependent sub-styles come along",
-                Parameters = "surfaces?[] surface_prefix? layers?[] out?(absolute JSON path; result then contains counts only) arc_tol?(0.5)",
+                Description = "Dump geometry to JSON for external computation: surface outer rings (ExtractBorder, temporary entities erased at once), polyline vertices on given layers (with bulge), hatch loops on given layers (GetLoopAt, arcs sampled by chord). Read-only. "
+                            + "Vertex layout: 2D polyline [x,y,bulge] (the third value is the bulge, not z; z is in elevation); 3D polyline (is3d) [x,y,z]; surface ring [x,y,z]; hatch loop [x,y]. Coordinates default to 4 decimals",
+                Parameters = "surfaces?[] surface_prefix? layers?[] out?(absolute JSON path; result then contains counts only) arc_tol?(hatch arc chord length, 0.5) "
+                           + "precision?(coordinate decimals 0-15 or full for unrounded, default 4; bulge uses max(6, decimals), full leaves it unrounded too) "
+                           + "with_area?(default false; true adds to every 2D polyline area=Polyline.Area with arcs, 4 decimals, an open polyline measured as if closed by the chord, same as AutoCAD; closed_geom=first-last vertex distance < 1e-6, reported separately from closed; to compute areas yourself use precision=full and shift coordinates to a local origin first, the shoelace formula on raw map coordinates loses about 0.001 m2)",
                 WritesDrawing = false,
                 Run = RunNodeDumpGeometry
             },

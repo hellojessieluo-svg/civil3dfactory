@@ -1480,11 +1480,14 @@
       "surface_prefix": "string?",
       "layers": "string[]?",
       "out": "path?",
-      "arc_tol": "number?=0.5"
+      "arc_tol": "number?=0.5",
+      "precision": "string?=4",
+      "with_area": "boolean?=false"
     },
     "outputs": {
       "surfaces": "object[]",
-      "polylines": "object[]"
+      "polylines": "object[]",
+      "hatches": "object[]"
     },
     "effect": "read"
   },
